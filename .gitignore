@@ -8,6 +8,7 @@ coverage/
 .env.local
 *.log
 *.tsbuildinfo
+.run/
 apps/bridge/build/
 apps/bridge/.gradle/
 .idea/

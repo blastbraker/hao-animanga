@@ -42,4 +42,6 @@ Read [architecture](docs/ARCHITECTURE.md), [security](docs/SECURITY.md), and [de
 
 HAO does not include, host, endorse, or operate third-party content repositories. Extension repository URLs must be supplied and acknowledged by the user. APK execution is restricted to a device the user controls. The Aniyomi compatibility executor is deliberately disabled until its fixture-APK conformance and process-sandbox tests pass.
 
+The first repository milestone is available from **Settings**: start the Bridge on the same computer, pair it with HAO, paste an HTTPS Aniyomi/Mihon repository index, review the parsed packages, accept the disclaimer, and save it to the account. In local development the Bridge endpoint defaults to `http://127.0.0.1:4568`; non-loopback endpoints must use HTTPS. Repository discovery and storage are implemented, but installing or executing repository APKs is not yet enabled.
+
 AllManga scraping is intentionally excluded.

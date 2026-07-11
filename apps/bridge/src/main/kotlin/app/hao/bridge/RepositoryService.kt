@@ -24,7 +24,12 @@ class RepositoryService {
         val response = client.send(HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(15)).header("Accept", "application/json").GET().build(), HttpResponse.BodyHandlers.ofByteArray())
         require(response.statusCode() == 200) { "Repository returned HTTP ${response.statusCode()}" }
         require(response.body().size <= 5 * 1024 * 1024) { "Repository index exceeds 5 MiB" }
-        val root = json.parseToJsonElement(response.body().decodeToString())
+        return parseIndex(response.body(), request)
+    }
+
+    internal fun parseIndex(body: ByteArray, request: RepositoryRequest): RepositoryPreview {
+        require(body.size <= 5 * 1024 * 1024) { "Repository index exceeds 5 MiB" }
+        val root = json.parseToJsonElement(body.decodeToString())
         val entries = collectPackageObjects(root)
         val packages = entries.take(2_000).mapNotNull { element ->
             val item = element.jsonObject
@@ -33,7 +38,8 @@ class RepositoryService {
             ExtensionPackage(item.text("name") ?: pkg, pkg, apk, item.text("version") ?: "unknown", item.text("lang"), item["nsfw"]?.jsonPrimitive?.intOrNull)
         }
         require(packages.isNotEmpty()) { "No compatible extension packages were found" }
-        return RepositoryPreview(uri.host, request.url, request.mediaKind, packages, listOf(DISCLAIMER))
+        val host = java.net.URI(request.url).host ?: "Extension repository"
+        return RepositoryPreview(host, request.url, request.mediaKind, packages, listOf(DISCLAIMER))
     }
 
     fun install(request: InstallRequest, storageRoot: Path): InstalledPackage {

@@ -189,6 +189,47 @@ export class HaoRepository {
     return rows.map((row) => ({ id: row.id, providerType: row.provider_type, displayName: row.display_name, endpoint: row.endpoint, health: row.health, lastCheckedAt: row.last_checked_at?.toISOString() ?? null }));
   }
 
+  async listBridgeDevices(userId: string): Promise<Array<{ id: string; name: string; endpoint: string | null; lastSeenAt: string | null; revokedAt: string | null }>> {
+    const rows = await this.sql<{ id: string; name: string; endpoint: string | null; last_seen_at: Date | null; revoked_at: Date | null }[]>`
+      select id,name,endpoint,last_seen_at,revoked_at from bridge_devices where user_id=${userId} order by created_at desc
+    `;
+    return rows.map((row) => ({ id: row.id, name: row.name, endpoint: row.endpoint, lastSeenAt: row.last_seen_at?.toISOString() ?? null, revokedAt: row.revoked_at?.toISOString() ?? null }));
+  }
+
+  async upsertBridgeDevice(userId: string, input: { id: string; name: string; publicKey: string; endpoint: string }): Promise<void> {
+    const [row] = await this.sql<{ id: string }[]>`
+      insert into bridge_devices (id,user_id,name,public_key,endpoint,last_seen_at)
+      values (${input.id},${userId},${input.name},${input.publicKey},${input.endpoint},now())
+      on conflict (id) do update set name=excluded.name,public_key=excluded.public_key,endpoint=excluded.endpoint,last_seen_at=now(),revoked_at=null
+      where bridge_devices.user_id=${userId}
+      returning id
+    `;
+    if (!row) throw new Error("Bridge device belongs to another account");
+    await this.audit(userId, "bridge.pair", "bridge_device", input.id, { endpoint: input.endpoint });
+  }
+
+  async listExtensionRepositories(userId: string): Promise<Array<{ id: string; bridgeId: string; mediaKind: "ANIME" | "MANGA"; url: string; name: string; signerFingerprint: string | null; acknowledgedAt: string | null; enabled: boolean }>> {
+    const rows = await this.sql<{ id: string; bridge_id: string; media_kind: "ANIME" | "MANGA"; url: string; name: string; signer_fingerprint: string | null; acknowledged_at: Date | null; enabled: boolean }[]>`
+      select r.id,r.bridge_id,r.media_kind,r.url,r.name,r.signer_fingerprint,r.acknowledged_at,r.enabled
+      from repositories r join bridge_devices b on b.id=r.bridge_id
+      where b.user_id=${userId} and b.revoked_at is null order by r.name
+    `;
+    return rows.map((row) => ({ id: row.id, bridgeId: row.bridge_id, mediaKind: row.media_kind, url: row.url, name: row.name, signerFingerprint: row.signer_fingerprint, acknowledgedAt: row.acknowledged_at?.toISOString() ?? null, enabled: row.enabled }));
+  }
+
+  async upsertExtensionRepository(userId: string, input: { bridgeId: string; mediaKind: "ANIME" | "MANGA"; url: string; name: string }): Promise<string> {
+    const [row] = await this.sql<{ id: string }[]>`
+      insert into repositories (bridge_id,media_kind,url,name,acknowledged_at,enabled)
+      select ${input.bridgeId},${input.mediaKind},${input.url},${input.name},now(),true
+      where exists (select 1 from bridge_devices where id=${input.bridgeId} and user_id=${userId} and revoked_at is null)
+      on conflict (bridge_id,url) do update set media_kind=excluded.media_kind,name=excluded.name,acknowledged_at=now(),enabled=true
+      returning id
+    `;
+    if (!row) throw new Error("Bridge device not found");
+    await this.audit(userId, "repository.enable", "repository", row.id, { url: input.url, mediaKind: input.mediaKind });
+    return row.id;
+  }
+
   async createConnection(userId: string, input: { providerType: string; displayName: string; endpoint: string | null; encryptedCredentials: Uint8Array | null; health: string }): Promise<string> {
     const [row] = await this.sql<{ id: string }[]>`
       insert into provider_connections (user_id,provider_type,display_name,endpoint,encrypted_credentials,health,last_checked_at)

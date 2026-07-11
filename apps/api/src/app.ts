@@ -26,6 +26,9 @@ export function buildApp() {
   const invitations: Array<Record<string, unknown>> = [];
   const jellyfinConnections = new Map<string, JellyfinConnection>();
   const directMedia = new Map<string, Array<{ id: string; name: string; url: string; kind: "HLS" | "MP4" }>>();
+  const pairingCodes = new Map<string, { userId: string; expiresAt: number }>();
+  const bridgeDevices = new Map<string, Array<{ id: string; name: string; endpoint: string; lastSeenAt: string; revokedAt: null }>>();
+  const extensionRepositories = new Map<string, Array<{ id: string; bridgeId: string; mediaKind: "ANIME" | "MANGA"; url: string; name: string; signerFingerprint: null; acknowledgedAt: string; enabled: boolean }>>();
 
   app.register(cors, { origin: process.env.WEB_ORIGIN?.split(",") ?? true, credentials: true });
   app.register(helmet, { contentSecurityPolicy: false });
@@ -153,7 +156,48 @@ export function buildApp() {
     return reply.code(201).send(item);
   });
 
-  app.post("/v1/bridges/pairing-code", { preHandler: authenticate }, async (request) => ({ code: randomBytes(4).toString("hex").toUpperCase(), expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(), userId: request.user.id }));
+  app.get("/v1/bridges", { preHandler: authenticate }, async (request) => ({ items: repository ? await repository.listBridgeDevices(request.user.id) : bridgeDevices.get(request.user.id) ?? [] }));
+
+  app.post("/v1/bridges/pairing-code", { preHandler: authenticate }, async (request) => {
+    const code = randomBytes(4).toString("hex").toUpperCase();
+    const expiresAt = Date.now() + 10 * 60_000;
+    pairingCodes.set(code, { userId: request.user.id, expiresAt });
+    return { code, expiresAt: new Date(expiresAt).toISOString(), userId: request.user.id };
+  });
+
+  app.post("/v1/bridges/complete", { preHandler: authenticate }, async (request, reply) => {
+    const body = request.body as { code?: unknown; deviceId?: unknown; publicKey?: unknown; name?: unknown; endpoint?: unknown };
+    const pairing = typeof body.code === "string" ? pairingCodes.get(body.code) : undefined;
+    if (!pairing || pairing.userId !== request.user.id || pairing.expiresAt <= Date.now()) return reply.code(400).send({ code: "INVALID", message: "Pairing code is invalid or expired", retryable: false });
+    if (typeof body.deviceId !== "string" || !/^[0-9a-f-]{36}$/i.test(body.deviceId) || typeof body.publicKey !== "string" || body.publicKey.length < 32 || typeof body.name !== "string" || !body.name.trim() || typeof body.endpoint !== "string") return reply.code(400).send({ code: "INVALID", message: "Complete Bridge device details are required", retryable: false });
+    let endpoint: string;
+    try { endpoint = normalizeBridgeEndpoint(body.endpoint); } catch (error) { return reply.code(400).send({ code: "INVALID", message: error instanceof Error ? error.message : "Invalid Bridge endpoint", retryable: false }); }
+    pairingCodes.delete(body.code as string);
+    const device = { id: body.deviceId, name: body.name.trim(), endpoint, lastSeenAt: new Date().toISOString(), revokedAt: null };
+    if (repository) await repository.upsertBridgeDevice(request.user.id, { ...device, publicKey: body.publicKey });
+    else bridgeDevices.set(request.user.id, [device, ...(bridgeDevices.get(request.user.id) ?? []).filter((item) => item.id !== device.id)]);
+    return reply.code(201).send(device);
+  });
+
+  app.get("/v1/repositories", { preHandler: authenticate }, async (request) => ({ items: repository ? await repository.listExtensionRepositories(request.user.id) : extensionRepositories.get(request.user.id) ?? [] }));
+
+  app.post("/v1/repositories", { preHandler: authenticate }, async (request, reply) => {
+    const body = request.body as { bridgeId?: unknown; mediaKind?: unknown; url?: unknown; name?: unknown; acknowledged?: unknown };
+    if (typeof body.bridgeId !== "string" || (body.mediaKind !== "ANIME" && body.mediaKind !== "MANGA") || typeof body.url !== "string" || typeof body.name !== "string" || !body.name.trim() || body.acknowledged !== true) return reply.code(400).send({ code: "INVALID", message: "Bridge, repository, media type, and disclaimer acknowledgement are required", retryable: false });
+    try { const url = new URL(body.url); if (url.protocol !== "https:" || !url.hostname || url.username || url.password) throw new Error("Repository URLs must use HTTPS without embedded credentials"); } catch (error) { return reply.code(400).send({ code: "INVALID", message: error instanceof Error ? error.message : "Invalid repository URL", retryable: false }); }
+    const now = new Date().toISOString();
+    const selectedMediaKind: "ANIME" | "MANGA" = body.mediaKind;
+    if (repository) {
+      const id = await repository.upsertExtensionRepository(request.user.id, { bridgeId: body.bridgeId, mediaKind: selectedMediaKind, url: body.url, name: body.name.trim() });
+      return reply.code(201).send({ id, bridgeId: body.bridgeId, mediaKind: selectedMediaKind, url: body.url, name: body.name.trim(), acknowledgedAt: now, enabled: true });
+    }
+    const ownsBridge = (bridgeDevices.get(request.user.id) ?? []).some((device) => device.id === body.bridgeId && !device.revokedAt);
+    if (!ownsBridge) return reply.code(404).send({ code: "NOT_FOUND", message: "Bridge device not found", retryable: false });
+    const existing = (extensionRepositories.get(request.user.id) ?? []).find((item) => item.bridgeId === body.bridgeId && item.url === body.url);
+    const item = { id: existing?.id ?? randomUUID(), bridgeId: body.bridgeId, mediaKind: selectedMediaKind, url: body.url, name: body.name.trim(), signerFingerprint: null, acknowledgedAt: now, enabled: true };
+    extensionRepositories.set(request.user.id, [item, ...(extensionRepositories.get(request.user.id) ?? []).filter((entry) => entry.id !== item.id)]);
+    return reply.code(201).send(item);
+  });
 
   app.post("/v1/admin/invitations", { preHandler: requireAdmin }, async (request, reply) => {
     const email = (request.body as { email?: unknown })?.email;
@@ -178,4 +222,12 @@ export function buildApp() {
     void reply.code(status).send({ code: "UNAVAILABLE", message: status < 500 ? cause.message : "Unexpected service error", retryable: true, requestId: request.id });
   });
   return app;
+}
+
+function normalizeBridgeEndpoint(raw: string): string {
+  const url = new URL(raw);
+  if (url.username || url.password) throw new Error("Credentials in Bridge URLs are not allowed");
+  const loopback = url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]";
+  if (url.protocol !== "https:" && !(process.env.NODE_ENV !== "production" && url.protocol === "http:" && loopback)) throw new Error("Bridge endpoints require HTTPS; local development may use HTTP loopback");
+  return url.origin;
 }
