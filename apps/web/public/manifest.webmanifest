@@ -1,0 +1,12 @@
+{
+  "name": "HAO — Your AniManga Archive",
+  "short_name": "HAO",
+  "description": "A personal anime, manga, manhwa, and light-novel archive.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#080a12",
+  "theme_color": "#080a12",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
