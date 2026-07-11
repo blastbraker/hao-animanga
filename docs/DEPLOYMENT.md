@@ -1,5 +1,7 @@
 # Deployment
 
+Production Supabase project: `HAO AniManga Beta` (`jdtdtcprborbwwqjebgp`, East US/North Virginia).
+
 ## Managed services
 
 - Web: Vercel using `vercel.json`.
