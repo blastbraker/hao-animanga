@@ -169,7 +169,7 @@ create table audit_events (
   created_at timestamptz not null default now()
 );
 
-create index works_search_idx on works using gin(to_tsvector('simple', title || ' ' || array_to_string(alternate_titles, ' ')));
+create index works_search_idx on works using gin(to_tsvector('simple'::regconfig, title));
 create index library_user_updated_idx on library_entries(user_id, updated_at desc);
 create index audit_created_idx on audit_events(created_at desc);
 
