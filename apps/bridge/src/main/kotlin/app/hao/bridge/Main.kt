@@ -23,8 +23,8 @@ fun main() {
         System.getenv("SUWAYOMI_PASSWORD"),
     )
     val suwayomiManager = SuwayomiManager.default(suwayomi)
-    val fixtureAnime = FixtureAnimeRuntime()
-    val runtimes = listOf(SuwayomiRuntime(suwayomiManager), fixtureAnime, AniyomiCompatibilityRuntime())
+    val animeHost = AnimeHostManager.default()
+    val runtimes = listOf(SuwayomiRuntime(suwayomiManager), AnimeHostExtensionRuntime(animeHost), AniyomiCompatibilityRuntime())
     val port = System.getenv("HAO_BRIDGE_PORT")?.toIntOrNull() ?: 4568
     val app = Javalin.create { config ->
         config.jsonMapper(JavalinJackson())
@@ -32,6 +32,10 @@ fun main() {
         config.bundledPlugins.enableCors { cors -> cors.addRule { rule -> rule.allowHost("http://localhost:3000"); System.getenv("HAO_WEB_ORIGIN")?.let(rule::allowHost) } }
     }
     app.exception(IllegalArgumentException::class.java) { error, ctx -> ctx.status(400).json(ErrorResponse("INVALID", error.message ?: "Invalid request")) }
+    app.exception(AnimeHostRequestException::class.java) { error, ctx ->
+        val clientError = error.status in 400..499 && error.status != 401
+        ctx.status(if (clientError) error.status else 503).json(ErrorResponse(if (clientError) "INVALID" else "UNAVAILABLE", if (clientError) "Anime source request was invalid" else "Isolated anime host is unavailable", !clientError))
+    }
     app.exception(Exception::class.java) { error, ctx -> error.printStackTrace(); ctx.status(500).json(ErrorResponse("UNAVAILABLE", "Bridge operation failed", true)) }
     app.get("/health") { ctx -> ctx.json(HealthResponse("ok", "0.1.0", pairing.get() != null)) }
     app.get("/v1/runtimes") { ctx -> ctx.json(runtimes.map { it.status() }) }
@@ -66,13 +70,13 @@ fun main() {
     app.get("/v1/manga/runtime") { ctx -> requirePaired(ctx, pairing); ctx.json(suwayomiManager.status()) }
     app.post("/v1/manga/runtime/start") { ctx -> requirePaired(ctx, pairing); ctx.json(suwayomiManager.ensureStarted()) }
     app.post("/v1/manga/runtime/sync") { ctx -> requirePaired(ctx, pairing); ctx.json(suwayomiManager.sync(extensions.listInstalled(storageRoot))) }
-    app.get("/v1/anime/catalog") { ctx -> requirePaired(ctx, pairing); ctx.json(fixtureAnime.catalog()) }
-    app.get("/v1/anime/{animeId}/episodes") { ctx -> requirePaired(ctx, pairing); ctx.json(fixtureAnime.episodes(ctx.pathParam("animeId"))) }
-    app.get("/v1/anime/episodes/{episodeId}/servers") { ctx -> requirePaired(ctx, pairing); ctx.json(fixtureAnime.servers(ctx.pathParam("episodeId"))) }
-    app.get("/v1/anime/episodes/{episodeId}/streams") { ctx -> requirePaired(ctx, pairing); ctx.json(fixtureAnime.streams(ctx.pathParam("episodeId"), ctx.queryParam("serverId") ?: "")) }
+    app.get("/v1/anime/catalog") { ctx -> requirePaired(ctx, pairing); ctx.json(animeHost.catalog()) }
+    app.get("/v1/anime/{animeId}/episodes") { ctx -> requirePaired(ctx, pairing); ctx.json(animeHost.episodes(ctx.pathParam("animeId"))) }
+    app.get("/v1/anime/episodes/{episodeId}/servers") { ctx -> requirePaired(ctx, pairing); ctx.json(animeHost.servers(ctx.pathParam("episodeId"))) }
+    app.get("/v1/anime/episodes/{episodeId}/streams") { ctx -> requirePaired(ctx, pairing); ctx.json(animeHost.streams(ctx.pathParam("episodeId"), ctx.queryParam("serverId") ?: "")) }
     app.get("/v1/anime/streams/{streamId}/media") { ctx ->
         requirePaired(ctx, pairing)
-        val response = fixtureAnime.media(ctx.pathParam("streamId"), ctx.header("Range"))
+        val response = animeHost.media(ctx.pathParam("streamId"), ctx.header("Range"))
         ctx.status(response.status).header("Content-Type", response.contentType).header("Accept-Ranges", response.acceptRanges).header("Cache-Control", "private, max-age=3600")
         response.contentLength?.let { ctx.header("Content-Length", it) }
         response.contentRange?.let { ctx.header("Content-Range", it) }
@@ -107,6 +111,8 @@ fun main() {
             suwayomiManager.sync(extensions.listInstalled(storageRoot))
         }.onFailure { it.printStackTrace() }
     }
+    Thread.ofVirtual().name("hao-anime-host-startup").start { runCatching { animeHost.ensureStarted() }.onFailure { it.printStackTrace() } }
+    Runtime.getRuntime().addShutdownHook(Thread { animeHost.close() })
 }
 
 private fun requirePaired(ctx: Context, pairing: AtomicReference<PairResponse?>) { require(pairing.get() != null) { "Bridge must be paired first" } }

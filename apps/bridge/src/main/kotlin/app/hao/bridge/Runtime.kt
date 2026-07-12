@@ -33,6 +33,12 @@ class AniyomiCompatibilityRuntime : ExtensionRuntime {
     override fun status() = RuntimeStatus(id, kind, false, "Compatibility host scaffolded; enable only after fixture-APK conformance and sandbox tests pass")
 }
 
+class AnimeHostExtensionRuntime(private val manager: AnimeHostManager) : ExtensionRuntime {
+    override val id = "aniyomi-fixture-host"
+    override val kind = MediaKind.ANIME
+    override fun status() = manager.status()
+}
+
 class FixtureAnimeRuntime : ExtensionRuntime {
     override val id = "fixture-anime"
     override val kind = MediaKind.ANIME

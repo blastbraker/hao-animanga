@@ -17,6 +17,8 @@
 .runtime-stats span { display: grid; gap: 4px; background: var(--panel2); border: 1px solid var(--line); border-radius: 11px; padding: 14px; color: var(--muted); font-size: 10px; }
 .runtime-stats b { color: var(--text); font-size: 15px; }
 .runtime-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.runtime-list .health-row > div { display: grid; gap: 4px; }
+.runtime-list small { color: var(--muted); }
 .extension-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; }
 .extension-heading p { color: var(--muted); font-size: 11px; margin: 7px 0 0; }
 .extension-heading > span { color: var(--cyan); font-size: 10px; text-transform: uppercase; letter-spacing: .12em; }

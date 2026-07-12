@@ -43,6 +43,7 @@ type InstalledExtension = {
 };
 type MangaRuntimeStatus = { running: boolean; managed: boolean; message: string; sourceCount: number; installedExtensionCount: number };
 type ExtensionSyncResult = { installed: string[]; removed: string[]; unchanged: string[]; errors: string[] };
+type BridgeRuntimeStatus = { id: string; kind: MediaKind; available: boolean; message: string };
 
 export default function SettingsPage() {
   const [bridgeEndpoint, setBridgeEndpoint] = useState("http://127.0.0.1:4568");
@@ -51,6 +52,7 @@ export default function SettingsPage() {
   const [repositories, setRepositories] = useState<SavedRepository[]>([]);
   const [installedExtensions, setInstalledExtensions] = useState<InstalledExtension[]>([]);
   const [mangaRuntime, setMangaRuntime] = useState<MangaRuntimeStatus | null>(null);
+  const [bridgeRuntimes, setBridgeRuntimes] = useState<BridgeRuntimeStatus[]>([]);
   const [repo, setRepo] = useState("https://raw.githubusercontent.com/yuzono/anime-repo/repo/index.min.json");
   const [mediaKind, setMediaKind] = useState<MediaKind>("ANIME");
   const [acknowledged, setAcknowledged] = useState(false);
@@ -93,6 +95,7 @@ export default function SettingsPage() {
     void Promise.all([
       requestBridgeAt<InstalledExtension[]>(activeBridge.endpoint, "/v1/extensions").then(setInstalledExtensions),
       requestBridgeAt<MangaRuntimeStatus>(activeBridge.endpoint, "/v1/manga/runtime").then(setMangaRuntime),
+      requestBridgeAt<BridgeRuntimeStatus[]>(activeBridge.endpoint, "/v1/runtimes").then(setBridgeRuntimes),
     ])
       .catch((error: Error) => setMessage(`Bridge extension status unavailable: ${error.message}`));
   }, [activeBridge?.endpoint]);
@@ -229,6 +232,8 @@ export default function SettingsPage() {
     <section className="settings-section bridge-panel"><div><span className="eyebrow">USER-OWNED RUNTIME</span><h2>HAO Bridge Desktop</h2><p>Inspect and store extensions on a device you control. Third-party APKs never execute in HAO’s cloud.</p><div className="repo-form"><input aria-label="Bridge endpoint" value={bridgeEndpoint} onChange={(event)=>setBridgeEndpoint(event.target.value)} placeholder="https://bridge.example.com"/><input aria-label="Bridge device name" value={deviceName} onChange={(event)=>setDeviceName(event.target.value)} placeholder="My HAO Bridge"/></div><button className="button primary" disabled={busyAction !== null} onClick={()=>void pair()}><Server/>{activeBridge ? "Pair again" : "Pair Bridge"}</button></div><div className="bridge-visual"><HardDrive/><span>{activeBridge ? activeBridge.name : "Bridge offline"}</span><small>{activeBridge ? activeBridge.endpoint : "Windows · macOS · Linux"}</small></div></section>
 
     {activeBridge && <section className="settings-section admin-card runtime-control"><div className="runtime-heading"><div><span className="eyebrow">MANGA EXECUTION</span><h2>Suwayomi runtime</h2><p>{mangaRuntime?.message ?? "Checking the local manga runtime…"}</p></div><span className={mangaRuntime?.running ? "runtime-badge running" : "runtime-badge"}><i/>{mangaRuntime?.running ? "Running" : "Stopped"}</span></div><div className="runtime-stats"><span><b>{mangaRuntime?.sourceCount ?? 0}</b> sources</span><span><b>{mangaRuntime?.installedExtensionCount ?? 0}</b> synchronized extensions</span><span><b>{mangaRuntime?.managed ? "Automatic" : "External"}</b> lifecycle</span></div><div className="runtime-actions"><button className="button primary" disabled={busyAction !== null || mangaRuntime?.running === true || mangaRuntime?.managed === false} onClick={()=>void startRuntime()}><Power/>{busyAction === "runtime-start" ? "Starting…" : "Start runtime"}</button><button className="button ghost" disabled={busyAction !== null || !mangaRuntime?.running} onClick={()=>void syncRuntime()}><RefreshCw/>{busyAction === "runtime-sync" ? "Synchronizing…" : "Sync extensions"}</button></div></section>}
+
+    {activeBridge && <section className="settings-section admin-card runtime-control"><div className="runtime-heading"><div><span className="eyebrow">ANIME EXECUTION</span><h2>Isolated anime host</h2><p>The fixture provider runs in a separate constrained JVM. Third-party Aniyomi APK loading remains disabled.</p></div><ShieldCheck/></div><div className="runtime-list">{bridgeRuntimes.filter((runtime)=>runtime.kind === "ANIME").map((runtime)=><div className="health-row" key={runtime.id}><span className={runtime.available ? "health-dot good" : "health-dot"}/><div><b>{runtime.id === "aniyomi-fixture-host" ? "Fixture compatibility host" : "Aniyomi APK compatibility"}</b><small>{runtime.message}</small></div><span>{runtime.available ? "ready" : "gated"}</span></div>)}</div></section>}
 
     <section className="settings-section">
       <span className="eyebrow">EXTENSION REPOSITORIES</span><h2>Add repository</h2>
