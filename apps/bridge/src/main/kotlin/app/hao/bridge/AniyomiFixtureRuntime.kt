@@ -11,12 +11,9 @@ import kotlinx.serialization.Serializable
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import java.net.URI
-import java.net.http.HttpClient
-import java.net.http.HttpRequest
-import java.net.http.HttpResponse
+import java.io.ByteArrayInputStream
 import java.nio.file.Files
 import java.nio.file.Path
-import java.time.Duration
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
@@ -34,7 +31,7 @@ class AniyomiFixtureRuntime(private val extensionRoot: Path, private val dataRoo
     private val loaders = mutableListOf<ExtensionClassLoader>()
     private val sourcePackages = ConcurrentHashMap<Long, InstalledPackage>()
     @Volatile private var sources: List<AnimeSource>? = null
-    private val mediaClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8)).followRedirects(HttpClient.Redirect.NEVER).build()
+    private val mediaClient = eu.kanade.tachiyomi.network.NetworkRuntime.client()
 
     fun catalog(): List<AnimeCatalogItem> = loadSources().flatMap { source ->
         runCatching {
@@ -53,7 +50,12 @@ class AniyomiFixtureRuntime(private val extensionRoot: Path, private val dataRoo
     }
 
     fun episodes(animeId: String): List<AnimeEpisode> {
-        val handle = anime[animeId] ?: throw IllegalArgumentException("Aniyomi anime title was not found")
+        val handle = anime[animeId] ?: run {
+            // The containing process can be restarted after a provider failure.
+            // Rebuild deterministic catalog handles before rejecting a browser-held id.
+            catalog()
+            anime[animeId]
+        } ?: throw IllegalArgumentException("Aniyomi anime title was not found")
         return runCatching {
             runBlocking { withTimeout(30_000) { handle.source.getEpisodeList(handle.anime) } }.map { item ->
                 val id = stableId("episode", handle.source.id.toString(), item.url)
@@ -105,22 +107,32 @@ class AniyomiFixtureRuntime(private val extensionRoot: Path, private val dataRoo
     fun media(streamId: String, range: String?): AnimeMediaResponse {
         val video = streams[streamId] ?: loadStream(streamId) ?: throw IllegalArgumentException("Aniyomi stream was not found")
         val uri = URI(video.url)
-        require(AnimeNetworkPolicy.isAllowedHttps(uri.toString())) { "Aniyomi media host is not allowlisted" }
+        // Persisted stream descriptors can outlive the child process that first
+        // approved their CDN. Re-run public-HTTPS validation after recovery.
+        AnimeNetworkPolicy.allowRemoteHttps(uri.toString())
         require(range == null || (range != "bytes=-" && range.matches(Regex("bytes=[0-9]*-[0-9]*")))) { "Invalid media range" }
-        val request = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(30)).header("User-Agent", "HAO-Bridge/0.1").GET()
+        val request = okhttp3.Request.Builder().url(uri.toString()).header("User-Agent", "HAO-Bridge/0.1").get()
         video.headers.forEach { (name, values) ->
             if (!name.equals("Host", true) && !name.equals("Content-Length", true)) values.forEach { request.header(name, it) }
         }
         range?.let { request.header("Range", it) }
-        val response = mediaClient.send(request.build(), HttpResponse.BodyHandlers.ofInputStream())
-        require(response.statusCode() in listOf(200, 206)) { "Fixture media returned HTTP ${response.statusCode()}" }
+        val response = mediaClient.newCall(request.build()).execute()
+        require(response.code in listOf(200, 206)) { response.close(); "Aniyomi media returned HTTP ${response.code}" }
+        val body = response.body
+        val contentType = response.header("content-type") ?: "video/mp4"
+        if (contentType.contains("mpegurl", true) || uri.path.endsWith(".m3u8", true)) {
+            val manifest = body.string()
+            response.close()
+            val rewritten = rewriteHlsManifest(uri, manifest, video.headers).toByteArray()
+            return AnimeMediaResponse(200, "application/vnd.apple.mpegurl", rewritten.size.toString(), null, "none", ByteArrayInputStream(rewritten))
+        }
         return AnimeMediaResponse(
-            response.statusCode(),
-            response.headers().firstValue("content-type").orElse("video/mp4"),
-            response.headers().firstValue("content-length").orElse(null),
-            response.headers().firstValue("content-range").orElse(null),
-            response.headers().firstValue("accept-ranges").orElse("bytes"),
-            response.body(),
+            response.code,
+            contentType,
+            response.header("content-length"),
+            response.header("content-range"),
+            response.header("accept-ranges") ?: "bytes",
+            body.byteStream(),
         )
     }
 
@@ -169,8 +181,29 @@ class AniyomiFixtureRuntime(private val extensionRoot: Path, private val dataRoo
         return runCatching { json.decodeFromString(StreamHandle.serializer(), Files.readString(path)) }.getOrNull()
     }
 
+    private fun rewriteHlsManifest(base: URI, manifest: String, headers: Map<String, List<String>>): String =
+        manifest.lineSequence().joinToString("\n") { line ->
+            val trimmed = line.trim()
+            when {
+                trimmed.isBlank() || trimmed.startsWith("#") -> HLS_URI.replace(line) { match ->
+                    "URI=\"${registerHlsResource(base.resolve(match.groupValues[1]), headers)}\""
+                }
+                else -> registerHlsResource(base.resolve(trimmed), headers)
+            }
+        }
+
+    private fun registerHlsResource(uri: URI, headers: Map<String, List<String>>): String {
+        AnimeNetworkPolicy.allowRemoteHttps(uri.toString())
+        val id = stableId("stream", "hls", uri.toString())
+        val handle = StreamHandle(uri.toString(), headers)
+        streams[id] = handle
+        persistStream(id, handle)
+        return "/v1/anime/streams/$id/media"
+    }
+
     companion object {
         const val ID_PREFIX = "aniyomi-"
         const val FIXTURE_PACKAGE = "app.hao.fixture.anime"
+        private val HLS_URI = Regex("URI=\\\"([^\\\"]+)\\\"")
     }
 }

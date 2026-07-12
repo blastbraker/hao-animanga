@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Film, LoaderCircle, RefreshCw, Server, TriangleAlert } from "lucide-react";
+import Hls from "hls.js";
 import { api } from "../../../lib/api";
 
 type BridgeDevice = { endpoint: string; revokedAt: string | null };
@@ -42,6 +43,24 @@ export default function PlayerPage() {
     return () => { safelyResetVideo(videoRef.current); };
   }, []);
 
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !stream || !streamUrl) return;
+    setError("");
+    if (stream.kind === "HLS" && Hls.isSupported()) {
+      const hls = new Hls({ enableWorker: true });
+      hls.loadSource(streamUrl);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.ERROR, (_event, data) => {
+        if (data.fatal) setError("The selected HLS stream could not be loaded. Try another quality.");
+      });
+      return () => { hls.destroy(); safelyResetVideo(video); };
+    }
+    video.src = streamUrl;
+    video.load();
+    return () => { safelyResetVideo(video); };
+  }, [stream, streamUrl]);
+
   async function connect() {
     setBusy("Connecting to your HAO Bridge…"); setError("");
     try {
@@ -50,8 +69,9 @@ export default function PlayerPage() {
       if (!endpoint) throw new Error("Pair HAO Bridge in Settings before browsing anime.");
       const titles = await bridgeRequest<AnimeCatalogItem[]>(endpoint, "/v1/anime/catalog");
       if (!titles.length) throw new Error("No anime runtime is available yet.");
-      setBridge(endpoint); setCatalog(titles); setAnimeId(titles[0]!.id);
-      await loadAnime(endpoint, titles[0]!.id);
+      const initialTitle = titles.find((item) => item.provider !== "fixture-anime") ?? titles[0]!;
+      setBridge(endpoint); setCatalog(titles); setAnimeId(initialTitle.id);
+      await loadAnime(endpoint, initialTitle.id);
     } catch (cause) { setBusy(""); setError(message(cause)); }
   }
 
@@ -90,7 +110,7 @@ export default function PlayerPage() {
 
   return <div className="player-page anime-player-page">
     <div className="video-stage">
-      {stream ? <video ref={videoRef} key={stream.id} src={streamUrl} controls playsInline preload="metadata" onError={()=>setError("The selected stream could not be loaded. Try another server or quality.")}>
+      {stream ? <video ref={videoRef} key={stream.id} controls playsInline preload="metadata" onError={()=>setError("The selected stream could not be loaded. Try another server or quality.")}>
         {stream.subtitles.map((subtitle)=><track key={subtitle.url} kind="subtitles" label={subtitle.label} srcLang={subtitle.language} src={subtitle.url}/>)}
       </video> : <div className="player-placeholder"><Film/><span>{busy || "Choose an episode and stream."}</span></div>}
     </div>
