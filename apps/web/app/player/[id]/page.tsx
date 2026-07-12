@@ -1,62 +1,118 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { Captions, Maximize, Pause, Play, Settings, Volume2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Film, LoaderCircle, RefreshCw, Server, TriangleAlert } from "lucide-react";
+import { api } from "../../../lib/api";
+
+type BridgeDevice = { endpoint: string; revokedAt: string | null };
+type AnimeCatalogItem = { id: string; title: string; description: string; provider: string; attribution: string };
+type AnimeEpisode = { id: string; animeId: string; number: number; title: string };
+type AnimeServer = { id: string; name: string };
+type AnimeSubtitle = { label: string; language?: string; url: string };
+type AnimeStream = { id: string; serverId: string; url: string; kind: "MP4" | "HLS"; quality?: string; audio?: string; subtitles: AnimeSubtitle[] };
 
 export default function PlayerPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const [playing, setPlaying] = useState(false);
-  const [playbackMessage, setPlaybackMessage] = useState("");
+  const [bridge, setBridge] = useState("");
+  const [catalog, setCatalog] = useState<AnimeCatalogItem[]>([]);
+  const [animeId, setAnimeId] = useState("");
+  const [episodes, setEpisodes] = useState<AnimeEpisode[]>([]);
+  const [episodeId, setEpisodeId] = useState("");
+  const [servers, setServers] = useState<AnimeServer[]>([]);
+  const [serverId, setServerId] = useState("");
+  const [streams, setStreams] = useState<AnimeStream[]>([]);
+  const [streamId, setStreamId] = useState("");
+  const [busy, setBusy] = useState("Connecting to your HAO Bridge…");
+  const [error, setError] = useState("");
 
-  async function togglePlayback() {
-    const video = videoRef.current;
-    if (!video) return;
+  const anime = useMemo(() => catalog.find((item) => item.id === animeId), [animeId, catalog]);
+  const episode = useMemo(() => episodes.find((item) => item.id === episodeId), [episodeId, episodes]);
+  const stream = useMemo(() => streams.find((item) => item.id === streamId), [streamId, streams]);
+  const streamUrl = stream ? (stream.url.startsWith("/") ? `${bridge}${stream.url}` : stream.url) : "";
 
-    if (!video.currentSrc) {
-      setPlaybackMessage("Connect Jellyfin or add an authorized media URL before playing.");
-      return;
-    }
-
-    setPlaybackMessage("");
-    if (!video.paused) {
-      video.pause();
-      return;
-    }
-
-    try {
-      await video.play();
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") return;
-      setPlaybackMessage(error instanceof Error ? error.message : "Playback could not start.");
-    }
+  async function bridgeRequest<T>(endpoint: string, path: string): Promise<T> {
+    const response = await fetch(`${endpoint}${path}`);
+    const payload = await response.json().catch(() => null) as ({ message?: string } & T) | null;
+    if (!response.ok) throw new Error(payload?.message ?? `Bridge returned ${response.status}`);
+    return payload as T;
   }
 
-  return <div className="player-page">
+  useEffect(() => {
+    void connect();
+    return () => { safelyResetVideo(videoRef.current); };
+  }, []);
+
+  async function connect() {
+    setBusy("Connecting to your HAO Bridge…"); setError("");
+    try {
+      const { items } = await api<{ items: BridgeDevice[] }>("/bridges");
+      const endpoint = items.find((item) => !item.revokedAt)?.endpoint?.replace(/\/$/, "");
+      if (!endpoint) throw new Error("Pair HAO Bridge in Settings before browsing anime.");
+      const titles = await bridgeRequest<AnimeCatalogItem[]>(endpoint, "/v1/anime/catalog");
+      if (!titles.length) throw new Error("No anime runtime is available yet.");
+      setBridge(endpoint); setCatalog(titles); setAnimeId(titles[0]!.id);
+      await loadAnime(endpoint, titles[0]!.id);
+    } catch (cause) { setBusy(""); setError(message(cause)); }
+  }
+
+  async function loadAnime(endpoint: string, nextAnimeId: string, cancelled = false) {
+    setBusy("Loading episodes…"); setError(""); safelyResetVideo(videoRef.current);
+    try {
+      const nextEpisodes = await bridgeRequest<AnimeEpisode[]>(endpoint, `/v1/anime/${encodeURIComponent(nextAnimeId)}/episodes`);
+      if (!nextEpisodes.length) throw new Error("This source did not return any episodes.");
+      if (cancelled) return;
+      setEpisodes(nextEpisodes); setEpisodeId(nextEpisodes[0]!.id);
+      await loadEpisode(endpoint, nextEpisodes[0]!.id, cancelled);
+    } catch (cause) { if (!cancelled) setError(message(cause)); }
+    finally { if (!cancelled) setBusy(""); }
+  }
+
+  async function loadEpisode(endpoint: string, nextEpisodeId: string, cancelled = false) {
+    setBusy("Loading stream servers…"); setError(""); safelyResetVideo(videoRef.current);
+    const nextServers = await bridgeRequest<AnimeServer[]>(endpoint, `/v1/anime/episodes/${encodeURIComponent(nextEpisodeId)}/servers`);
+    if (!nextServers.length) throw new Error("No stream servers are available for this episode.");
+    if (cancelled) return;
+    setServers(nextServers); setServerId(nextServers[0]!.id);
+    await loadServer(endpoint, nextEpisodeId, nextServers[0]!.id, cancelled);
+  }
+
+  async function loadServer(endpoint: string, nextEpisodeId: string, nextServerId: string, cancelled = false) {
+    setBusy("Resolving authorized streams…"); setError(""); safelyResetVideo(videoRef.current);
+    const nextStreams = await bridgeRequest<AnimeStream[]>(endpoint, `/v1/anime/episodes/${encodeURIComponent(nextEpisodeId)}/streams?serverId=${encodeURIComponent(nextServerId)}`);
+    if (!nextStreams.length) throw new Error("This server did not return a playable stream.");
+    if (cancelled) return;
+    setStreams(nextStreams); setStreamId(nextStreams[0]!.id); setBusy("");
+  }
+
+  async function changeAnime(next: string) { setAnimeId(next); setEpisodes([]); setServers([]); setStreams([]); await loadAnime(bridge, next); }
+  async function changeEpisode(next: string) { setEpisodeId(next); setServers([]); setStreams([]); try { await loadEpisode(bridge, next); } catch (cause) { setBusy(""); setError(message(cause)); } }
+  async function changeServer(next: string) { setServerId(next); setStreams([]); try { await loadServer(bridge, episodeId, next); } catch (cause) { setBusy(""); setError(message(cause)); } }
+
+  return <div className="player-page anime-player-page">
     <div className="video-stage">
-      <video
-        ref={videoRef}
-        poster="https://s4.anilist.co/file/anilistcdn/media/anime/banner/21827-3EwjBS6ebj1C.jpg"
-        onClick={() => void togglePlayback()}
-        onPlay={() => setPlaying(true)}
-        onPause={() => setPlaying(false)}
-        onEnded={() => setPlaying(false)}
-      />
-      <button className="center-play" aria-label={playing ? "Pause" : "Play"} onClick={() => void togglePlayback()}>
-        {playing ? <Pause fill="currentColor"/> : <Play fill="currentColor"/>}
-      </button>
-      <div className="player-controls">
-        <button aria-label={playing ? "Pause" : "Play"} onClick={() => void togglePlayback()}>{playing ? <Pause/> : <Play/>}</button>
-        <Volume2/><span>00:00</span><div className="video-track"><i/></div><span>24:00</span><Captions/><Settings/><Maximize/>
-      </div>
+      {stream ? <video ref={videoRef} key={stream.id} src={streamUrl} controls playsInline preload="metadata" onError={()=>setError("The selected stream could not be loaded. Try another server or quality.")}>
+        {stream.subtitles.map((subtitle)=><track key={subtitle.url} kind="subtitles" label={subtitle.label} srcLang={subtitle.language} src={subtitle.url}/>)}
+      </video> : <div className="player-placeholder"><Film/><span>{busy || "Choose an episode and stream."}</span></div>}
     </div>
+    <div className="player-source-bar">
+      <label>Title<select aria-label="Anime title" value={animeId} onChange={(event)=>void changeAnime(event.target.value)} disabled={Boolean(busy)}>{catalog.map((item)=><option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
+      <label>Episode<select aria-label="Episode" value={episodeId} onChange={(event)=>void changeEpisode(event.target.value)} disabled={Boolean(busy) || !episodes.length}>{episodes.map((item)=><option key={item.id} value={item.id}>Episode {item.number} · {item.title}</option>)}</select></label>
+      <label>Server<select aria-label="Stream server" value={serverId} onChange={(event)=>void changeServer(event.target.value)} disabled={Boolean(busy) || !servers.length}>{servers.map((item)=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+      <label>Quality<select aria-label="Stream quality" value={streamId} onChange={(event)=>{safelyResetVideo(videoRef.current);setStreamId(event.target.value)}} disabled={Boolean(busy) || !streams.length}>{streams.map((item)=><option key={item.id} value={item.id}>{item.quality ?? "Auto"} · {item.audio ?? "Default audio"}</option>)}</select></label>
+    </div>
+    {busy && <p className="player-status" role="status"><LoaderCircle className="spin"/> {busy}</p>}
+    {error && <p className="player-status error" role="alert"><TriangleAlert/> {error}<button className="button ghost compact" onClick={()=>void connect()}><RefreshCw/>Retry</button></p>}
     <div className="now-playing">
-      <div>
-        <span className="eyebrow">NOW PLAYING · PERSONAL MEDIA</span>
-        <h1>Sample episode</h1>
-        <p>Connect Jellyfin or add an authorized HLS/MP4 URL to begin playback.</p>
-        {playbackMessage && <p role="status">{playbackMessage}</p>}
-      </div>
-      <select aria-label="Episode"><option>Episode 1</option></select>
+      <div><span className="eyebrow"><Server/> NOW PLAYING · {anime?.provider ?? "LOCAL RUNTIME"}</span><h1>{anime?.title ?? "Anime player"}</h1><p>{episode ? `Episode ${episode.number} · ${episode.title}` : anime?.description ?? "Connect an authorized anime source."}</p>{anime?.attribution && <small>{anime.attribution}</small>}</div>
     </div>
   </div>;
 }
+
+function safelyResetVideo(video: HTMLVideoElement | null) {
+  if (!video) return;
+  video.pause();
+  video.removeAttribute("src");
+  video.load();
+}
+
+function message(cause: unknown) { return cause instanceof Error ? cause.message : "The anime source could not complete this request."; }

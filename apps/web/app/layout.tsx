@@ -4,6 +4,7 @@ import "./styles.css";
 import "./auth.css";
 import "./extensions.css";
 import "./reader.css";
+import "./player.css";
 import { AppShell } from "../components/app-shell";
 import { ServiceWorker } from "../components/service-worker";
 

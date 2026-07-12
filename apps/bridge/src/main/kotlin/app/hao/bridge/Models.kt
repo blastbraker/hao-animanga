@@ -67,6 +67,42 @@ import kotlinx.serialization.Serializable
     val errors: List<String> = emptyList(),
 )
 
+@Serializable data class AnimeCatalogItem(
+    val id: String,
+    val title: String,
+    val description: String,
+    val provider: String,
+    val attribution: String,
+)
+
+@Serializable data class AnimeEpisode(
+    val id: String,
+    val animeId: String,
+    val number: Double,
+    val title: String,
+)
+
+@Serializable data class AnimeServer(
+    val id: String,
+    val name: String,
+)
+
+@Serializable data class AnimeSubtitle(
+    val label: String,
+    val language: String? = null,
+    val url: String,
+)
+
+@Serializable data class AnimeStream(
+    val id: String,
+    val serverId: String,
+    val url: String,
+    val kind: String,
+    val quality: String? = null,
+    val audio: String? = null,
+    val subtitles: List<AnimeSubtitle> = emptyList(),
+)
+
 @Serializable data class MangaSource(
     val id: String,
     val name: String,
