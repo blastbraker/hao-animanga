@@ -5,6 +5,18 @@
 .repository-list small, .extension-row small { color: var(--muted); font-size: 10px; overflow: hidden; text-overflow: ellipsis; }
 .button.compact { padding: 8px 11px; font-size: 10px; }
 .button.danger { color: var(--coral); border-color: rgba(255,124,112,.28); }
+.runtime-control { display: grid; gap: 22px; }
+.runtime-heading { display: flex; justify-content: space-between; gap: 20px; align-items: start; }
+.runtime-heading h2 { margin: 0; }
+.runtime-heading p { margin: 8px 0 0; color: var(--muted); }
+.runtime-badge { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); border: 1px solid var(--line); border-radius: 20px; padding: 7px 11px; font-size: 10px; text-transform: uppercase; letter-spacing: .1em; }
+.runtime-badge i { width: 7px; height: 7px; border-radius: 50%; background: #777; }
+.runtime-badge.running { color: var(--cyan); border-color: rgba(96,239,227,.28); }
+.runtime-badge.running i { background: #67d8a0; box-shadow: 0 0 10px #67d8a0; }
+.runtime-stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; }
+.runtime-stats span { display: grid; gap: 4px; background: var(--panel2); border: 1px solid var(--line); border-radius: 11px; padding: 14px; color: var(--muted); font-size: 10px; }
+.runtime-stats b { color: var(--text); font-size: 15px; }
+.runtime-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 .extension-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; }
 .extension-heading p { color: var(--muted); font-size: 11px; margin: 7px 0 0; }
 .extension-heading > span { color: var(--cyan); font-size: 10px; text-transform: uppercase; letter-spacing: .12em; }
@@ -41,6 +53,9 @@
 .installed-state.enabled { color: #67d8a0; border-color: rgba(103,216,160,.28); }
 
 @media (max-width: 760px) {
+  .runtime-heading { display: grid; }
+  .runtime-badge { justify-self: start; }
+  .runtime-stats { grid-template-columns: 1fr; }
   .extension-toolbar { grid-template-columns: 1fr; }
   .extension-toolbar select { height: 42px; }
   .extension-row { grid-template-columns: 1fr; }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { BookOpen, Check, Cloud, Download, Film, HardDrive, Link2, Plus, Power, Search, Server, ShieldAlert, ShieldCheck, Trash2 } from "lucide-react";
+import { BookOpen, Check, Cloud, Download, Film, HardDrive, Link2, Plus, Power, RefreshCw, Search, Server, ShieldAlert, ShieldCheck, Trash2 } from "lucide-react";
 import { api } from "../../lib/api";
 
 const DISCLAIMER = "Third-party repositories and extensions are not created, reviewed, hosted, endorsed, supported, or controlled by HAO. Their developers and content providers are unaffiliated with HAO. Availability, safety, and legality are not guaranteed. You are responsible for using only content you are authorized to access and for complying with applicable laws and provider terms.";
@@ -41,6 +41,8 @@ type InstalledExtension = {
   installedAt: string;
   enabled: boolean;
 };
+type MangaRuntimeStatus = { running: boolean; managed: boolean; message: string; sourceCount: number; installedExtensionCount: number };
+type ExtensionSyncResult = { installed: string[]; removed: string[]; unchanged: string[]; errors: string[] };
 
 export default function SettingsPage() {
   const [bridgeEndpoint, setBridgeEndpoint] = useState("http://127.0.0.1:4568");
@@ -48,6 +50,7 @@ export default function SettingsPage() {
   const [bridges, setBridges] = useState<BridgeDevice[]>([]);
   const [repositories, setRepositories] = useState<SavedRepository[]>([]);
   const [installedExtensions, setInstalledExtensions] = useState<InstalledExtension[]>([]);
+  const [mangaRuntime, setMangaRuntime] = useState<MangaRuntimeStatus | null>(null);
   const [repo, setRepo] = useState("https://raw.githubusercontent.com/yuzono/anime-repo/repo/index.min.json");
   const [mediaKind, setMediaKind] = useState<MediaKind>("ANIME");
   const [acknowledged, setAcknowledged] = useState(false);
@@ -87,8 +90,10 @@ export default function SettingsPage() {
   useEffect(() => { void loadCloudState().catch((error: Error) => setMessage(error.message)); }, []);
   useEffect(() => {
     if (!activeBridge?.endpoint) return;
-    void requestBridgeAt<InstalledExtension[]>(activeBridge.endpoint, "/v1/extensions")
-      .then(setInstalledExtensions)
+    void Promise.all([
+      requestBridgeAt<InstalledExtension[]>(activeBridge.endpoint, "/v1/extensions").then(setInstalledExtensions),
+      requestBridgeAt<MangaRuntimeStatus>(activeBridge.endpoint, "/v1/manga/runtime").then(setMangaRuntime),
+    ])
       .catch((error: Error) => setMessage(`Bridge extension status unavailable: ${error.message}`));
   }, [activeBridge?.endpoint]);
 
@@ -106,6 +111,32 @@ export default function SettingsPage() {
   async function loadInstalled() {
     const result = await bridgeRequest<InstalledExtension[]>("/v1/extensions");
     setInstalledExtensions(result);
+  }
+
+  async function loadRuntime() {
+    const result = await bridgeRequest<MangaRuntimeStatus>("/v1/manga/runtime");
+    setMangaRuntime(result);
+    return result;
+  }
+
+  async function startRuntime() {
+    setBusyAction("runtime-start"); setMessage("Starting the local manga runtime…");
+    try {
+      const result = await bridgeRequest<MangaRuntimeStatus>("/v1/manga/runtime/start", {});
+      setMangaRuntime(result);
+      setMessage(result.running ? "Manga runtime is ready." : result.message);
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Manga runtime failed to start"); }
+    finally { setBusyAction(null); }
+  }
+
+  async function syncRuntime() {
+    setBusyAction("runtime-sync"); setMessage("Synchronizing reviewed manga extensions…");
+    try {
+      const result = await bridgeRequest<ExtensionSyncResult>("/v1/manga/runtime/sync", {});
+      await loadRuntime();
+      setMessage(result.errors.length ? `Synchronization finished with errors: ${result.errors.join("; ")}` : `Manga runtime synchronized. ${result.installed.length} installed, ${result.removed.length} removed, ${result.unchanged.length} unchanged.`);
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Extension synchronization failed"); }
+    finally { setBusyAction(null); }
   }
 
   async function pair() {
@@ -165,8 +196,9 @@ export default function SettingsPage() {
         acceptSignerChange: signerConsent,
       });
       await loadInstalled();
+      await loadRuntime();
       setInspection(null); setPermissionConsent(false); setSignerConsent(false);
-      setMessage("Extension installed locally but not executed. You can enable or remove it below.");
+      setMessage(inspection.mediaKind === "MANGA" ? "Extension installed, verified, and synchronized to the local manga runtime." : "Extension installed locally. Anime execution remains gated by its runtime.");
     } catch (error) { setMessage(error instanceof Error ? error.message : "Extension installation failed"); }
     finally { setBusyAction(null); }
   }
@@ -175,7 +207,7 @@ export default function SettingsPage() {
     setBusyAction(item.packageName);
     try {
       await bridgeRequest("/v1/extensions/state", { mediaKind: item.mediaKind, packageName: item.packageName, enabled });
-      await loadInstalled(); setMessage(`${item.displayName} ${enabled ? "enabled" : "disabled"}. Execution remains gated by its runtime.`);
+      await loadInstalled(); await loadRuntime(); setMessage(`${item.displayName} ${enabled ? "enabled and synchronized" : "disabled and removed from its runtime"}.`);
     } catch (error) { setMessage(error instanceof Error ? error.message : "Extension state update failed"); }
     finally { setBusyAction(null); }
   }
@@ -185,7 +217,7 @@ export default function SettingsPage() {
     setBusyAction(item.packageName);
     try {
       await bridgeRequest("/v1/extensions/remove", { mediaKind: item.mediaKind, packageName: item.packageName });
-      await loadInstalled(); setPendingRemoval(null); setMessage(`${item.displayName} removed from this Bridge.`);
+      await loadInstalled(); await loadRuntime(); setPendingRemoval(null); setMessage(`${item.displayName} removed from this Bridge and its runtime.`);
     } catch (error) { setMessage(error instanceof Error ? error.message : "Extension removal failed"); }
     finally { setBusyAction(null); }
   }
@@ -195,6 +227,8 @@ export default function SettingsPage() {
     <section className="settings-section"><h2>Content connections</h2><div className="settings-grid"><Source icon={<Film/>} title="Jellyfin" copy="Stream from your personal media server." action="Connect"/><Source icon={<Link2/>} title="Direct media" copy="Add an authorized HTTPS HLS or MP4 URL." action="Add URL"/><Source icon={<BookOpen/>} title="EPUB library" copy="Upload books to your private encrypted storage." action="Upload"/><Source icon={<Cloud/>} title="AniList" copy="Catalog metadata and discovery." action="Active" active/></div></section>
 
     <section className="settings-section bridge-panel"><div><span className="eyebrow">USER-OWNED RUNTIME</span><h2>HAO Bridge Desktop</h2><p>Inspect and store extensions on a device you control. Third-party APKs never execute in HAO’s cloud.</p><div className="repo-form"><input aria-label="Bridge endpoint" value={bridgeEndpoint} onChange={(event)=>setBridgeEndpoint(event.target.value)} placeholder="https://bridge.example.com"/><input aria-label="Bridge device name" value={deviceName} onChange={(event)=>setDeviceName(event.target.value)} placeholder="My HAO Bridge"/></div><button className="button primary" disabled={busyAction !== null} onClick={()=>void pair()}><Server/>{activeBridge ? "Pair again" : "Pair Bridge"}</button></div><div className="bridge-visual"><HardDrive/><span>{activeBridge ? activeBridge.name : "Bridge offline"}</span><small>{activeBridge ? activeBridge.endpoint : "Windows · macOS · Linux"}</small></div></section>
+
+    {activeBridge && <section className="settings-section admin-card runtime-control"><div className="runtime-heading"><div><span className="eyebrow">MANGA EXECUTION</span><h2>Suwayomi runtime</h2><p>{mangaRuntime?.message ?? "Checking the local manga runtime…"}</p></div><span className={mangaRuntime?.running ? "runtime-badge running" : "runtime-badge"}><i/>{mangaRuntime?.running ? "Running" : "Stopped"}</span></div><div className="runtime-stats"><span><b>{mangaRuntime?.sourceCount ?? 0}</b> sources</span><span><b>{mangaRuntime?.installedExtensionCount ?? 0}</b> synchronized extensions</span><span><b>{mangaRuntime?.managed ? "Automatic" : "External"}</b> lifecycle</span></div><div className="runtime-actions"><button className="button primary" disabled={busyAction !== null || mangaRuntime?.running === true || mangaRuntime?.managed === false} onClick={()=>void startRuntime()}><Power/>{busyAction === "runtime-start" ? "Starting…" : "Start runtime"}</button><button className="button ghost" disabled={busyAction !== null || !mangaRuntime?.running} onClick={()=>void syncRuntime()}><RefreshCw/>{busyAction === "runtime-sync" ? "Synchronizing…" : "Sync extensions"}</button></div></section>}
 
     <section className="settings-section">
       <span className="eyebrow">EXTENSION REPOSITORIES</span><h2>Add repository</h2>

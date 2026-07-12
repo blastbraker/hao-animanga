@@ -10,12 +10,12 @@ interface ExtensionRuntime {
     fun status(): RuntimeStatus
 }
 
-class SuwayomiRuntime(private val client: SuwayomiClient?) : ExtensionRuntime {
+class SuwayomiRuntime(private val manager: SuwayomiManager?) : ExtensionRuntime {
     override val id = "suwayomi"
     override val kind = MediaKind.MANGA
     override fun status(): RuntimeStatus = try {
-        val count = client?.sources()?.size
-        RuntimeStatus(id, kind, count != null, if (count != null) "Connected · $count sources" else "Not configured")
+        val runtime = manager?.status()
+        RuntimeStatus(id, kind, runtime?.running == true, runtime?.message ?: "Not configured")
     } catch (error: Exception) {
         RuntimeStatus(id, kind, false, "Unavailable: ${error.message ?: "connection failed"}")
     }

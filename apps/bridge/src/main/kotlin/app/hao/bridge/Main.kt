@@ -6,15 +6,15 @@ import io.javalin.json.JavalinJackson
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.security.KeyPairGenerator
-import java.time.Instant
-import java.util.UUID
 import java.util.concurrent.atomic.AtomicReference
 import java.nio.file.Path
 
 private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
 fun main() {
-    val pairing = AtomicReference<PairResponse?>(null)
+    val storageRoot = Path.of(System.getenv("HAO_BRIDGE_DATA") ?: Path.of(System.getProperty("user.home"), ".hao", "bridge", "extensions").toString()).toAbsolutePath().normalize()
+    val pairingStore = PairingStore(storageRoot.resolveSibling("state"))
+    val pairing = AtomicReference(pairingStore.load()?.response())
     val repositories = RepositoryService()
     val extensions = ExtensionManager()
     val suwayomi = SuwayomiClient(
@@ -22,8 +22,8 @@ fun main() {
         System.getenv("SUWAYOMI_USERNAME"),
         System.getenv("SUWAYOMI_PASSWORD"),
     )
-    val runtimes = listOf(SuwayomiRuntime(suwayomi), AniyomiCompatibilityRuntime())
-    val storageRoot = Path.of(System.getenv("HAO_BRIDGE_DATA") ?: Path.of(System.getProperty("user.home"), ".hao", "bridge", "extensions").toString()).toAbsolutePath().normalize()
+    val suwayomiManager = SuwayomiManager.default(suwayomi)
+    val runtimes = listOf(SuwayomiRuntime(suwayomiManager), AniyomiCompatibilityRuntime())
     val port = System.getenv("HAO_BRIDGE_PORT")?.toIntOrNull() ?: 4568
     val app = Javalin.create { config ->
         config.jsonMapper(JavalinJackson())
@@ -38,15 +38,33 @@ fun main() {
         val body = json.decodeFromString<PairRequest>(ctx.body())
         require(body.code.matches(Regex("[A-F0-9]{8}"))) { "Invalid pairing code" }
         val keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
-        val result = PairResponse(UUID.randomUUID().toString(), java.util.Base64.getEncoder().encodeToString(keys.public.encoded), Instant.now().toString())
+        val result = pairingStore.save(body, keys).response()
         pairing.set(result); ctx.status(201).contentType("application/json").result(json.encodeToString(result))
     }
     app.post("/v1/repositories/preview") { ctx -> requirePaired(ctx, pairing); ctx.contentType("application/json").result(json.encodeToString(repositories.preview(json.decodeFromString<RepositoryRequest>(ctx.body())))) }
     app.get("/v1/extensions") { ctx -> requirePaired(ctx, pairing); ctx.contentType("application/json").result(json.encodeToString(extensions.listInstalled(storageRoot))) }
     app.post("/v1/extensions/inspect") { ctx -> requirePaired(ctx, pairing); ctx.contentType("application/json").result(json.encodeToString(extensions.inspect(json.decodeFromString<InspectExtensionRequest>(ctx.body()), storageRoot))) }
-    app.post("/v1/extensions/install") { ctx -> requirePaired(ctx, pairing); ctx.status(201).contentType("application/json").result(json.encodeToString(extensions.install(json.decodeFromString<ConfirmInstallRequest>(ctx.body()), storageRoot))) }
-    app.post("/v1/extensions/state") { ctx -> requirePaired(ctx, pairing); ctx.contentType("application/json").result(json.encodeToString(extensions.setEnabled(json.decodeFromString<ExtensionStateRequest>(ctx.body()), storageRoot))) }
-    app.post("/v1/extensions/remove") { ctx -> requirePaired(ctx, pairing); ctx.contentType("application/json").result(json.encodeToString(extensions.remove(json.decodeFromString<RemoveExtensionRequest>(ctx.body()), storageRoot))) }
+    app.post("/v1/extensions/install") { ctx ->
+        requirePaired(ctx, pairing)
+        val installed = extensions.install(json.decodeFromString<ConfirmInstallRequest>(ctx.body()), storageRoot)
+        if (installed.mediaKind == MediaKind.MANGA) suwayomiManager.sync(extensions.listInstalled(storageRoot))
+        ctx.status(201).contentType("application/json").result(json.encodeToString(installed))
+    }
+    app.post("/v1/extensions/state") { ctx ->
+        requirePaired(ctx, pairing)
+        val updated = extensions.setEnabled(json.decodeFromString<ExtensionStateRequest>(ctx.body()), storageRoot)
+        if (updated.mediaKind == MediaKind.MANGA) suwayomiManager.sync(extensions.listInstalled(storageRoot))
+        ctx.contentType("application/json").result(json.encodeToString(updated))
+    }
+    app.post("/v1/extensions/remove") { ctx ->
+        requirePaired(ctx, pairing)
+        val request = json.decodeFromString<RemoveExtensionRequest>(ctx.body())
+        if (request.mediaKind == MediaKind.MANGA) suwayomiManager.uninstall(request.packageName)
+        ctx.contentType("application/json").result(json.encodeToString(extensions.remove(request, storageRoot)))
+    }
+    app.get("/v1/manga/runtime") { ctx -> requirePaired(ctx, pairing); ctx.json(suwayomiManager.status()) }
+    app.post("/v1/manga/runtime/start") { ctx -> requirePaired(ctx, pairing); ctx.json(suwayomiManager.ensureStarted()) }
+    app.post("/v1/manga/runtime/sync") { ctx -> requirePaired(ctx, pairing); ctx.json(suwayomiManager.sync(extensions.listInstalled(storageRoot))) }
     app.get("/v1/manga/sources") { ctx -> requirePaired(ctx, pairing); ctx.json(suwayomi.sources()) }
     app.get("/v1/manga/search") { ctx ->
         requirePaired(ctx, pairing)
@@ -70,6 +88,12 @@ fun main() {
         ctx.contentType(response.contentType).header("Cache-Control", "private, max-age=86400").result(response.body)
     }
     app.start("127.0.0.1", port)
+    Thread.ofVirtual().name("hao-suwayomi-startup").start {
+        runCatching {
+            suwayomiManager.ensureStarted()
+            suwayomiManager.sync(extensions.listInstalled(storageRoot))
+        }.onFailure { it.printStackTrace() }
+    }
 }
 
 private fun requirePaired(ctx: Context, pairing: AtomicReference<PairResponse?>) { require(pairing.get() != null) { "Bridge must be paired first" } }

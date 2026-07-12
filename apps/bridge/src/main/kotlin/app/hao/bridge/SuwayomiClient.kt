@@ -10,6 +10,8 @@ import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.Path
 import java.time.Duration
 import java.util.Base64
 
@@ -50,6 +52,14 @@ private val suwayomiJson = Json { ignoreUnknownKeys = true }
     val pageCount: Int = 0,
 )
 
+@Serializable private data class ExtensionDto(
+    val pkgName: String,
+    val versionName: String,
+    val installed: Boolean = false,
+)
+
+data class SuwayomiExtension(val packageName: String, val version: String)
+
 data class BinaryResponse(val contentType: String, val body: InputStream)
 
 class SuwayomiUpstreamException(val status: Int) : IllegalStateException("Suwayomi returned HTTP $status")
@@ -59,7 +69,7 @@ class SuwayomiClient(
     username: String? = null,
     password: String? = null,
 ) {
-    private val baseUri = validateEndpoint(endpoint)
+    val baseUri: URI = validateEndpoint(endpoint)
     private val authorization = if (!username.isNullOrBlank() && password != null) {
         "Basic " + Base64.getEncoder().encodeToString("$username:$password".toByteArray(StandardCharsets.UTF_8))
     } else null
@@ -71,6 +81,36 @@ class SuwayomiClient(
     fun sources(): List<MangaSource> = decode<List<SourceDto>>(getText("source/list"))
         .filter { it.id != "0" }
         .map { MangaSource(it.id, it.name, it.displayName, it.lang, it.supportsLatest, it.isConfigurable, it.isNsfw) }
+
+    fun isHealthy(): Boolean = runCatching { getText("settings/about/"); true }.getOrDefault(false)
+
+    fun installedExtensions(): List<SuwayomiExtension> = decode<List<ExtensionDto>>(getText("extension/list"))
+        .filter { it.installed }
+        .map { SuwayomiExtension(it.pkgName, it.versionName) }
+
+    fun installExtension(apk: Path) {
+        require(Files.isRegularFile(apk)) { "Extension APK is missing" }
+        val boundary = "----hao-${java.util.UUID.randomUUID()}"
+        val prefix = "--$boundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"extension.apk\"\r\nContent-Type: application/vnd.android.package-archive\r\n\r\n".toByteArray(StandardCharsets.UTF_8)
+        val suffix = "\r\n--$boundary--\r\n".toByteArray(StandardCharsets.UTF_8)
+        val publisher = HttpRequest.BodyPublishers.concat(
+            HttpRequest.BodyPublishers.ofByteArray(prefix),
+            HttpRequest.BodyPublishers.ofFile(apk),
+            HttpRequest.BodyPublishers.ofByteArray(suffix),
+        )
+        val request = request("extension/install")
+            .header("Content-Type", "multipart/form-data; boundary=$boundary")
+            .POST(publisher)
+            .build()
+        val response = http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
+        requireSuccess(response.statusCode())
+    }
+
+    fun uninstallExtension(packageName: String) {
+        require(packageName.matches(Regex("[A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)+"))) { "Invalid extension package" }
+        val response = http.send(request("extension/uninstall/$packageName").build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
+        requireSuccess(response.statusCode())
+    }
 
     fun search(sourceId: String, query: String, page: Int): MangaSearchResponse {
         require(sourceId.matches(Regex("[0-9]+"))) { "Invalid source id" }
@@ -148,7 +188,7 @@ class SuwayomiClient(
 
     private fun request(path: String): HttpRequest.Builder {
         val uri = baseUri.resolve("api/v1/$path")
-        val builder = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(30)).GET()
+        val builder = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(30))
         authorization?.let { builder.header("Authorization", it) }
         return builder
     }

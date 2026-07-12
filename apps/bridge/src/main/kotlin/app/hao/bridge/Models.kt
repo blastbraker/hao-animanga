@@ -52,6 +52,21 @@ import kotlinx.serialization.Serializable
 @Serializable enum class MediaKind { ANIME, MANGA }
 @Serializable data class ErrorResponse(val code: String, val message: String, val retryable: Boolean = false)
 
+@Serializable data class MangaRuntimeStatus(
+    val running: Boolean,
+    val managed: Boolean,
+    val message: String,
+    val sourceCount: Int = 0,
+    val installedExtensionCount: Int = 0,
+)
+
+@Serializable data class ExtensionSyncResult(
+    val installed: List<String> = emptyList(),
+    val removed: List<String> = emptyList(),
+    val unchanged: List<String> = emptyList(),
+    val errors: List<String> = emptyList(),
+)
+
 @Serializable data class MangaSource(
     val id: String,
     val name: String,
