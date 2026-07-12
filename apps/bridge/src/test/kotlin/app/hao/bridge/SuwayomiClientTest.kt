@@ -26,4 +26,10 @@ class SuwayomiClientTest {
         assertEquals(500, error.status)
         assertEquals("Suwayomi returned HTTP 500", error.message)
     }
+
+    @Test
+    fun `rejects unsupported browse modes before making a request`() {
+        val client = SuwayomiClient("http://127.0.0.1:4567")
+        assertFailsWith<IllegalArgumentException> { client.browse("123", "trending", 1) }
+    }
 }

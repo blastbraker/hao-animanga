@@ -5,11 +5,12 @@ import { BookOpen, ChevronLeft, ChevronRight, LoaderCircle, Search, Server, Tria
 import { api } from "../../lib/api";
 
 type BridgeDevice = { endpoint: string; revokedAt: string | null };
-type MangaSource = { id: string; name: string; displayName: string; language: string; mature: boolean };
+type MangaSource = { id: string; name: string; displayName: string; language: string; mature: boolean; supportsLatest: boolean };
 type MangaSummary = { id: number; sourceId: string; title: string; author?: string; description?: string; status?: string; genres: string[] };
 type MangaSearchResponse = { items: MangaSummary[]; hasNextPage: boolean };
 type MangaChapter = { id: number; index: number; name: string; number: number; scanlator?: string; uploadDate: number; read: boolean; lastPageRead: number; pageCount: number };
 type MangaChapterPages = { mangaId: number; chapterIndex: number; chapterName: string; pageCount: number; pageUrls: string[] };
+type BrowseMode = "popular" | "latest";
 
 export default function ReaderPage() {
   const [bridge, setBridge] = useState("");
@@ -17,6 +18,7 @@ export default function ReaderPage() {
   const [sourceId, setSourceId] = useState("");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<MangaSummary[]>([]);
+  const [browseMode, setBrowseMode] = useState<BrowseMode>("popular");
   const [selected, setSelected] = useState<MangaSummary | null>(null);
   const [chapters, setChapters] = useState<MangaChapter[]>([]);
   const [pages, setPages] = useState<MangaChapterPages | null>(null);
@@ -49,6 +51,11 @@ export default function ReaderPage() {
       setSources(payload);
       const preferred = payload.find((source) => source.name === "MangaDex" && source.language === "en") ?? payload.find((source) => source.language === "en") ?? payload[0]!;
       setSourceId(preferred.id);
+      const catalogResponse = await fetch(`${endpoint}/v1/manga/browse?sourceId=${encodeURIComponent(preferred.id)}&mode=popular&page=1`);
+      const catalog = await catalogResponse.json().catch(() => null) as (MangaSearchResponse & { message?: string }) | null;
+      if (!catalogResponse.ok) throw new Error(catalog?.message ?? `Bridge returned ${catalogResponse.status}`);
+      if (cancelled) return;
+      setResults(catalog?.items ?? []);
       setBusy("");
     }).catch((cause: unknown) => {
       if (!cancelled) { setBusy(""); setError(cause instanceof Error ? cause.message : "Could not connect to HAO Bridge."); }
@@ -66,6 +73,22 @@ export default function ReaderPage() {
       if (!response.items.length) setError("No titles matched that search in this source.");
     } catch (cause) { setError(message(cause)); }
     finally { setBusy(""); }
+  }
+
+  async function browse(mode: BrowseMode, nextSourceId = sourceId) {
+    if (!nextSourceId) return;
+    setBrowseMode(mode); setQuery(""); setBusy(`Loading ${mode} titles…`); setError(""); setSelected(null); setChapters([]); setPages(null);
+    try {
+      const response = await bridgeRequest<MangaSearchResponse>(`/v1/manga/browse?sourceId=${encodeURIComponent(nextSourceId)}&mode=${mode}&page=1`);
+      setResults(response.items);
+      if (!response.items.length) setError(`This source did not return any ${mode} titles.`);
+    } catch (cause) { setError(message(cause)); }
+    finally { setBusy(""); }
+  }
+
+  function changeSource(nextSourceId: string) {
+    setSourceId(nextSourceId);
+    void browse(browseMode, nextSourceId);
   }
 
   async function openTitle(item: MangaSummary) {
@@ -119,12 +142,16 @@ export default function ReaderPage() {
     <div className="page-intro"><span className="eyebrow">LOCAL EXTENSION READER</span><h1>Read manga</h1><p>Search sources running on your HAO Bridge. HAO’s cloud never receives third-party catalogs, chapters, or pages.</p></div>
     <form className="search-panel manga-search" onSubmit={search}>
       <label><Search/><input aria-label="Search manga" value={query} onChange={(event)=>setQuery(event.target.value)} placeholder="Search titles…"/></label>
-      <select aria-label="Manga source" value={sourceId} onChange={(event)=>setSourceId(event.target.value)} disabled={!sources.length}>
+      <select aria-label="Manga source" value={sourceId} onChange={(event)=>changeSource(event.target.value)} disabled={!sources.length}>
         {sources.map((source)=><option key={source.id} value={source.id}>{source.displayName} · {source.language.toUpperCase()}</option>)}
       </select>
       <button className="button primary" disabled={Boolean(busy) || !query.trim() || !sourceId}>Search</button>
     </form>
     {activeSource && <p className="source-disclosure"><Server/> Browsing {activeSource.displayName} through your local Bridge. Use only content you are authorized to access.</p>}
+    <div className="tabs manga-browse-tabs" aria-label="Browse manga">
+      <button className={browseMode === "popular" && !query ? "active" : ""} disabled={Boolean(busy)} onClick={()=>void browse("popular")}>Popular</button>
+      <button className={browseMode === "latest" && !query ? "active" : ""} disabled={Boolean(busy) || !activeSource?.supportsLatest} onClick={()=>void browse("latest")}>Latest updates</button>
+    </div>
     {busy && <ReaderStatus text={busy}/>} {error && <ReaderError text={error}/>}
 
     {results.length > 0 && <section className="manga-results" aria-label="Manga search results">{results.map((item)=><button key={item.id} className="manga-result" onClick={()=>void openTitle(item)}>
@@ -138,7 +165,7 @@ export default function ReaderPage() {
       <div className="chapter-list"><h3>Chapters</h3>{chapters.map((chapter)=><button key={chapter.id} onClick={()=>void openChapter(chapter)}><BookOpen/><span><b>{chapter.name}</b><small>{chapter.scanlator ?? "Source release"}{chapter.pageCount > 0 ? ` · ${chapter.pageCount} pages` : ""}</small></span><ChevronRight/></button>)}</div>
     </section>}
 
-    {!busy && !error && !results.length && !selected && <div className="empty-state"><BookOpen/><h2>Search your installed manga source</h2><p>MangaDex English is selected automatically when available.</p></div>}
+    {!busy && !error && !results.length && !selected && <div className="empty-state"><BookOpen/><h2>Browse your installed manga source</h2><p>Choose Popular, Latest updates, or search for a title.</p></div>}
   </div>;
 }
 

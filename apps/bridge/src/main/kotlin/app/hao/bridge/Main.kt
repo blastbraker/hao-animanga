@@ -52,6 +52,10 @@ fun main() {
         requirePaired(ctx, pairing)
         ctx.json(suwayomi.search(ctx.queryParam("sourceId") ?: "", ctx.queryParam("query") ?: "", ctx.queryParam("page")?.toIntOrNull() ?: 1))
     }
+    app.get("/v1/manga/browse") { ctx ->
+        requirePaired(ctx, pairing)
+        ctx.json(suwayomi.browse(ctx.queryParam("sourceId") ?: "", ctx.queryParam("mode") ?: "popular", ctx.queryParam("page")?.toIntOrNull() ?: 1))
+    }
     app.get("/v1/manga/{mangaId}") { ctx -> requirePaired(ctx, pairing); ctx.json(suwayomi.manga(ctx.pathParam("mangaId").toInt())) }
     app.get("/v1/manga/{mangaId}/chapters") { ctx -> requirePaired(ctx, pairing); ctx.json(suwayomi.chapters(ctx.pathParam("mangaId").toInt())) }
     app.get("/v1/manga/{mangaId}/chapter/{chapterIndex}/pages") { ctx -> requirePaired(ctx, pairing); ctx.json(suwayomi.pages(ctx.pathParam("mangaId").toInt(), ctx.pathParam("chapterIndex").toInt())) }

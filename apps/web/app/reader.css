@@ -1,6 +1,7 @@
 .manga-search { grid-template-columns: 1fr minmax(230px, 320px) auto; }
 .source-disclosure { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; margin: 13px 4px 28px; }
 .source-disclosure svg { width: 15px; color: var(--cyan); }
+.manga-browse-tabs { margin: -10px 0 28px; }
 .reader-message { display: flex; align-items: center; justify-content: center; gap: 9px; color: var(--muted); min-height: 90px; }
 .reader-message svg { width: 18px; }
 .reader-message.error { color: #ffc1b9; }

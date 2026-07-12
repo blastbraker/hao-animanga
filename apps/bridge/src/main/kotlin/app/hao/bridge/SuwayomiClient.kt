@@ -81,6 +81,14 @@ class SuwayomiClient(
         return MangaSearchResponse(result.mangaList.map(::summary), result.hasNextPage)
     }
 
+    fun browse(sourceId: String, mode: String, page: Int): MangaSearchResponse {
+        require(sourceId.matches(Regex("[0-9]+"))) { "Invalid source id" }
+        require(mode == "popular" || mode == "latest") { "Browse mode must be popular or latest" }
+        require(page in 1..100) { "Page must be between 1 and 100" }
+        val result = decode<SearchDto>(getText("source/$sourceId/$mode/$page"))
+        return MangaSearchResponse(result.mangaList.map(::summary), result.hasNextPage)
+    }
+
     fun manga(mangaId: Int): MangaSummary {
         require(mangaId > 0) { "Invalid manga id" }
         return summary(decode(getText("manga/$mangaId/full?onlineFetch=true")))
