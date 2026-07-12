@@ -23,6 +23,7 @@ export default function SettingsPage() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const activeBridge = bridges.find((bridge) => !bridge.revokedAt) ?? null;
+  const normalizedRepositoryUrl = repo.trim();
 
   async function load() {
     const [bridgeResult, repositoryResult] = await Promise.all([
@@ -37,7 +38,7 @@ export default function SettingsPage() {
   useEffect(() => { void load().catch((error: Error) => setMessage(error.message)); }, []);
 
   async function bridgeRequest<T>(path: string, body?: unknown): Promise<T> {
-    const endpoint = bridgeEndpoint.replace(/\/$/, "");
+    const endpoint = bridgeEndpoint.trim().replace(/\/$/, "");
     const response = await fetch(`${endpoint}${path}`, body === undefined ? undefined : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     const payload = await response.json().catch(() => null) as ({ message?: string } & T) | null;
     if (!response.ok) throw new Error(payload?.message ?? `Bridge returned ${response.status}`);
@@ -61,9 +62,9 @@ export default function SettingsPage() {
     if (!activeBridge) return setMessage("Pair HAO Bridge before adding a repository.");
     setBusy(true); setPreview(null); setMessage("Validating repository through your Bridge…");
     try {
-      const result = await bridgeRequest<RepositoryPreview>("/v1/repositories/preview", { url: repo, mediaKind, acknowledged: ack });
+      const result = await bridgeRequest<RepositoryPreview>("/v1/repositories/preview", { url: normalizedRepositoryUrl, mediaKind, acknowledged: ack });
       setPreview(result);
-      await api("/repositories", { method: "POST", body: JSON.stringify({ bridgeId: activeBridge.id, mediaKind, url: repo, name: result.name, acknowledged: ack }) });
+      await api("/repositories", { method: "POST", body: JSON.stringify({ bridgeId: activeBridge.id, mediaKind, url: normalizedRepositoryUrl, name: result.name, acknowledged: ack }) });
       await load();
       setMessage(`Enabled ${result.name} with ${result.packages.length} compatible packages.`);
     } catch (error) { setMessage(error instanceof Error ? error.message : "Repository validation failed"); }
@@ -76,7 +77,7 @@ export default function SettingsPage() {
 
     <section className="settings-section bridge-panel"><div><span className="eyebrow">USER-OWNED RUNTIME</span><h2>HAO Bridge Desktop</h2><p>Run manga and anime extensions on a device you control. Third-party APKs never execute in HAO’s cloud.</p><div className="repo-form"><input aria-label="Bridge endpoint" value={bridgeEndpoint} onChange={(event)=>setBridgeEndpoint(event.target.value)} placeholder="https://bridge.example.com"/><input aria-label="Bridge device name" value={deviceName} onChange={(event)=>setDeviceName(event.target.value)} placeholder="My HAO Bridge"/></div><button className="button primary" disabled={busy} onClick={()=>void pair()}><Server/>{activeBridge ? "Pair again" : "Pair Bridge"}</button></div><div className="bridge-visual"><HardDrive/><span>{activeBridge ? activeBridge.name : "Bridge offline"}</span><small>{activeBridge ? activeBridge.endpoint : "Windows · macOS · Linux"}</small></div></section>
 
-    <section className="settings-section"><span className="eyebrow">EXTENSION REPOSITORIES</span><h2>Add repository</h2><div className="repo-form"><input type="url" value={repo} onChange={(event)=>setRepo(event.target.value)} placeholder="https://…/index.min.json"/><select aria-label="Repository type" value={mediaKind} onChange={(event)=>setMediaKind(event.target.value as "ANIME" | "MANGA")}><option value="MANGA">Manga · Mihon</option><option value="ANIME">Anime · Aniyomi</option></select></div><div className="warning-box"><ShieldAlert/><div><b>Before you continue</b><p>{DISCLAIMER}</p><label><input type="checkbox" checked={ack} onChange={(event)=>setAck(event.target.checked)}/><span>I understand and accept responsibility for this repository.</span></label></div></div><button className="button primary" disabled={busy || !activeBridge || !ack || !repo.startsWith("https://")} onClick={()=>void validateAndAdd()}><Plus/>{busy ? "Working…" : "Validate and add"}</button>{message && <p role="status">{message}</p>}
+    <section className="settings-section"><span className="eyebrow">EXTENSION REPOSITORIES</span><h2>Add repository</h2><div className="repo-form"><input type="url" value={repo} onChange={(event)=>setRepo(event.target.value)} onBlur={()=>setRepo(normalizedRepositoryUrl)} placeholder="https://…/index.min.json"/><select aria-label="Repository type" value={mediaKind} onChange={(event)=>setMediaKind(event.target.value as "ANIME" | "MANGA")}><option value="MANGA">Manga · Mihon</option><option value="ANIME">Anime · Aniyomi</option></select></div><div className="warning-box"><ShieldAlert/><div><b>Before you continue</b><p>{DISCLAIMER}</p><label><input type="checkbox" checked={ack} onChange={(event)=>setAck(event.target.checked)}/><span>I understand and accept responsibility for this repository.</span></label></div></div><button className="button primary" disabled={busy || !activeBridge || !ack || !normalizedRepositoryUrl.startsWith("https://")} onClick={()=>void validateAndAdd()}><Plus/>{busy ? "Working…" : "Validate and add"}</button>{message && <p role="status">{message}</p>}
       {preview && <div className="admin-card"><h3>{preview.name}</h3><p>{preview.packages.length} compatible packages found.</p>{preview.packages.slice(0,10).map((item)=><div className="health-row" key={item.pkg}><span className="health-dot good"/><b>{item.name}</b><span>{item.version}{item.language ? ` · ${item.language}` : ""}</span></div>)}</div>}
       {repositories.length > 0 && <div className="admin-card"><h3>Enabled repositories</h3>{repositories.map((item)=><div className="health-row" key={item.id}><span className={item.enabled ? "health-dot good" : "health-dot"}/><b>{item.name}</b><span>{item.mediaKind.toLowerCase()}</span></div>)}</div>}
     </section>
