@@ -3,6 +3,7 @@ import { Instrument_Sans, Manrope } from "next/font/google";
 import "./styles.css";
 import "./auth.css";
 import "./extensions.css";
+import "./reader.css";
 import { AppShell } from "../components/app-shell";
 import { ServiceWorker } from "../components/service-worker";
 

@@ -17,7 +17,12 @@ fun main() {
     val pairing = AtomicReference<PairResponse?>(null)
     val repositories = RepositoryService()
     val extensions = ExtensionManager()
-    val runtimes = listOf(SuwayomiRuntime(System.getenv("SUWAYOMI_URL")), AniyomiCompatibilityRuntime())
+    val suwayomi = SuwayomiClient(
+        System.getenv("SUWAYOMI_URL") ?: "http://127.0.0.1:4567/",
+        System.getenv("SUWAYOMI_USERNAME"),
+        System.getenv("SUWAYOMI_PASSWORD"),
+    )
+    val runtimes = listOf(SuwayomiRuntime(suwayomi), AniyomiCompatibilityRuntime())
     val storageRoot = Path.of(System.getenv("HAO_BRIDGE_DATA") ?: Path.of(System.getProperty("user.home"), ".hao", "bridge", "extensions").toString()).toAbsolutePath().normalize()
     val port = System.getenv("HAO_BRIDGE_PORT")?.toIntOrNull() ?: 4568
     val app = Javalin.create { config ->
@@ -42,6 +47,24 @@ fun main() {
     app.post("/v1/extensions/install") { ctx -> requirePaired(ctx, pairing); ctx.status(201).contentType("application/json").result(json.encodeToString(extensions.install(json.decodeFromString<ConfirmInstallRequest>(ctx.body()), storageRoot))) }
     app.post("/v1/extensions/state") { ctx -> requirePaired(ctx, pairing); ctx.contentType("application/json").result(json.encodeToString(extensions.setEnabled(json.decodeFromString<ExtensionStateRequest>(ctx.body()), storageRoot))) }
     app.post("/v1/extensions/remove") { ctx -> requirePaired(ctx, pairing); ctx.contentType("application/json").result(json.encodeToString(extensions.remove(json.decodeFromString<RemoveExtensionRequest>(ctx.body()), storageRoot))) }
+    app.get("/v1/manga/sources") { ctx -> requirePaired(ctx, pairing); ctx.json(suwayomi.sources()) }
+    app.get("/v1/manga/search") { ctx ->
+        requirePaired(ctx, pairing)
+        ctx.json(suwayomi.search(ctx.queryParam("sourceId") ?: "", ctx.queryParam("query") ?: "", ctx.queryParam("page")?.toIntOrNull() ?: 1))
+    }
+    app.get("/v1/manga/{mangaId}") { ctx -> requirePaired(ctx, pairing); ctx.json(suwayomi.manga(ctx.pathParam("mangaId").toInt())) }
+    app.get("/v1/manga/{mangaId}/chapters") { ctx -> requirePaired(ctx, pairing); ctx.json(suwayomi.chapters(ctx.pathParam("mangaId").toInt())) }
+    app.get("/v1/manga/{mangaId}/chapter/{chapterIndex}/pages") { ctx -> requirePaired(ctx, pairing); ctx.json(suwayomi.pages(ctx.pathParam("mangaId").toInt(), ctx.pathParam("chapterIndex").toInt())) }
+    app.get("/v1/manga/{mangaId}/thumbnail") { ctx ->
+        requirePaired(ctx, pairing)
+        val response = suwayomi.thumbnail(ctx.pathParam("mangaId").toInt())
+        ctx.contentType(response.contentType).header("Cache-Control", "private, max-age=3600").result(response.body)
+    }
+    app.get("/v1/manga/{mangaId}/chapter/{chapterIndex}/page/{pageIndex}") { ctx ->
+        requirePaired(ctx, pairing)
+        val response = suwayomi.page(ctx.pathParam("mangaId").toInt(), ctx.pathParam("chapterIndex").toInt(), ctx.pathParam("pageIndex").toInt())
+        ctx.contentType(response.contentType).header("Cache-Control", "private, max-age=86400").result(response.body)
+    }
     app.start("127.0.0.1", port)
 }
 

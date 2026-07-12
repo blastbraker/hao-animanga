@@ -10,10 +10,15 @@ interface ExtensionRuntime {
     fun status(): RuntimeStatus
 }
 
-class SuwayomiRuntime(private val endpoint: String?) : ExtensionRuntime {
+class SuwayomiRuntime(private val client: SuwayomiClient?) : ExtensionRuntime {
     override val id = "suwayomi"
     override val kind = MediaKind.MANGA
-    override fun status() = RuntimeStatus(id, kind, endpoint != null, if (endpoint != null) "Configured" else "Set SUWAYOMI_URL to connect manga extensions")
+    override fun status(): RuntimeStatus = try {
+        val count = client?.sources()?.size
+        RuntimeStatus(id, kind, count != null, if (count != null) "Connected · $count sources" else "Not configured")
+    } catch (error: Exception) {
+        RuntimeStatus(id, kind, false, "Unavailable: ${error.message ?: "connection failed"}")
+    }
 }
 
 class AniyomiCompatibilityRuntime : ExtensionRuntime {

@@ -52,4 +52,50 @@ import kotlinx.serialization.Serializable
 @Serializable enum class MediaKind { ANIME, MANGA }
 @Serializable data class ErrorResponse(val code: String, val message: String, val retryable: Boolean = false)
 
+@Serializable data class MangaSource(
+    val id: String,
+    val name: String,
+    val displayName: String,
+    val language: String,
+    val supportsLatest: Boolean,
+    val configurable: Boolean,
+    val mature: Boolean,
+)
+
+@Serializable data class MangaSummary(
+    val id: Int,
+    val sourceId: String,
+    val title: String,
+    val author: String? = null,
+    val artist: String? = null,
+    val description: String? = null,
+    val status: String? = null,
+    val genres: List<String> = emptyList(),
+)
+
+@Serializable data class MangaSearchResponse(
+    val items: List<MangaSummary>,
+    val hasNextPage: Boolean,
+)
+
+@Serializable data class MangaChapter(
+    val id: Int,
+    val index: Int,
+    val name: String,
+    val number: Float,
+    val scanlator: String? = null,
+    val uploadDate: Long,
+    val read: Boolean,
+    val lastPageRead: Int,
+    val pageCount: Int,
+)
+
+@Serializable data class MangaChapterPages(
+    val mangaId: Int,
+    val chapterIndex: Int,
+    val chapterName: String,
+    val pageCount: Int,
+    val pageUrls: List<String>,
+)
+
 const val DISCLAIMER = "Third-party repositories and extensions are not created, reviewed, hosted, endorsed, supported, or controlled by HAO. Their developers and content providers are unaffiliated with HAO. Availability, safety, and legality are not guaranteed. You are responsible for using only content you are authorized to access and for complying with applicable laws and provider terms."

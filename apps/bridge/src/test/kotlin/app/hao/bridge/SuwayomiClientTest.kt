@@ -1,0 +1,22 @@
+package app.hao.bridge
+
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+
+class SuwayomiClientTest {
+    @Test
+    fun `accepts loopback http and normalizes trailing slash`() {
+        assertEquals("http://127.0.0.1:4567/", SuwayomiClient.validateEndpoint("http://127.0.0.1:4567").toString())
+    }
+
+    @Test
+    fun `rejects non-loopback plain http`() {
+        assertFailsWith<IllegalArgumentException> { SuwayomiClient.validateEndpoint("http://example.com") }
+    }
+
+    @Test
+    fun `rejects embedded credentials`() {
+        assertFailsWith<IllegalArgumentException> { SuwayomiClient.validateEndpoint("https://user:secret@example.com") }
+    }
+}
