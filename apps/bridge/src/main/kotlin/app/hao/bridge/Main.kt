@@ -24,7 +24,7 @@ fun main() {
     )
     val suwayomiManager = SuwayomiManager.default(suwayomi)
     val animeHost = AnimeHostManager.default()
-    val runtimes = listOf(SuwayomiRuntime(suwayomiManager), AnimeHostExtensionRuntime(animeHost), AniyomiCompatibilityRuntime())
+    val runtimes = listOf(SuwayomiRuntime(suwayomiManager), AnimeHostExtensionRuntime(animeHost), AniyomiCompatibilityRuntime(animeHost))
     val port = System.getenv("HAO_BRIDGE_PORT")?.toIntOrNull() ?: 4568
     val app = Javalin.create { config ->
         config.jsonMapper(JavalinJackson())
@@ -71,6 +71,7 @@ fun main() {
     app.post("/v1/manga/runtime/start") { ctx -> requirePaired(ctx, pairing); ctx.json(suwayomiManager.ensureStarted()) }
     app.post("/v1/manga/runtime/sync") { ctx -> requirePaired(ctx, pairing); ctx.json(suwayomiManager.sync(extensions.listInstalled(storageRoot))) }
     app.get("/v1/anime/catalog") { ctx -> requirePaired(ctx, pairing); ctx.json(animeHost.catalog()) }
+    app.get("/v1/anime/extensions/probe") { ctx -> requirePaired(ctx, pairing); ctx.json(animeHost.probes()) }
     app.get("/v1/anime/{animeId}/episodes") { ctx -> requirePaired(ctx, pairing); ctx.json(animeHost.episodes(ctx.pathParam("animeId"))) }
     app.get("/v1/anime/episodes/{episodeId}/servers") { ctx -> requirePaired(ctx, pairing); ctx.json(animeHost.servers(ctx.pathParam("episodeId"))) }
     app.get("/v1/anime/episodes/{episodeId}/streams") { ctx -> requirePaired(ctx, pairing); ctx.json(animeHost.streams(ctx.pathParam("episodeId"), ctx.queryParam("serverId") ?: "")) }

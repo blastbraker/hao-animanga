@@ -10,6 +10,9 @@ version = "0.1.0"
 repositories {
     google()
     mavenCentral()
+    maven("https://jitpack.io") {
+        metadataSources { artifact() }
+    }
 }
 
 dependencies {
@@ -19,6 +22,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
     implementation("com.android.tools.build:apksig:9.2.1")
     implementation("net.dongliu:apk-parser:2.6.10")
+    runtimeOnly("com.github.aniyomiorg:extensions-lib:14@aar")
     implementation("org.slf4j:slf4j-simple:2.0.17")
     testImplementation(kotlin("test"))
 }

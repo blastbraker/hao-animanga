@@ -18,6 +18,7 @@ class AnimeHostClient(port: Int, private val token: String) {
 
     fun isHealthy(): Boolean = runCatching { getText("health"); true }.getOrDefault(false)
     fun catalog(): List<AnimeCatalogItem> = decode(getText("catalog"))
+    fun probes(): List<AniyomiApkProbeResult> = decode(getText("extensions/probe"))
     fun episodes(animeId: String): List<AnimeEpisode> = decode(getText("anime/${segment(animeId)}/episodes"))
     fun servers(episodeId: String): List<AnimeServer> = decode(getText("episodes/${segment(episodeId)}/servers"))
     fun streams(episodeId: String, serverId: String): List<AnimeStream> = decode(getText("episodes/${segment(episodeId)}/streams?serverId=${segment(serverId)}"))

@@ -13,6 +13,9 @@ class AnimeHostManager(
     private val dataRoot: Path,
     private val javaExecutable: Path,
     private val classpath: String,
+    private val extensionRoot: Path,
+    private val compatibilityJar: Path,
+    private val compatibilityJarSha256: String,
 ) {
     private val lifecycleLock = Any()
     private val token = ByteArray(32).also(SecureRandom()::nextBytes).let { Base64.getUrlEncoder().withoutPadding().encodeToString(it) }
@@ -42,6 +45,7 @@ class AnimeHostManager(
     }
 
     fun catalog(): List<AnimeCatalogItem> = withHost { client.catalog() }
+    fun probes(): List<AniyomiApkProbeResult> = withHost { client.probes() }
     fun episodes(animeId: String): List<AnimeEpisode> = withHost { client.episodes(animeId) }
     fun servers(episodeId: String): List<AnimeServer> = withHost { client.servers(episodeId) }
     fun streams(episodeId: String, serverId: String): List<AnimeStream> = withHost { client.streams(episodeId, serverId) }
@@ -74,13 +78,16 @@ class AnimeHostManager(
         Files.createDirectories(dataRoot)
         val logs = dataRoot.resolve("logs")
         Files.createDirectories(logs)
+        val childClasspath = if (Files.isRegularFile(compatibilityJar) && Security.sha256(compatibilityJar) == compatibilityJarSha256) {
+            classpath + java.io.File.pathSeparator + compatibilityJar
+        } else classpath
         val command = listOf(
             javaExecutable.toString(),
             "-Xms32m",
             "-Xmx256m",
             "-XX:+ExitOnOutOfMemoryError",
             "-cp",
-            classpath,
+            childClasspath,
             "app.hao.bridge.AnimeHostMainKt",
         )
         val builder = ProcessBuilder(command)
@@ -95,6 +102,7 @@ class AnimeHostManager(
         environment["HAO_ANIME_HOST_PORT"] = port.toString()
         environment["HAO_ANIME_HOST_DATA"] = dataRoot.toString()
         environment["HAO_ANIME_HOST_PARENT_PID"] = ProcessHandle.current().pid().toString()
+        environment["HAO_EXTENSION_ROOT"] = extensionRoot.toString()
         return builder.start()
     }
 
@@ -108,6 +116,9 @@ class AnimeHostManager(
                 Path.of(System.getenv("HAO_ANIME_HOST_DATA") ?: home.resolve(".hao/bridge/anime-host").toString()).toAbsolutePath().normalize(),
                 javaHome.resolve("bin").resolve(executableName).toAbsolutePath().normalize(),
                 System.getProperty("java.class.path"),
+                Path.of(System.getenv("HAO_BRIDGE_DATA") ?: home.resolve(".hao/bridge/extensions").toString()).toAbsolutePath().normalize(),
+                Path.of(System.getenv("HAO_SUWAYOMI_JAR") ?: home.resolve(".hao/suwayomi/Suwayomi-Server-v2.3.2238.jar").toString()).toAbsolutePath().normalize(),
+                System.getenv("HAO_SUWAYOMI_SHA256") ?: "9ee45c37dac659a284e4a1885dcddec54a7018ead2f18620bcb1fd29751c9786",
             )
         }
     }

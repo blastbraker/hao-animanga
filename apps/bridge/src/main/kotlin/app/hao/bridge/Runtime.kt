@@ -27,10 +27,22 @@ class SuwayomiRuntime(private val manager: SuwayomiManager?) : ExtensionRuntime 
     }
 }
 
-class AniyomiCompatibilityRuntime : ExtensionRuntime {
+class AniyomiCompatibilityRuntime(private val manager: AnimeHostManager) : ExtensionRuntime {
     override val id = "aniyomi-compat"
     override val kind = MediaKind.ANIME
-    override fun status() = RuntimeStatus(id, kind, false, "Compatibility host scaffolded; enable only after fixture-APK conformance and sandbox tests pass")
+    override fun status(): RuntimeStatus {
+        val probes = runCatching { manager.probes() }.getOrElse {
+            return RuntimeStatus(id, kind, false, "APK compatibility probe unavailable: ${it.message ?: "host failure"}")
+        }
+        val linked = probes.count { it.compatible }
+        val failed = probes.size - linked
+        val message = when {
+            probes.isEmpty() -> "No enabled anime APKs are installed"
+            failed > 0 -> "$linked APK(s) linked; $failed failed compatibility checks. Execution remains gated"
+            else -> "$linked APK(s) passed signature, manifest, API v14, and Dex linkage checks. Execution remains gated"
+        }
+        return RuntimeStatus(id, kind, false, message)
+    }
 }
 
 class AnimeHostExtensionRuntime(private val manager: AnimeHostManager) : ExtensionRuntime {

@@ -8,10 +8,11 @@ import java.nio.file.StandardOpenOption
 import java.time.Instant
 
 object AnimeHostServer {
-    fun create(token: String, dataRoot: Path): Javalin {
+    fun create(token: String, dataRoot: Path, extensionRoot: Path = dataRoot.resolve("extensions")): Javalin {
         require(token.length >= 32) { "Anime host token is invalid" }
         Files.createDirectories(dataRoot)
         val fixture = FixtureAnimeRuntime()
+        val aniyomiProbe = AniyomiApkProbe(extensionRoot, dataRoot)
         val app = Javalin.create { config ->
             config.jsonMapper(JavalinJackson())
             config.http.defaultContentType = "application/json"
@@ -26,6 +27,7 @@ object AnimeHostServer {
         app.exception(Exception::class.java) { error, ctx -> error.printStackTrace(); ctx.status(503).json(ErrorResponse("UNAVAILABLE", "Anime fixture host failed", true)) }
         app.get("/v1/health") { ctx -> ctx.json(HealthResponse("ok", "0.1.0", true)) }
         app.get("/v1/catalog") { ctx -> ctx.json(fixture.catalog()) }
+        app.get("/v1/extensions/probe") { ctx -> ctx.json(aniyomiProbe.probeInstalled()) }
         app.get("/v1/anime/{animeId}/episodes") { ctx -> ctx.json(fixture.episodes(ctx.pathParam("animeId"))) }
         app.get("/v1/episodes/{episodeId}/servers") { ctx -> ctx.json(fixture.servers(ctx.pathParam("episodeId"))) }
         app.get("/v1/episodes/{episodeId}/streams") { ctx -> ctx.json(fixture.streams(ctx.pathParam("episodeId"), ctx.queryParam("serverId") ?: "")) }

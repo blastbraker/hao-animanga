@@ -25,6 +25,13 @@ class AnimeHostServerTest {
             val authorized = client.send(HttpRequest.newBuilder(endpoint).header("Authorization", "Bearer $token").GET().build(), HttpResponse.BodyHandlers.ofString())
             assertEquals(200, authorized.statusCode())
             assertTrue(authorized.body().contains("hao-anime-fixture"))
+            val probes = client.send(
+                HttpRequest.newBuilder(URI("http://127.0.0.1:${app.port()}/v1/extensions/probe"))
+                    .header("Authorization", "Bearer $token").GET().build(),
+                HttpResponse.BodyHandlers.ofString(),
+            )
+            assertEquals(200, probes.statusCode())
+            assertEquals("[]", probes.body())
         } finally {
             app.stop()
             Files.walk(root).use { paths -> paths.sorted(Comparator.reverseOrder()).forEach { Files.deleteIfExists(it) } }

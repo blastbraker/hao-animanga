@@ -103,6 +103,15 @@ import kotlinx.serialization.Serializable
     val subtitles: List<AnimeSubtitle> = emptyList(),
 )
 
+@Serializable data class AniyomiApkProbeResult(
+    val packageName: String,
+    val displayName: String,
+    val version: String,
+    val compatible: Boolean,
+    val sourceClasses: List<String> = emptyList(),
+    val message: String,
+)
+
 @Serializable data class MangaSource(
     val id: String,
     val name: String,
