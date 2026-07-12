@@ -11,6 +11,7 @@ type MangaSearchResponse = { items: MangaSummary[]; hasNextPage: boolean };
 type MangaChapter = { id: number; index: number; name: string; number: number; scanlator?: string; uploadDate: number; read: boolean; lastPageRead: number; pageCount: number };
 type MangaChapterPages = { mangaId: number; chapterIndex: number; chapterName: string; pageCount: number; pageUrls: string[] };
 type BrowseMode = "popular" | "latest";
+type ReadingMode = "webtoon" | "ltr" | "rtl";
 
 export default function ReaderPage() {
   const [bridge, setBridge] = useState("");
@@ -22,12 +23,31 @@ export default function ReaderPage() {
   const [selected, setSelected] = useState<MangaSummary | null>(null);
   const [chapters, setChapters] = useState<MangaChapter[]>([]);
   const [pages, setPages] = useState<MangaChapterPages | null>(null);
+  const [readingMode, setReadingMode] = useState<ReadingMode>("webtoon");
+  const [pageIndex, setPageIndex] = useState(0);
   const [busy, setBusy] = useState("Connecting to your Bridge…");
   const [error, setError] = useState("");
 
   const activeSource = useMemo(() => sources.find((source) => source.id === sourceId), [sourceId, sources]);
   const currentChapter = useMemo(() => chapters.find((chapter) => chapter.index === pages?.chapterIndex), [chapters, pages]);
   const chapterPosition = currentChapter ? chapters.indexOf(currentChapter) : -1;
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem("hao:manga-reading-mode");
+    if (saved === "webtoon" || saved === "ltr" || saved === "rtl") setReadingMode(saved);
+  }, []);
+
+  useEffect(() => {
+    if (!pages || readingMode === "webtoon") return;
+    const totalPages = pages.pageCount;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      const forward = readingMode === "rtl" ? event.key === "ArrowLeft" : event.key === "ArrowRight";
+      setPageIndex((current) => Math.max(0, Math.min(totalPages - 1, current + (forward ? 1 : -1))));
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [pages, readingMode]);
 
   async function bridgeRequest<T>(path: string): Promise<T> {
     if (!bridge) throw new Error("Pair HAO Bridge in Settings first.");
@@ -109,6 +129,7 @@ export default function ReaderPage() {
     setBusy(`Loading ${chapter.name}…`); setError("");
     try {
       setPages(await bridgeRequest<MangaChapterPages>(`/v1/manga/${selected.id}/chapter/${chapter.index}/pages`));
+      setPageIndex(0);
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (cause) { setError(message(cause)); }
     finally { setBusy(""); }
@@ -119,23 +140,27 @@ export default function ReaderPage() {
     if (chapter) void openChapter(chapter);
   }
 
+  function changeReadingMode(mode: ReadingMode) {
+    setReadingMode(mode);
+    setPageIndex(0);
+    window.localStorage.setItem("hao:manga-reading-mode", mode);
+  }
+
   function resetTitle() { setSelected(null); setChapters([]); setPages(null); setError(""); }
 
   if (pages && selected) return <div className="reader-page live-reader">
     <header className="reader-toolbar">
       <button onClick={()=>setPages(null)}><ChevronLeft/> Chapters</button>
       <div><b>{selected.title}</b><span>{pages.chapterName}</span></div>
-      <span>{pages.pageCount} pages</span>
+      <div className="reader-mode-controls"><select aria-label="Reading mode" value={readingMode} onChange={(event)=>changeReadingMode(event.target.value as ReadingMode)}><option value="webtoon">Webtoon</option><option value="ltr">Left to right</option><option value="rtl">Right to left</option></select><span>{readingMode === "webtoon" ? `${pages.pageCount} pages` : `${pageIndex + 1} / ${pages.pageCount}`}</span></div>
     </header>
     {busy && <ReaderStatus text={busy}/>} {error && <ReaderError text={error}/>}
-    <main className="manga-pages" aria-label={`${selected.title}, ${pages.chapterName}`}>
-      {pages.pageUrls.map((url, index)=><img key={url} loading={index < 2 ? "eager" : "lazy"} src={`${bridge}${url}`} alt={`Page ${index + 1} of ${pages.pageCount}`}/>) }
+    <main className={`manga-pages ${readingMode === "webtoon" ? "webtoon" : "paged"}`} dir={readingMode === "rtl" ? "rtl" : "ltr"} aria-label={`${selected.title}, ${pages.chapterName}`}>
+      {readingMode === "webtoon" ? pages.pageUrls.map((url, index)=><img key={url} loading={index < 2 ? "eager" : "lazy"} src={`${bridge}${url}`} alt={`Page ${index + 1} of ${pages.pageCount}`}/>) : <img key={pages.pageUrls[pageIndex]} src={`${bridge}${pages.pageUrls[pageIndex]}`} alt={`Page ${pageIndex + 1} of ${pages.pageCount}`}/>}
     </main>
-    <footer className="reader-footer chapter-navigation">
-      <button disabled={chapterPosition >= chapters.length - 1} onClick={()=>openAdjacentChapter(1)}><ChevronLeft/> Previous chapter</button>
-      <span>{pages.chapterName}</span>
-      <button disabled={chapterPosition <= 0} onClick={()=>openAdjacentChapter(-1)}>Next chapter <ChevronRight/></button>
-    </footer>
+    {readingMode === "webtoon" ? <footer className="reader-footer chapter-navigation">
+      <button disabled={chapterPosition >= chapters.length - 1} onClick={()=>openAdjacentChapter(1)}><ChevronLeft/> Previous chapter</button><span>{pages.chapterName}</span><button disabled={chapterPosition <= 0} onClick={()=>openAdjacentChapter(-1)}>Next chapter <ChevronRight/></button>
+    </footer> : <PagedNavigation mode={readingMode} pageIndex={pageIndex} pageCount={pages.pageCount} setPageIndex={setPageIndex}/>}
   </div>;
 
   return <div className="page inner-page manga-browser">
@@ -172,3 +197,9 @@ export default function ReaderPage() {
 function ReaderStatus({ text }: { text: string }) { return <p className="reader-message" role="status"><LoaderCircle className="spin"/> {text}</p>; }
 function ReaderError({ text }: { text: string }) { return <p className="reader-message error" role="alert"><TriangleAlert/> {text}</p>; }
 function message(cause: unknown) { return cause instanceof Error ? cause.message : "The manga source could not complete this request."; }
+
+function PagedNavigation({ mode, pageIndex, pageCount, setPageIndex }: { mode: ReadingMode; pageIndex: number; pageCount: number; setPageIndex: (value: number) => void }) {
+  const previous = mode === "rtl" ? <button disabled={pageIndex === 0} onClick={()=>setPageIndex(pageIndex - 1)}>Previous page <ChevronRight/></button> : <button disabled={pageIndex === 0} onClick={()=>setPageIndex(pageIndex - 1)}><ChevronLeft/> Previous page</button>;
+  const next = mode === "rtl" ? <button disabled={pageIndex >= pageCount - 1} onClick={()=>setPageIndex(pageIndex + 1)}><ChevronLeft/> Next page</button> : <button disabled={pageIndex >= pageCount - 1} onClick={()=>setPageIndex(pageIndex + 1)}>Next page <ChevronRight/></button>;
+  return <footer className={`reader-footer page-navigation ${mode}`}>{mode === "rtl" ? next : previous}<span>Page {pageIndex + 1} of {pageCount}</span>{mode === "rtl" ? previous : next}</footer>;
+}

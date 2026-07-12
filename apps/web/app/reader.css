@@ -26,9 +26,15 @@
 .chapter-list > button span { display: grid; gap: 4px; }
 .chapter-list small { color: var(--muted); }
 .live-reader .reader-toolbar > span { color: var(--muted); }
+.reader-mode-controls { display: flex !important; align-items: center; gap: 10px; }
+.reader-mode-controls select { background: var(--panel2); border: 1px solid var(--line); color: var(--text); border-radius: 9px; padding: 8px 10px; }
 .manga-pages { width: min(100%, 1100px); margin: 28px auto; display: grid; justify-items: center; }
 .manga-pages img { display: block; max-width: 100%; height: auto; background: #111; }
+.manga-pages.webtoon { gap: 0; }
+.manga-pages.paged { min-height: calc(100vh - 245px); place-items: center; padding: 12px 24px; }
+.manga-pages.paged img { max-height: calc(100vh - 245px); object-fit: contain; }
 .chapter-navigation button:disabled { opacity: .35; }
+.page-navigation button:disabled { opacity: .35; }
 @media(max-width:900px){.manga-results{grid-template-columns:repeat(3,1fr)}}
-@media(max-width:760px){.manga-search{grid-template-columns:1fr auto}.manga-search select{display:block;grid-column:1/-1;height:42px;grid-row:2}.manga-results{grid-template-columns:repeat(2,1fr);gap:13px}.manga-title-copy{grid-template-columns:105px 1fr;gap:16px}.manga-title-copy h2{font-size:28px}.manga-title-copy p{grid-column:1/-1}.manga-pages{margin:12px auto}.chapter-navigation{font-size:9px}.live-reader .reader-toolbar>span{display:none}}
+@media(max-width:760px){.manga-search{grid-template-columns:1fr auto}.manga-search select{display:block;grid-column:1/-1;height:42px;grid-row:2}.manga-results{grid-template-columns:repeat(2,1fr);gap:13px}.manga-title-copy{grid-template-columns:105px 1fr;gap:16px}.manga-title-copy h2{font-size:28px}.manga-title-copy p{grid-column:1/-1}.manga-pages{margin:12px auto}.chapter-navigation,.page-navigation{font-size:9px}.reader-mode-controls{gap:5px}.reader-mode-controls select{max-width:122px;padding:7px}.reader-mode-controls span{display:none}.live-reader .reader-toolbar>span{display:none}}
 @media(prefers-reduced-motion:reduce){.spin{animation:none}}
