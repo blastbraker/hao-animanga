@@ -45,7 +45,21 @@ class AniyomiApkProbe(
             URLClassLoader(arrayOf(translated.toUri().toURL(), apiJar.toUri().toURL()), javaClass.classLoader).use { loader ->
                 manifest.animeSourceClasses.forEach { Class.forName(it, false, loader) }
             }
-            AniyomiApkProbeResult(installed.packageName, installed.displayName, installed.version, true, manifest.animeSourceClasses, "Signature, manifest, API v14, and Dex class linkage passed")
+            val runtimeLink = runCatching {
+                URLClassLoader(arrayOf(translated.toUri().toURL()), javaClass.classLoader).use { loader ->
+                    manifest.animeSourceClasses.forEach { Class.forName(it, false, loader) }
+                }
+            }
+            AniyomiApkProbeResult(
+                installed.packageName,
+                installed.displayName,
+                installed.version,
+                true,
+                manifest.animeSourceClasses,
+                "Signature, manifest, API v14, and Dex class linkage passed",
+                runtimeLink.isSuccess,
+                runtimeLink.fold({ "Concrete HAO runtime linkage passed; construction remains gated" }, { it.message ?: it.javaClass.simpleName }),
+            )
         } catch (error: Throwable) {
             val packageName = installed?.packageName ?: directory.fileName.toString()
             AniyomiApkProbeResult(packageName, installed?.displayName ?: packageName, installed?.version ?: "unknown", false, message = error.message ?: error.javaClass.simpleName)

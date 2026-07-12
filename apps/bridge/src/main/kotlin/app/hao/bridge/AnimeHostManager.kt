@@ -3,6 +3,7 @@ package app.hao.bridge
 import com.android.apksig.ApkVerifier
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.StandardOpenOption
 import java.security.SecureRandom
 import java.time.Duration
 import java.time.Instant
@@ -18,14 +19,19 @@ class AnimeHostManager(
     private val compatibilityJar: Path,
     private val compatibilityJarSha256: String,
     private val fixtureSignerFingerprint: String?,
+    private val allowedExtensionHosts: String?,
 ) {
     private val lifecycleLock = Any()
     private val token = ByteArray(32).also(SecureRandom()::nextBytes).let { Base64.getUrlEncoder().withoutPadding().encodeToString(it) }
     private val client = AnimeHostClient(port, token)
     @Volatile private var process: Process? = null
+    @Volatile private var windowsJob: WindowsJobObject? = null
 
     fun status(): RuntimeStatus = if (client.isHealthy()) {
-        RuntimeStatus("aniyomi-fixture-host", MediaKind.ANIME, true, "Isolated fixture host is running")
+        val containment = if (System.getProperty("os.name").lowercase().contains("win")) {
+            if (windowsJob != null) "; Windows Job Object active" else "; Windows containment unavailable"
+        } else ""
+        RuntimeStatus("aniyomi-fixture-host", MediaKind.ANIME, true, "Isolated fixture host is running$containment")
     } else {
         RuntimeStatus("aniyomi-fixture-host", MediaKind.ANIME, false, if (Files.isRegularFile(javaExecutable)) "Isolated fixture host is stopped" else "Java runtime is unavailable")
     }
@@ -57,6 +63,8 @@ class AnimeHostManager(
         synchronized(lifecycleLock) {
             process?.destroy()
             if (process?.waitFor(2, TimeUnit.SECONDS) == false) process?.destroyForcibly()
+            windowsJob?.close()
+            windowsJob = null
             process = null
         }
     }
@@ -69,6 +77,8 @@ class AnimeHostManager(
             if (first is AnimeHostRequestException && first.status in 400..499 && first.status != 401) throw first
             synchronized(lifecycleLock) {
                 process?.destroyForcibly()
+                windowsJob?.close()
+                windowsJob = null
                 process = null
             }
             require(ensureStarted().available) { "Isolated anime fixture host could not recover" }
@@ -78,6 +88,9 @@ class AnimeHostManager(
 
     private fun startProcess(): Process {
         Files.createDirectories(dataRoot)
+        val startGate = dataRoot.resolve(".start-${java.util.UUID.randomUUID()}.gate").toAbsolutePath().normalize()
+        require(startGate.parent == dataRoot.toAbsolutePath().normalize()) { "Invalid anime host startup gate" }
+        Files.deleteIfExists(startGate)
         val logs = dataRoot.resolve("logs")
         Files.createDirectories(logs)
         val childClasspath = if (Files.isRegularFile(compatibilityJar) && Security.sha256(compatibilityJar) == compatibilityJarSha256) {
@@ -105,8 +118,21 @@ class AnimeHostManager(
         environment["HAO_ANIME_HOST_DATA"] = dataRoot.toString()
         environment["HAO_ANIME_HOST_PARENT_PID"] = ProcessHandle.current().pid().toString()
         environment["HAO_EXTENSION_ROOT"] = extensionRoot.toString()
+        environment["HAO_ANIME_HOST_START_GATE"] = startGate.toString()
         fixtureSignerFingerprint?.let { environment["HAO_DEV_FIXTURE_SIGNER_SHA256"] = it }
-        return builder.start()
+        allowedExtensionHosts?.takeIf(String::isNotBlank)?.let { environment["HAO_ANIME_ALLOWED_HOSTS"] = it }
+        val child = builder.start()
+        if (System.getProperty("os.name").lowercase().contains("win")) {
+            try {
+                windowsJob?.close()
+                windowsJob = WindowsJobObject.create().also { it.assign(child.pid()) }
+            } catch (error: Throwable) {
+                child.destroyForcibly()
+                throw IllegalStateException("Windows Job Object containment failed", error)
+            }
+        }
+        Files.writeString(startGate, token, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
+        return child
     }
 
     companion object {
@@ -127,6 +153,7 @@ class AnimeHostManager(
                 Path.of(System.getenv("HAO_SUWAYOMI_JAR") ?: home.resolve(".hao/suwayomi/Suwayomi-Server-v2.3.2238.jar").toString()).toAbsolutePath().normalize(),
                 System.getenv("HAO_SUWAYOMI_SHA256") ?: "9ee45c37dac659a284e4a1885dcddec54a7018ead2f18620bcb1fd29751c9786",
                 fixtureSigner,
+                System.getenv("HAO_ANIME_ALLOWED_HOSTS"),
             )
         }
     }

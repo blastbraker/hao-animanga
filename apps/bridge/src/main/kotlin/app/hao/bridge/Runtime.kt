@@ -36,10 +36,11 @@ class AniyomiCompatibilityRuntime(private val manager: AnimeHostManager) : Exten
         }
         val linked = probes.count { it.compatible }
         val failed = probes.size - linked
+        val runtimeLinked = probes.count { it.runtimeCompatible }
         val message = when {
             probes.isEmpty() -> "No enabled anime APKs are installed"
-            failed > 0 -> "$linked APK(s) linked; $failed failed compatibility checks. Execution remains gated"
-            else -> "$linked APK(s) passed signature, manifest, API v14, and Dex linkage checks. Execution remains gated"
+            failed > 0 -> "$linked APK(s) API-linked; $runtimeLinked runtime-linked; $failed failed checks. Execution remains gated"
+            else -> "$linked APK(s) passed API checks; $runtimeLinked linked to the concrete runtime. Execution remains gated"
         }
         return RuntimeStatus(id, kind, false, message)
     }

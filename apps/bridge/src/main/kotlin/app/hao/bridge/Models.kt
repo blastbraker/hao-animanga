@@ -110,6 +110,8 @@ import kotlinx.serialization.Serializable
     val compatible: Boolean,
     val sourceClasses: List<String> = emptyList(),
     val message: String,
+    val runtimeCompatible: Boolean = false,
+    val runtimeMessage: String = "Runtime linkage was not checked",
 )
 
 @Serializable data class MangaSource(
