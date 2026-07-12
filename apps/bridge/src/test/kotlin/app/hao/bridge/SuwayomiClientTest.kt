@@ -19,4 +19,11 @@ class SuwayomiClientTest {
     fun `rejects embedded credentials`() {
         assertFailsWith<IllegalArgumentException> { SuwayomiClient.validateEndpoint("https://user:secret@example.com") }
     }
+
+    @Test
+    fun `upstream exception retains status without exposing response body`() {
+        val error = SuwayomiUpstreamException(500)
+        assertEquals(500, error.status)
+        assertEquals("Suwayomi returned HTTP 500", error.message)
+    }
 }

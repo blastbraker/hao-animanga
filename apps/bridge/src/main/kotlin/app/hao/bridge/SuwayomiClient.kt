@@ -52,6 +52,8 @@ private val suwayomiJson = Json { ignoreUnknownKeys = true }
 
 data class BinaryResponse(val contentType: String, val body: InputStream)
 
+class SuwayomiUpstreamException(val status: Int) : IllegalStateException("Suwayomi returned HTTP $status")
+
 class SuwayomiClient(
     endpoint: String,
     username: String? = null,
@@ -86,9 +88,15 @@ class SuwayomiClient(
 
     fun chapters(mangaId: Int): List<MangaChapter> {
         require(mangaId > 0) { "Invalid manga id" }
-        return decode<List<ChapterDto>>(getText("manga/$mangaId/chapters"))
-            .map(::chapter)
-            .sortedByDescending { it.index }
+        return try {
+            decode<List<ChapterDto>>(getText("manga/$mangaId/chapters"))
+                .map(::chapter)
+                .sortedByDescending { it.index }
+        } catch (error: SuwayomiUpstreamException) {
+            // Suwayomi's legacy REST endpoint reports an empty upstream chapter
+            // list as HTTP 500 instead of returning an empty JSON array.
+            if (error.status == 500) emptyList() else throw error
+        }
     }
 
     fun pages(mangaId: Int, chapterIndex: Int): MangaChapterPages {
@@ -117,15 +125,15 @@ class SuwayomiClient(
 
     private fun getText(path: String): String {
         val response = http.send(request(path).build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
-        requireSuccess(response.statusCode(), response.body())
+        requireSuccess(response.statusCode())
         return response.body()
     }
 
     private fun getBinary(path: String): BinaryResponse {
         val response = http.send(request(path).build(), HttpResponse.BodyHandlers.ofInputStream())
         if (response.statusCode() !in 200..299) {
-            val body = response.body().bufferedReader().use { it.readText().take(500) }
-            requireSuccess(response.statusCode(), body)
+            response.body().close()
+            requireSuccess(response.statusCode())
         }
         return BinaryResponse(response.headers().firstValue("content-type").orElse("application/octet-stream"), response.body())
     }
@@ -137,10 +145,9 @@ class SuwayomiClient(
         return builder
     }
 
-    private fun requireSuccess(status: Int, body: String) {
+    private fun requireSuccess(status: Int) {
         if (status !in 200..299) {
-            val detail = body.take(240).ifBlank { "No response body" }
-            throw IllegalStateException("Suwayomi returned HTTP $status: $detail")
+            throw SuwayomiUpstreamException(status)
         }
     }
 

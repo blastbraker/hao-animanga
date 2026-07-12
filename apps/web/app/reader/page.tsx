@@ -76,7 +76,7 @@ export default function ReaderPage() {
         bridgeRequest<MangaChapter[]>(`/v1/manga/${item.id}/chapters`),
       ]);
       setSelected(details); setChapters(chapterList);
-      if (!chapterList.length) setError("This source did not return any chapters for the title.");
+      if (!chapterList.length) setError(`No readable ${activeSource?.language.toUpperCase() ?? "selected-language"} chapters are available from ${activeSource?.name ?? "this source"} for this title. Try another result or source.`);
     } catch (cause) { setError(message(cause)); }
     finally { setBusy(""); }
   }
