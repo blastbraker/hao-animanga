@@ -20,6 +20,17 @@
 
 HAO must not ship third-party repository URLs as defaults. Source-specific support belongs to the source or repository maintainer.
 
+## Local extension installation boundary
+
+- Repository validation and APK installation are separate acknowledgements.
+- APK downloads remain on the repository host, reject redirects, stream into a ten-minute quarantine, and stop at 50 MiB.
+- The Bridge requires a valid APK archive, verified Android signing certificate, matching manifest package identity, SHA-256 digest, and readable permission list before presenting installation confirmation.
+- Signer and permission changes are compared with the locally installed record and highlighted for renewed acknowledgement.
+- Installation stores the package and metadata locally. It does not authorize or start either extension runtime.
+- Installed packages can be disabled or removed without changing HAO's canonical library data.
+
+The current Bridge still requires device-bound request authentication, persistent pairing state, DNS pinning/revalidation at connection time, per-runtime OS sandboxing, and fixture-APK conformance before third-party extension execution can be enabled.
+
 ## Reporting
 
 Do not include secrets, private EPUBs, provider tokens, or stream URLs in a report. Include the affected component, reproduction steps using fixtures, and the relevant request ID.

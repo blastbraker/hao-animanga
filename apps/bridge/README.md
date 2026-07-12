@@ -12,4 +12,6 @@ gradle -p apps/bridge run
 
 The service binds to `127.0.0.1:4568` by default. Open the PWA's **Settings** page to pair the device and validate a repository. Put the Bridge behind user-controlled HTTPS/private networking for access from other devices.
 
-Pairing codes are single-use and expire after ten minutes. Repository indexes must use HTTPS, cannot target private network addresses, and are downloaded and parsed by the Bridge rather than HAO's cloud. The current milestone previews and records compatible package metadata; APK download, signer verification, installation, updates, and execution remain disabled.
+Pairing codes are single-use and expire after ten minutes. Repository indexes must use HTTPS, cannot target private network addresses, and are downloaded and parsed by the Bridge rather than HAO's cloud.
+
+Extension installation is a two-step local operation. **Review** downloads an APK into a ten-minute quarantine, caps it at 50 MiB, requires it to remain on the repository host, verifies the Android signing certificate, checks the manifest package identity, extracts declared permissions, and records SHA-256. **Install locally** requires permission acknowledgement and renewed signer acknowledgement when an installed package changes signing identity. The Bridge persists installation metadata under `%USERPROFILE%\.hao\bridge\extensions` by default and supports enable, disable, and removal operations. Installation does not execute an APK; Suwayomi and Aniyomi runtime execution remain separately gated.

@@ -16,8 +16,9 @@ private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 fun main() {
     val pairing = AtomicReference<PairResponse?>(null)
     val repositories = RepositoryService()
+    val extensions = ExtensionManager()
     val runtimes = listOf(SuwayomiRuntime(System.getenv("SUWAYOMI_URL")), AniyomiCompatibilityRuntime())
-    val storageRoot = Path.of(System.getenv("HAO_BRIDGE_DATA") ?: "data/extensions").toAbsolutePath().normalize()
+    val storageRoot = Path.of(System.getenv("HAO_BRIDGE_DATA") ?: Path.of(System.getProperty("user.home"), ".hao", "bridge", "extensions").toString()).toAbsolutePath().normalize()
     val port = System.getenv("HAO_BRIDGE_PORT")?.toIntOrNull() ?: 4568
     val app = Javalin.create { config ->
         config.jsonMapper(JavalinJackson())
@@ -36,7 +37,11 @@ fun main() {
         pairing.set(result); ctx.status(201).contentType("application/json").result(json.encodeToString(result))
     }
     app.post("/v1/repositories/preview") { ctx -> requirePaired(ctx, pairing); ctx.contentType("application/json").result(json.encodeToString(repositories.preview(json.decodeFromString<RepositoryRequest>(ctx.body())))) }
-    app.post("/v1/extensions/install") { ctx -> requirePaired(ctx, pairing); ctx.status(201).contentType("application/json").result(json.encodeToString(repositories.install(json.decodeFromString<InstallRequest>(ctx.body()), storageRoot))) }
+    app.get("/v1/extensions") { ctx -> requirePaired(ctx, pairing); ctx.contentType("application/json").result(json.encodeToString(extensions.listInstalled(storageRoot))) }
+    app.post("/v1/extensions/inspect") { ctx -> requirePaired(ctx, pairing); ctx.contentType("application/json").result(json.encodeToString(extensions.inspect(json.decodeFromString<InspectExtensionRequest>(ctx.body()), storageRoot))) }
+    app.post("/v1/extensions/install") { ctx -> requirePaired(ctx, pairing); ctx.status(201).contentType("application/json").result(json.encodeToString(extensions.install(json.decodeFromString<ConfirmInstallRequest>(ctx.body()), storageRoot))) }
+    app.post("/v1/extensions/state") { ctx -> requirePaired(ctx, pairing); ctx.contentType("application/json").result(json.encodeToString(extensions.setEnabled(json.decodeFromString<ExtensionStateRequest>(ctx.body()), storageRoot))) }
+    app.post("/v1/extensions/remove") { ctx -> requirePaired(ctx, pairing); ctx.contentType("application/json").result(json.encodeToString(extensions.remove(json.decodeFromString<RemoveExtensionRequest>(ctx.body()), storageRoot))) }
     app.start("127.0.0.1", port)
 }
 

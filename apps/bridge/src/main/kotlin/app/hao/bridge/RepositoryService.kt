@@ -11,8 +11,6 @@ import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
-import java.nio.file.Files
-import java.nio.file.Path
 
 class RepositoryService {
     private val client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8)).followRedirects(HttpClient.Redirect.NEVER).build()
@@ -40,24 +38,6 @@ class RepositoryService {
         require(packages.isNotEmpty()) { "No compatible extension packages were found" }
         val host = java.net.URI(request.url).host ?: "Extension repository"
         return RepositoryPreview(host, request.url, request.mediaKind, packages, listOf(DISCLAIMER))
-    }
-
-    fun install(request: InstallRequest, storageRoot: Path): InstalledPackage {
-        require(request.acknowledged) { "The third-party repository disclaimer must be acknowledged" }
-        val repository = Security.validateRemoteHttps(request.repositoryUrl)
-        val resolved = Security.validateRemoteHttps(repository.resolve(request.packageInfo.apk).toString())
-        val response = client.send(HttpRequest.newBuilder(resolved).timeout(Duration.ofSeconds(30)).GET().build(), HttpResponse.BodyHandlers.ofByteArray())
-        require(response.statusCode() == 200) { "Extension download returned HTTP ${response.statusCode()}" }
-        require(response.body().size in 1..(50 * 1024 * 1024)) { "Extension package exceeds the 50 MiB limit" }
-        val safeName = request.packageInfo.pkg.replace(Regex("[^A-Za-z0-9._-]"), "_")
-        val directory = storageRoot.resolve(request.mediaKind.name.lowercase()).normalize()
-        require(directory.startsWith(storageRoot.normalize())) { "Invalid extension storage path" }
-        Files.createDirectories(directory)
-        val target = directory.resolve("$safeName-${request.packageInfo.version}.apk")
-        Files.write(target, response.body())
-        val sha = Security.sha256(response.body())
-        val signer = Security.signerFingerprint(target.toFile())
-        return InstalledPackage(request.packageInfo.pkg, request.packageInfo.version, sha, signer, target.toAbsolutePath().toString())
     }
 
     private fun collectPackageObjects(element: JsonElement): List<JsonObject> = when (element) {

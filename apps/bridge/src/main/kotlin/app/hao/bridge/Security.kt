@@ -5,7 +5,8 @@ import java.net.Inet6Address
 import java.net.InetAddress
 import java.net.URI
 import java.security.MessageDigest
-import java.util.jar.JarFile
+import java.nio.file.Files
+import java.nio.file.Path
 
 object Security {
     fun validateRemoteHttps(raw: String): URI {
@@ -26,23 +27,22 @@ object Security {
                 b[0] == 0 || b[0] == 10 || b[0] == 127 || (b[0] == 169 && b[1] == 254) || (b[0] == 172 && b[1] in 16..31) || (b[0] == 192 && b[1] == 168) || b[0] >= 224
             }
             is Inet6Address -> address.hostAddress.startsWith("fc", true) || address.hostAddress.startsWith("fd", true) || address.hostAddress.startsWith("fe80", true)
-            else -> true
         }
     }
 
     fun sha256(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
 
-    fun signerFingerprint(apk: java.io.File): String? {
-        JarFile(apk, true).use { jar ->
-            val buffer = ByteArray(8192)
-            val entries = jar.entries()
-            while (entries.hasMoreElements()) {
-                val entry = entries.nextElement()
-                if (entry.isDirectory || entry.name.startsWith("META-INF/")) continue
-                jar.getInputStream(entry).use { input -> while (input.read(buffer) != -1) Unit }
-                entry.certificates?.firstOrNull()?.encoded?.let { return sha256(it) }
+    fun sha256(path: Path): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        Files.newInputStream(path).use { input ->
+            val buffer = ByteArray(64 * 1024)
+            while (true) {
+                val read = input.read(buffer)
+                if (read == -1) break
+                digest.update(buffer, 0, read)
             }
         }
-        return null
+        return digest.digest().joinToString("") { "%02x".format(it) }
     }
+
 }

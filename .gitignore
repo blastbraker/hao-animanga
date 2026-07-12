@@ -11,5 +11,6 @@ coverage/
 .run/
 apps/bridge/build/
 apps/bridge/.gradle/
+data/extensions/
 .idea/
 .vscode/
