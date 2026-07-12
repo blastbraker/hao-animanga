@@ -92,7 +92,9 @@ class AnimeHostManager(
         require(startGate.parent == dataRoot.toAbsolutePath().normalize()) { "Invalid anime host startup gate" }
         Files.deleteIfExists(startGate)
         val logs = dataRoot.resolve("logs")
+        val temporary = dataRoot.resolve("tmp")
         Files.createDirectories(logs)
+        Files.createDirectories(temporary)
         val childClasspath = if (Files.isRegularFile(compatibilityJar) && Security.sha256(compatibilityJar) == compatibilityJarSha256) {
             classpath + java.io.File.pathSeparator + compatibilityJar
         } else classpath
@@ -101,6 +103,8 @@ class AnimeHostManager(
             "-Xms32m",
             "-Xmx256m",
             "-XX:+ExitOnOutOfMemoryError",
+            "-Djava.security.manager=allow",
+            "-Djava.io.tmpdir=$temporary",
             "-cp",
             childClasspath,
             "app.hao.bridge.AnimeHostMainKt",

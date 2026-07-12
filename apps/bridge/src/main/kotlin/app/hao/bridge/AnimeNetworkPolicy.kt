@@ -18,9 +18,23 @@ object AnimeNetworkPolicy : Interceptor {
         logPath = dataRoot.resolve("extension-network.log")
     }
 
+    fun allowRemoteHttps(rawUrl: String): String {
+        val host = ExtensionSecurityManager.validateAndAllowHost(rawUrl)
+        allowedHosts += host
+        return host
+    }
+
+    fun isAllowedHttps(rawUrl: String): Boolean = runCatching {
+        val uri = java.net.URI(rawUrl)
+        uri.scheme == "https" && uri.host?.lowercase() in allowedHosts
+    }.getOrDefault(false)
+
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
         val host = request.url.host.lowercase()
+        if (request.url.isHttps && host !in allowedHosts) {
+            runCatching { allowRemoteHttps(request.url.toString()) }
+        }
         val allowed = request.url.isHttps && host in allowedHosts
         appendEvent(host, allowed)
         require(allowed) { "Extension network host is not approved" }

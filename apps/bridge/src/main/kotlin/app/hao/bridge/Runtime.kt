@@ -39,10 +39,10 @@ class AniyomiCompatibilityRuntime(private val manager: AnimeHostManager) : Exten
         val runtimeLinked = probes.count { it.runtimeCompatible }
         val message = when {
             probes.isEmpty() -> "No enabled anime APKs are installed"
-            failed > 0 -> "$linked APK(s) API-linked; $runtimeLinked runtime-linked; $failed failed checks. Execution remains gated"
-            else -> "$linked APK(s) passed API checks; $runtimeLinked linked to the concrete runtime. Execution remains gated"
+            failed > 0 -> "$runtimeLinked APK(s) ready; $failed failed compatibility checks"
+            else -> "$runtimeLinked Aniyomi APK(s) ready in the contained runtime"
         }
-        return RuntimeStatus(id, kind, false, message)
+        return RuntimeStatus(id, kind, runtimeLinked > 0, message)
     }
 }
 

@@ -8,11 +8,11 @@ import kotlin.test.assertFailsWith
 
 class AnimeContainmentTest {
     @Test
-    fun `extension HTTP is denied when no host is approved`() {
+    fun `extension HTTP rejects private destinations before connecting`() {
         val root = createTempDirectory("hao-anime-network-policy")
         AnimeNetworkPolicy.configure(emptyList(), root)
         assertFailsWith<IllegalArgumentException> {
-            NetworkHelper().client.newCall(GET("https://example.com/blocked")).execute()
+            NetworkHelper().client.newCall(GET("https://127.0.0.1/blocked")).execute()
         }
     }
 

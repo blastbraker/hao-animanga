@@ -14,6 +14,9 @@ fun main() {
     val fixtureSignerFingerprint = System.getenv("HAO_DEV_FIXTURE_SIGNER_SHA256")
     val allowedHosts = System.getenv("HAO_ANIME_ALLOWED_HOSTS").orEmpty().split(',').map(String::trim).filter(String::isNotBlank)
     AnimeNetworkPolicy.configure(allowedHosts, dataRoot)
+    eu.kanade.tachiyomi.network.NetworkRuntime.initialize()
+    AndroidCompatibilityBootstrap.initialize(dataRoot)
+    ExtensionSecurityManager.install(allowedHosts, dataRoot)
     val parentPid = System.getenv("HAO_ANIME_HOST_PARENT_PID")?.toLongOrNull() ?: error("HAO_ANIME_HOST_PARENT_PID is required")
     val gate = Path.of(System.getenv("HAO_ANIME_HOST_START_GATE") ?: error("HAO_ANIME_HOST_START_GATE is required")).toAbsolutePath().normalize()
     require(gate.parent == dataRoot) { "Anime host startup gate escapes its data directory" }

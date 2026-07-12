@@ -3,11 +3,13 @@ package app.hao.bridge
 import com.android.apksig.ApkVerifier
 import kotlinx.serialization.json.Json
 import java.io.File
-import java.net.URLClassLoader
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import java.nio.file.StandardOpenOption
 import java.util.zip.ZipFile
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 class AniyomiApkProbe(
     private val extensionRoot: Path,
@@ -42,12 +44,18 @@ class AniyomiApkProbe(
             require(manifest.animeSourceClasses.isNotEmpty()) { "Aniyomi source class metadata is missing" }
             val translated = translateDex(apk, installed.sha256)
             val apiJar = extractApiJar()
-            URLClassLoader(arrayOf(translated.toUri().toURL(), apiJar.toUri().toURL()), javaClass.classLoader).use { loader ->
+            ExtensionClassLoader(arrayOf(translated.toUri().toURL(), apiJar.toUri().toURL()), javaClass.classLoader, directory).use { loader ->
                 manifest.animeSourceClasses.forEach { Class.forName(it, false, loader) }
             }
             val runtimeLink = runCatching {
-                URLClassLoader(arrayOf(translated.toUri().toURL()), javaClass.classLoader).use { loader ->
-                    manifest.animeSourceClasses.forEach { Class.forName(it, false, loader) }
+                ExtensionClassLoader(arrayOf(translated.toUri().toURL()), javaClass.classLoader, directory).use { loader ->
+                    manifest.animeSourceClasses.forEach { className ->
+                        val type = Class.forName(className, true, loader)
+                        val instance = type.getDeclaredConstructor().newInstance()
+                        require(instance is eu.kanade.tachiyomi.animesource.AnimeSource || instance is eu.kanade.tachiyomi.animesource.AnimeSourceFactory) {
+                            "Declared source class does not implement the Aniyomi API"
+                        }
+                    }
                 }
             }
             AniyomiApkProbeResult(
@@ -58,7 +66,7 @@ class AniyomiApkProbe(
                 manifest.animeSourceClasses,
                 "Signature, manifest, API v14, and Dex class linkage passed",
                 runtimeLink.isSuccess,
-                runtimeLink.fold({ "Concrete HAO runtime linkage passed; construction remains gated" }, { it.message ?: it.javaClass.simpleName }),
+                runtimeLink.fold({ "Constructor quarantine passed with networking disabled" }, { rootMessage(it) }),
             )
         } catch (error: Throwable) {
             val packageName = installed?.packageName ?: directory.fileName.toString()
@@ -66,9 +74,18 @@ class AniyomiApkProbe(
         }
     }
 
+    private fun rootMessage(error: Throwable): String {
+        var current = error
+        while (current.cause != null && current.cause !== current) current = current.cause!!
+        return current.message ?: current.javaClass.simpleName
+    }
+
     private fun translateDex(apk: Path, sha256: String): Path {
         val output = dataRoot.resolve("translated").resolve("$sha256.jar")
-        if (Files.isRegularFile(output)) return output
+        if (Files.isRegularFile(output)) {
+            repairDex2JarSymbols(output)
+            return output
+        }
         Files.createDirectories(output.parent)
         val temporary = output.resolveSibling("${output.fileName}.tmp")
         Files.deleteIfExists(temporary)
@@ -77,7 +94,57 @@ class AniyomiApkProbe(
         dex2jar.getMethod("to", Path::class.java).invoke(translator, temporary)
         require(Files.size(temporary) > 0) { "Dex translation produced an empty archive" }
         Files.move(temporary, output, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+        repairDex2JarSymbols(output)
         return output
+    }
+
+    private fun repairDex2JarSymbols(jar: Path) {
+        val marker = jar.resolveSibling("${jar.fileName}.hao-v2")
+        if (Files.isRegularFile(marker)) return
+        val repaired = jar.resolveSibling("${jar.fileName}.repair")
+        Files.deleteIfExists(repaired)
+        ZipFile(jar.toFile()).use { input ->
+            ZipOutputStream(Files.newOutputStream(repaired, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)).use { output ->
+                val entries = input.entries()
+                while (entries.hasMoreElements()) {
+                    val entry = entries.nextElement()
+                    val replacement = ZipEntry(entry.name).apply { time = entry.time }
+                    output.putNextEntry(replacement)
+                    if (!entry.isDirectory) {
+                        val bytes = input.getInputStream(entry).use { it.readBytes() }
+                        output.write(if (entry.name.endsWith(".class")) repairClassSymbols(bytes) else bytes)
+                    }
+                    output.closeEntry()
+                }
+            }
+        }
+        Files.move(repaired, jar, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+        Files.writeString(marker, "Dex2Jar Kotlin symbol repair v2", StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)
+    }
+
+    private fun repairClassSymbols(bytes: ByteArray): ByteArray {
+        replaceAscii(bytes, "maxAge_LRDsOJo", "maxAge-LRDsOJo")
+        replaceAscii(bytes, "constructor_impl", "constructor-impl")
+        replaceAscii(bytes, "isFailure_impl", "isFailure-impl")
+        return bytes
+    }
+
+    private fun replaceAscii(bytes: ByteArray, from: String, to: String): ByteArray {
+        require(from.length == to.length)
+        val needle = from.toByteArray(Charsets.US_ASCII)
+        val replacement = to.toByteArray(Charsets.US_ASCII)
+        var index = 0
+        while (index <= bytes.size - needle.size) {
+            var matches = true
+            var offset = 0
+            while (offset < needle.size) {
+                if (bytes[index + offset] != needle[offset]) { matches = false; break }
+                offset++
+            }
+            if (matches) replacement.copyInto(bytes, index)
+            index++
+        }
+        return bytes
     }
 
     private fun extractApiJar(): Path {

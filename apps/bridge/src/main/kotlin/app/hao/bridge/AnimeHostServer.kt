@@ -24,7 +24,10 @@ object AnimeHostServer {
                 ctx.skipRemainingHandlers()
             }
         }
-        app.exception(IllegalArgumentException::class.java) { error, ctx -> ctx.status(400).json(ErrorResponse("INVALID", error.message ?: "Invalid anime host request")) }
+        app.exception(IllegalArgumentException::class.java) { error, ctx ->
+            System.err.println("Anime host rejected a request: ${error.message ?: error.javaClass.simpleName}")
+            ctx.status(400).json(ErrorResponse("INVALID", error.message ?: "Invalid anime host request"))
+        }
         app.exception(Exception::class.java) { error, ctx -> error.printStackTrace(); ctx.status(503).json(ErrorResponse("UNAVAILABLE", "Anime fixture host failed", true)) }
         app.get("/v1/health") { ctx -> ctx.json(HealthResponse("ok", "0.1.0", true)) }
         app.get("/v1/catalog") { ctx -> ctx.json(fixture.catalog() + aniyomiFixture.catalog()) }

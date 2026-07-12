@@ -44,7 +44,7 @@ class AnimeHostClient(port: Int, private val token: String) {
     private inline fun <reified T> decode(value: String): T = json.decodeFromString(value)
 
     private fun getText(path: String): String {
-        val response = http.send(request(path).timeout(Duration.ofSeconds(10)).GET().build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
+        val response = http.send(request(path).timeout(Duration.ofSeconds(45)).GET().build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
         if (response.statusCode() !in 200..299) throw AnimeHostRequestException(response.statusCode())
         return response.body()
     }

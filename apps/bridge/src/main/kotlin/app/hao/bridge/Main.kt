@@ -53,19 +53,23 @@ fun main() {
         requirePaired(ctx, pairing)
         val installed = extensions.install(json.decodeFromString<ConfirmInstallRequest>(ctx.body()), storageRoot)
         if (installed.mediaKind == MediaKind.MANGA) suwayomiManager.sync(extensions.listInstalled(storageRoot))
+        if (installed.mediaKind == MediaKind.ANIME) animeHost.close()
         ctx.status(201).contentType("application/json").result(json.encodeToString(installed))
     }
     app.post("/v1/extensions/state") { ctx ->
         requirePaired(ctx, pairing)
         val updated = extensions.setEnabled(json.decodeFromString<ExtensionStateRequest>(ctx.body()), storageRoot)
         if (updated.mediaKind == MediaKind.MANGA) suwayomiManager.sync(extensions.listInstalled(storageRoot))
+        if (updated.mediaKind == MediaKind.ANIME) animeHost.close()
         ctx.contentType("application/json").result(json.encodeToString(updated))
     }
     app.post("/v1/extensions/remove") { ctx ->
         requirePaired(ctx, pairing)
         val request = json.decodeFromString<RemoveExtensionRequest>(ctx.body())
         if (request.mediaKind == MediaKind.MANGA) suwayomiManager.uninstall(request.packageName)
-        ctx.contentType("application/json").result(json.encodeToString(extensions.remove(request, storageRoot)))
+        val removed = extensions.remove(request, storageRoot)
+        if (request.mediaKind == MediaKind.ANIME) animeHost.close()
+        ctx.contentType("application/json").result(json.encodeToString(removed))
     }
     System.getenv("HAO_DEV_FIXTURE_APK")?.let { fixturePath ->
         app.post("/v1/dev/fixtures/aniyomi/install") { ctx ->

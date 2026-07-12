@@ -17,13 +17,28 @@ import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
+object NetworkRuntime {
+    @Volatile private var sharedClient: OkHttpClient? = null
+
+    @Synchronized
+    fun initialize() {
+        if (sharedClient != null) return
+        sharedClient = OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .callTimeout(60, TimeUnit.SECONDS)
+            .addInterceptor(AnimeNetworkPolicy)
+            .build()
+    }
+
+    fun client(): OkHttpClient {
+        if (sharedClient == null) initialize()
+        return requireNotNull(sharedClient)
+    }
+}
+
 class NetworkHelper {
-    val client: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .callTimeout(60, TimeUnit.SECONDS)
-        .addInterceptor(AnimeNetworkPolicy)
-        .build()
+    val client: OkHttpClient = NetworkRuntime.client()
     @Deprecated("The regular client handles Cloudflare by default")
     val cloudflareClient: OkHttpClient = client
     fun defaultUserAgentProvider() = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) HAO-Bridge/0.1"
