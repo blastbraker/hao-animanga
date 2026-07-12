@@ -2,15 +2,12 @@ package app.hao.bridge
 
 import com.android.apksig.ApkVerifier
 import kotlinx.serialization.json.Json
-import net.dongliu.apk.parser.ApkFile
-import org.w3c.dom.Element
 import java.io.File
 import java.net.URLClassLoader
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.util.zip.ZipFile
-import javax.xml.parsers.DocumentBuilderFactory
 
 class AniyomiApkProbe(
     private val extensionRoot: Path,
@@ -40,15 +37,15 @@ class AniyomiApkProbe(
             require(Security.sha256(apk) == installed.sha256) { "Installed APK hash changed" }
             require(ApkVerifier.Builder(apk.toFile()).build().verify().isVerified) { "Installed APK signature is invalid" }
 
-            val manifest = parseManifest(apk)
+            val manifest = ApkManifestReader.read(apk)
             require(manifest.packageName == installed.packageName) { "APK manifest identity changed" }
-            require(manifest.sourceClasses.isNotEmpty()) { "Aniyomi source class metadata is missing" }
+            require(manifest.animeSourceClasses.isNotEmpty()) { "Aniyomi source class metadata is missing" }
             val translated = translateDex(apk, installed.sha256)
             val apiJar = extractApiJar()
             URLClassLoader(arrayOf(translated.toUri().toURL(), apiJar.toUri().toURL()), javaClass.classLoader).use { loader ->
-                manifest.sourceClasses.forEach { Class.forName(it, false, loader) }
+                manifest.animeSourceClasses.forEach { Class.forName(it, false, loader) }
             }
-            AniyomiApkProbeResult(installed.packageName, installed.displayName, installed.version, true, manifest.sourceClasses, "Signature, manifest, API v14, and Dex class linkage passed")
+            AniyomiApkProbeResult(installed.packageName, installed.displayName, installed.version, true, manifest.animeSourceClasses, "Signature, manifest, API v14, and Dex class linkage passed")
         } catch (error: Throwable) {
             val packageName = installed?.packageName ?: directory.fileName.toString()
             AniyomiApkProbeResult(packageName, installed?.displayName ?: packageName, installed?.version ?: "unknown", false, message = error.message ?: error.javaClass.simpleName)
@@ -84,29 +81,4 @@ class AniyomiApkProbe(
         return output
     }
 
-    private fun parseManifest(apk: Path): ManifestInfo {
-        val xml = ApkFile(apk.toFile()).use { it.manifestXml }
-        val document = DocumentBuilderFactory.newInstance().apply {
-            setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
-            isExpandEntityReferences = false
-        }.newDocumentBuilder().parse(xml.byteInputStream())
-        val packageName = document.documentElement.getAttribute("package")
-        val application = document.getElementsByTagName("application").item(0) ?: error("APK manifest has no application")
-        val rawClasses = (0 until application.childNodes.length).asSequence()
-            .map { application.childNodes.item(it) }
-            .filterIsInstance<Element>()
-            .firstOrNull { it.tagName == "meta-data" && it.getAttribute("android:name") == SOURCE_CLASS_METADATA }
-            ?.getAttribute("android:value")
-            .orEmpty()
-        val classes = rawClasses.split(';').map(String::trim).filter(String::isNotEmpty).map {
-            if (it.startsWith('.')) packageName + it else it
-        }
-        return ManifestInfo(packageName, classes)
-    }
-
-    private data class ManifestInfo(val packageName: String, val sourceClasses: List<String>)
-
-    companion object {
-        private const val SOURCE_CLASS_METADATA = "tachiyomi.animeextension.class"
-    }
 }

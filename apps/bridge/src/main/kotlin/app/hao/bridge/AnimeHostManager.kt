@@ -1,5 +1,6 @@
 package app.hao.bridge
 
+import com.android.apksig.ApkVerifier
 import java.nio.file.Files
 import java.nio.file.Path
 import java.security.SecureRandom
@@ -16,6 +17,7 @@ class AnimeHostManager(
     private val extensionRoot: Path,
     private val compatibilityJar: Path,
     private val compatibilityJarSha256: String,
+    private val fixtureSignerFingerprint: String?,
 ) {
     private val lifecycleLock = Any()
     private val token = ByteArray(32).also(SecureRandom()::nextBytes).let { Base64.getUrlEncoder().withoutPadding().encodeToString(it) }
@@ -103,6 +105,7 @@ class AnimeHostManager(
         environment["HAO_ANIME_HOST_DATA"] = dataRoot.toString()
         environment["HAO_ANIME_HOST_PARENT_PID"] = ProcessHandle.current().pid().toString()
         environment["HAO_EXTENSION_ROOT"] = extensionRoot.toString()
+        fixtureSignerFingerprint?.let { environment["HAO_DEV_FIXTURE_SIGNER_SHA256"] = it }
         return builder.start()
     }
 
@@ -110,6 +113,10 @@ class AnimeHostManager(
         fun default(): AnimeHostManager {
             val home = Path.of(System.getProperty("user.home"))
             val javaHome = Path.of(System.getenv("HAO_JAVA_HOME") ?: System.getProperty("java.home"))
+            val fixtureSigner = System.getenv("HAO_DEV_FIXTURE_APK")?.let(Path::of)?.takeIf(Files::isRegularFile)?.let { apk ->
+                val verification = ApkVerifier.Builder(apk.toFile()).build().verify()
+                if (verification.isVerified) verification.signerCertificates.map { Security.sha256(it.encoded) }.distinct().sorted().joinToString(",") else null
+            }
             val executableName = if (System.getProperty("os.name").lowercase().contains("win")) "java.exe" else "java"
             return AnimeHostManager(
                 System.getenv("HAO_ANIME_HOST_PORT")?.toIntOrNull() ?: 4570,
@@ -119,6 +126,7 @@ class AnimeHostManager(
                 Path.of(System.getenv("HAO_BRIDGE_DATA") ?: home.resolve(".hao/bridge/extensions").toString()).toAbsolutePath().normalize(),
                 Path.of(System.getenv("HAO_SUWAYOMI_JAR") ?: home.resolve(".hao/suwayomi/Suwayomi-Server-v2.3.2238.jar").toString()).toAbsolutePath().normalize(),
                 System.getenv("HAO_SUWAYOMI_SHA256") ?: "9ee45c37dac659a284e4a1885dcddec54a7018ead2f18620bcb1fd29751c9786",
+                fixtureSigner,
             )
         }
     }

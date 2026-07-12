@@ -67,6 +67,14 @@ fun main() {
         if (request.mediaKind == MediaKind.MANGA) suwayomiManager.uninstall(request.packageName)
         ctx.contentType("application/json").result(json.encodeToString(extensions.remove(request, storageRoot)))
     }
+    System.getenv("HAO_DEV_FIXTURE_APK")?.let { fixturePath ->
+        app.post("/v1/dev/fixtures/aniyomi/install") { ctx ->
+            requirePaired(ctx, pairing)
+            val installed = extensions.installLocalFixture(Path.of(fixturePath), storageRoot)
+            animeHost.close()
+            ctx.status(201).contentType("application/json").result(json.encodeToString(installed))
+        }
+    }
     app.get("/v1/manga/runtime") { ctx -> requirePaired(ctx, pairing); ctx.json(suwayomiManager.status()) }
     app.post("/v1/manga/runtime/start") { ctx -> requirePaired(ctx, pairing); ctx.json(suwayomiManager.ensureStarted()) }
     app.post("/v1/manga/runtime/sync") { ctx -> requirePaired(ctx, pairing); ctx.json(suwayomiManager.sync(extensions.listInstalled(storageRoot))) }

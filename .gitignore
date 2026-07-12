@@ -11,6 +11,9 @@ coverage/
 .run/
 apps/bridge/build/
 apps/bridge/.gradle/
+fixtures/**/build/
+fixtures/**/.gradle/
+fixtures/**/local.properties
 data/extensions/
 .idea/
 .vscode/

@@ -4,7 +4,6 @@ import com.android.apksig.ApkVerifier
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import net.dongliu.apk.parser.ApkFile
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -23,7 +22,7 @@ import java.util.zip.ZipFile
 
 class ExtensionManager {
     private data class PendingInspection(val inspection: ExtensionInspection, val path: Path, val expiresAt: Instant)
-    private data class AnalyzedApk(val packageName: String, val signerFingerprint: String, val permissions: List<String>)
+    private data class AnalyzedApk(val packageName: String, val versionName: String, val signerFingerprint: String, val permissions: List<String>)
 
     private val client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8)).followRedirects(HttpClient.Redirect.NEVER).build()
     private val json = Json { ignoreUnknownKeys = false; encodeDefaults = true; prettyPrint = true }
@@ -123,6 +122,37 @@ class ExtensionManager {
         return installed
     }
 
+    fun installLocalFixture(apk: Path, storageRoot: Path): InstalledPackage {
+        val source = apk.toAbsolutePath().normalize()
+        require(Files.isRegularFile(source)) { "Fixture APK is missing" }
+        validateApkArchive(source)
+        val analyzed = analyzeApk(source)
+        require(analyzed.packageName == AniyomiFixtureRuntime.FIXTURE_PACKAGE) { "Only the HAO fixture package is allowed" }
+        require(analyzed.permissions.isEmpty()) { "The HAO fixture APK must not request Android permissions" }
+        val previous = readInstalled(storageRoot, MediaKind.ANIME, analyzed.packageName)
+        require(previous == null || previous.signerFingerprint == analyzed.signerFingerprint) { "Fixture signing identity changed" }
+        val directory = packageDirectory(storageRoot, MediaKind.ANIME, analyzed.packageName)
+        Files.createDirectories(directory)
+        val target = directory.resolve(APK_FILE)
+        Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING)
+        val installed = InstalledPackage(
+            packageName = analyzed.packageName,
+            displayName = "Aniyomi: HAO Signed Fixture",
+            mediaKind = MediaKind.ANIME,
+            version = analyzed.versionName,
+            sha256 = Security.sha256(target),
+            signerFingerprint = analyzed.signerFingerprint,
+            permissions = analyzed.permissions,
+            byteSize = Files.size(target),
+            maturity = "GENERAL",
+            localPath = target.toAbsolutePath().toString(),
+            installedAt = Instant.now().toString(),
+            enabled = true,
+        )
+        writeInstalled(directory, installed)
+        return installed
+    }
+
     fun listInstalled(storageRoot: Path): List<InstalledPackage> {
         if (!Files.exists(storageRoot)) return emptyList()
         val installed = mutableListOf<InstalledPackage>()
@@ -199,12 +229,8 @@ class ExtensionManager {
         val fingerprints = verification.signerCertificates.map { Security.sha256(it.encoded) }.distinct().sorted()
         require(fingerprints.isNotEmpty()) { "APK has no verified signing certificate" }
 
-        val (packageName, permissions) = ApkFile(path.toFile()).use { apk ->
-            val metadata = apk.apkMeta
-            metadata.packageName to metadata.usesPermissions.filterNotNull().map(String::trim).filter(String::isNotEmpty).distinct().sorted()
-        }
-        require(!packageName.isNullOrBlank()) { "APK manifest has no package name" }
-        return AnalyzedApk(packageName, fingerprints.joinToString(","), permissions)
+        val manifest = ApkManifestReader.read(path)
+        return AnalyzedApk(manifest.packageName, manifest.versionName, fingerprints.joinToString(","), manifest.permissions)
     }
 
     private fun readInstalled(storageRoot: Path, mediaKind: MediaKind, packageName: String): InstalledPackage? {
