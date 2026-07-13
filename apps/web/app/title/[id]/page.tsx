@@ -65,7 +65,7 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
   const primaryManga = mangaAvailability[0];
   const primaryHref = useMemo(() => {
     if (!work) return "#";
-    if (primaryAnime) return animePlayerHref(primaryAnime.source.id, primaryAnime.item.id, work.title, primaryAnime.episodes[0]?.id);
+    if (primaryAnime) return animePlayerHref(primaryAnime.source.id, primaryAnime.item.id, work.title, primaryAnime.episodes[0]?.id, work.id);
     if (primaryManga) return mangaReaderHref(primaryManga.source.id, primaryManga.item.id);
     return work.kind === "ANIME" ? "/player/anime" : "/reader";
   }, [primaryAnime, primaryManga, work]);
@@ -97,7 +97,7 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
       <div className="section-head"><div><span className="eyebrow">AVAILABLE FROM YOUR SOURCES</span><h2>{work.kind === "ANIME" ? "Episodes" : "Chapters"}</h2></div>{bridge && <span className="availability-bridge"><Server/> Local Bridge</span>}</div>
       {availabilityBusy && <AvailabilitySkeleton kind={work.kind}/>}
       {availabilityError && !availabilityBusy && <div className="source-empty availability-error"><CircleAlert/><div><b>Installed sources could not be checked.</b><span>{availabilityError}</span></div><button className="button ghost" onClick={()=>setReloadKey((value)=>value+1)}><RefreshCw/>Retry</button></div>}
-      {!availabilityBusy && !availabilityError && work.kind === "ANIME" && animeAvailability.map((availability)=><AnimeSourcePanel key={availability.source.id} availability={availability} workTitle={work.title}/>) }
+      {!availabilityBusy && !availabilityError && work.kind === "ANIME" && animeAvailability.map((availability)=><AnimeSourcePanel key={availability.source.id} availability={availability} workTitle={work.title} workId={work.id}/>) }
       {!availabilityBusy && !availabilityError && work.kind !== "ANIME" && mangaAvailability.map((availability)=><MangaSourcePanel key={availability.source.id} availability={availability}/>) }
       {!availabilityBusy && !availabilityError && !animeAvailability.length && !mangaAvailability.length && <div className="source-empty"><b>No confident installed match was found.</b><span>This exact title or season is not currently available from your enabled sources. HAO will not open a similar title or a different season.</span><Link href={work.kind === "ANIME" ? "/player/anime" : "/reader"}>Open the source browser →</Link></div>}
     </section>
@@ -159,9 +159,10 @@ function fulfilled<T>(results: PromiseSettledResult<T | null>[]): T[] {
   return results.flatMap((result) => result.status === "fulfilled" && result.value ? [result.value] : []);
 }
 
-function animePlayerHref(sourceId: string, animeId: string, query: string, episodeId?: string) {
+function animePlayerHref(sourceId: string, animeId: string, query: string, episodeId?: string, workId?: string) {
   const parameters = new URLSearchParams({ sourceId, animeId, mode: "search", query });
   if (episodeId) parameters.set("episodeId", episodeId);
+  if (workId) parameters.set("workId", workId);
   return `/player/anime?${parameters.toString()}`;
 }
 
@@ -171,8 +172,8 @@ function mangaReaderHref(sourceId: string, mangaId: number, chapterIndex?: numbe
   return `/reader?${parameters.toString()}`;
 }
 
-function AnimeSourcePanel({ availability, workTitle }: { availability: AnimeAvailability; workTitle: string }) {
-  return <article className="availability-panel"><header><span className="availability-icon"><Clapperboard/></span><div><h3>{availability.item.title}</h3><p>{availability.source.name} · {availability.source.language.toUpperCase()} · {availability.episodes.length} episodes</p></div><Link className="button ghost compact" href={animePlayerHref(availability.source.id, availability.item.id, workTitle, availability.episodes[0]?.id)}><Play/>Play</Link></header><div className="release-list">{availability.episodes.slice(0, 60).map((episode)=><Link key={episode.id} href={animePlayerHref(availability.source.id, availability.item.id, workTitle, episode.id)}><span className="release-number">{episode.number}</span><span><b>{episode.title}</b><small>Episode {episode.number}</small></span><Play/></Link>)}</div></article>;
+function AnimeSourcePanel({ availability, workTitle, workId }: { availability: AnimeAvailability; workTitle: string; workId: string }) {
+  return <article className="availability-panel"><header><span className="availability-icon"><Clapperboard/></span><div><h3>{availability.item.title}</h3><p>{availability.source.name} · {availability.source.language.toUpperCase()} · {availability.episodes.length} episodes</p></div><Link className="button ghost compact" href={animePlayerHref(availability.source.id, availability.item.id, workTitle, availability.episodes[0]?.id, workId)}><Play/>Play</Link></header><div className="release-list">{availability.episodes.slice(0, 60).map((episode)=><Link key={episode.id} href={animePlayerHref(availability.source.id, availability.item.id, workTitle, episode.id, workId)}><span className="release-number">{episode.number}</span><span><b>{episode.title}</b><small>Episode {episode.number}</small></span><Play/></Link>)}</div></article>;
 }
 
 function MangaSourcePanel({ availability }: { availability: MangaAvailability }) {
