@@ -1,4 +1,5 @@
 .home-hero { min-height: 610px; height: 68vh; max-height: 760px; }
+.home-hero .hero-copy > p { display: -webkit-box; max-width: 620px; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 4; line-clamp: 4; }
 .source-hub { position: relative; z-index: 2; margin-top: 0; padding-top: 0; }
 .source-hub::before { content: ""; position: absolute; inset: -90px 0 auto; height: 180px; pointer-events: none; background: linear-gradient(transparent, var(--bg) 72%); z-index: -1; }
 .source-hub-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 30px; padding: 28px 30px; margin-bottom: 18px; border: 1px solid var(--line); border-radius: 22px; background: linear-gradient(135deg, rgba(22,27,42,.96), rgba(13,16,27,.9)); box-shadow: 0 24px 70px rgba(0,0,0,.3); backdrop-filter: blur(18px); }
@@ -100,6 +101,7 @@
 
 @media(max-width:760px) {
   .home-hero { height: 620px; min-height: 620px; }
+  .home-hero .hero-copy > p { -webkit-line-clamp: 3; line-clamp: 3; }
   .source-hub { margin-top: 0; padding-top: 20px; }
   .continue-watching-section { margin-top: -28px; padding: 0 20px 18px; }
   .continue-watching-row { grid-auto-columns: minmax(295px, 86vw); margin-right: -20px; padding-right: 20px; }
