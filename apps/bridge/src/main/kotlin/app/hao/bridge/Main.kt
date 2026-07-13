@@ -82,7 +82,18 @@ fun main() {
     app.get("/v1/manga/runtime") { ctx -> requirePaired(ctx, pairing); ctx.json(suwayomiManager.status()) }
     app.post("/v1/manga/runtime/start") { ctx -> requirePaired(ctx, pairing); ctx.json(suwayomiManager.ensureStarted()) }
     app.post("/v1/manga/runtime/sync") { ctx -> requirePaired(ctx, pairing); ctx.json(suwayomiManager.sync(extensions.listInstalled(storageRoot))) }
-    app.get("/v1/anime/catalog") { ctx -> requirePaired(ctx, pairing); ctx.json(animeHost.catalog()) }
+    app.get("/v1/anime/sources") { ctx -> requirePaired(ctx, pairing); ctx.json(animeHost.sources()) }
+    app.get("/v1/anime/catalog") { ctx ->
+        requirePaired(ctx, pairing)
+        ctx.json(
+            animeHost.catalog(
+                ctx.queryParam("sourceId"),
+                ctx.queryParam("mode") ?: "popular",
+                ctx.queryParam("query"),
+                ctx.queryParam("page")?.toIntOrNull() ?: 1,
+            ),
+        )
+    }
     app.get("/v1/anime/extensions/probe") { ctx -> requirePaired(ctx, pairing); ctx.json(animeHost.probes()) }
     app.get("/v1/anime/{animeId}/episodes") { ctx -> requirePaired(ctx, pairing); ctx.json(animeHost.episodes(ctx.pathParam("animeId"))) }
     app.get("/v1/anime/episodes/{episodeId}/servers") { ctx -> requirePaired(ctx, pairing); ctx.json(animeHost.servers(ctx.pathParam("episodeId"))) }

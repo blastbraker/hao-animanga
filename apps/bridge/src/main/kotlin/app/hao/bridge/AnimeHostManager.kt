@@ -52,7 +52,9 @@ class AnimeHostManager(
         return status()
     }
 
-    fun catalog(): List<AnimeCatalogItem> = withHost { client.catalog() }
+    fun sources(): List<AnimeSourceSummary> = withHost { client.sources() }
+    fun catalog(sourceId: String? = null, mode: String = "popular", query: String? = null, page: Int = 1): List<AnimeCatalogItem> =
+        withHost { client.catalog(sourceId, mode, query, page) }
     fun probes(): List<AniyomiApkProbeResult> = withHost { client.probes() }
     fun episodes(animeId: String): List<AnimeEpisode> = withHost { client.episodes(animeId) }
     fun servers(episodeId: String): List<AnimeServer> = withHost { client.servers(episodeId) }

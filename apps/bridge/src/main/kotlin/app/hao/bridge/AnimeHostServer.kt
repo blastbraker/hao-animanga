@@ -30,7 +30,15 @@ object AnimeHostServer {
         }
         app.exception(Exception::class.java) { error, ctx -> error.printStackTrace(); ctx.status(503).json(ErrorResponse("UNAVAILABLE", "Anime fixture host failed", true)) }
         app.get("/v1/health") { ctx -> ctx.json(HealthResponse("ok", "0.1.0", true)) }
-        app.get("/v1/catalog") { ctx -> ctx.json(fixture.catalog() + aniyomiFixture.catalog()) }
+        app.get("/v1/sources") { ctx -> ctx.json(aniyomiFixture.sourceSummaries()) }
+        app.get("/v1/catalog") { ctx ->
+            val sourceId = ctx.queryParam("sourceId")
+            val mode = ctx.queryParam("mode") ?: "popular"
+            val query = ctx.queryParam("query")
+            val page = ctx.queryParam("page")?.toIntOrNull() ?: 1
+            val fixtures = if (sourceId.isNullOrBlank() && mode == "popular" && query.isNullOrBlank() && page == 1) fixture.catalog() else emptyList()
+            ctx.json(fixtures + aniyomiFixture.catalog(sourceId, mode, query, page))
+        }
         app.get("/v1/extensions/probe") { ctx -> ctx.json(aniyomiProbe.probeInstalled()) }
         app.get("/v1/anime/{animeId}/episodes") { ctx ->
             val id = ctx.pathParam("animeId")

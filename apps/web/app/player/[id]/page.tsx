@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Film, LoaderCircle, RefreshCw, Server, TriangleAlert } from "lucide-react";
+import { Film, LoaderCircle, RefreshCw, Search, Server, TriangleAlert } from "lucide-react";
 import Hls from "hls.js";
 import { api } from "../../../lib/api";
 
 type BridgeDevice = { endpoint: string; revokedAt: string | null };
+type AnimeSourceSummary = { id: string; name: string; language: string; supportsLatest: boolean; provider: string };
 type AnimeCatalogItem = { id: string; title: string; description: string; provider: string; attribution: string };
 type AnimeEpisode = { id: string; animeId: string; number: number; title: string };
 type AnimeServer = { id: string; name: string };
@@ -15,6 +16,10 @@ type AnimeStream = { id: string; serverId: string; url: string; kind: "MP4" | "H
 export default function PlayerPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [bridge, setBridge] = useState("");
+  const [sources, setSources] = useState<AnimeSourceSummary[]>([]);
+  const [sourceId, setSourceId] = useState("");
+  const [browseMode, setBrowseMode] = useState<"popular" | "latest" | "search">("popular");
+  const [searchDraft, setSearchDraft] = useState("");
   const [catalog, setCatalog] = useState<AnimeCatalogItem[]>([]);
   const [animeId, setAnimeId] = useState("");
   const [episodes, setEpisodes] = useState<AnimeEpisode[]>([]);
@@ -67,10 +72,25 @@ export default function PlayerPage() {
       const { items } = await api<{ items: BridgeDevice[] }>("/bridges");
       const endpoint = items.find((item) => !item.revokedAt)?.endpoint?.replace(/\/$/, "");
       if (!endpoint) throw new Error("Pair HAO Bridge in Settings before browsing anime.");
-      const titles = await bridgeRequest<AnimeCatalogItem[]>(endpoint, "/v1/anime/catalog");
-      if (!titles.length) throw new Error("No anime runtime is available yet.");
-      const initialTitle = titles.find((item) => item.provider !== "fixture-anime") ?? titles[0]!;
-      setBridge(endpoint); setCatalog(titles); setAnimeId(initialTitle.id);
+      const nextSources = await bridgeRequest<AnimeSourceSummary[]>(endpoint, "/v1/anime/sources");
+      if (!nextSources.length) throw new Error("Install and enable an Aniyomi extension before browsing anime.");
+      const initialSource = nextSources.find((item) => !item.provider.includes("HAO Signed Fixture")) ?? nextSources[0]!;
+      setBridge(endpoint); setSources(nextSources); setSourceId(initialSource.id); setBrowseMode("popular");
+      await loadCatalog(endpoint, initialSource.id, "popular", "");
+    } catch (cause) { setBusy(""); setError(message(cause)); }
+  }
+
+  async function loadCatalog(endpoint: string, nextSourceId: string, mode: "popular" | "latest" | "search", query: string) {
+    setBusy(mode === "search" ? `Searching for “${query}”…` : mode === "latest" ? "Loading latest updates…" : "Loading popular anime…");
+    setError(""); safelyResetVideo(videoRef.current);
+    setCatalog([]); setAnimeId(""); setEpisodes([]); setEpisodeId(""); setServers([]); setServerId(""); setStreams([]); setStreamId("");
+    try {
+      const parameters = new URLSearchParams({ sourceId: nextSourceId, mode, page: "1" });
+      if (mode === "search") parameters.set("query", query.trim());
+      const titles = await bridgeRequest<AnimeCatalogItem[]>(endpoint, `/v1/anime/catalog?${parameters.toString()}`);
+      if (!titles.length) throw new Error(mode === "search" ? `No results found for “${query}”.` : "This source did not return any titles.");
+      const initialTitle = titles[0]!;
+      setCatalog(titles); setAnimeId(initialTitle.id);
       await loadAnime(endpoint, initialTitle.id);
     } catch (cause) { setBusy(""); setError(message(cause)); }
   }
@@ -107,12 +127,26 @@ export default function PlayerPage() {
   async function changeAnime(next: string) { setAnimeId(next); setEpisodes([]); setServers([]); setStreams([]); await loadAnime(bridge, next); }
   async function changeEpisode(next: string) { setEpisodeId(next); setServers([]); setStreams([]); try { await loadEpisode(bridge, next); } catch (cause) { setBusy(""); setError(message(cause)); } }
   async function changeServer(next: string) { setServerId(next); setStreams([]); try { await loadServer(bridge, episodeId, next); } catch (cause) { setBusy(""); setError(message(cause)); } }
+  async function changeSource(next: string) { setSourceId(next); setBrowseMode("popular"); setSearchDraft(""); await loadCatalog(bridge, next, "popular", ""); }
+  async function changeBrowseMode(next: "popular" | "latest") { setBrowseMode(next); await loadCatalog(bridge, sourceId, next, ""); }
+  async function submitSearch(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const query = searchDraft.trim();
+    if (query.length < 2) { setError("Enter at least two characters to search."); return; }
+    setBrowseMode("search");
+    await loadCatalog(bridge, sourceId, "search", query);
+  }
 
   return <div className="player-page anime-player-page">
     <div className="video-stage">
       {stream ? <video ref={videoRef} key={stream.id} controls playsInline preload="metadata" onError={()=>setError("The selected stream could not be loaded. Try another server or quality.")}>
         {stream.subtitles.map((subtitle)=><track key={subtitle.url} kind="subtitles" label={subtitle.label} srcLang={subtitle.language} src={subtitle.url}/>)}
       </video> : <div className="player-placeholder"><Film/><span>{busy || "Choose an episode and stream."}</span></div>}
+    </div>
+    <div className="anime-browse-bar">
+      <label>Source<select aria-label="Anime source" value={sourceId} onChange={(event)=>void changeSource(event.target.value)} disabled={Boolean(busy)}>{sources.map((item)=><option key={item.id} value={item.id}>{item.name} · {item.language.toUpperCase()}</option>)}</select></label>
+      <label>Browse<select aria-label="Browse mode" value={browseMode} onChange={(event)=>void changeBrowseMode(event.target.value as "popular" | "latest")} disabled={Boolean(busy)}><option value="popular">Popular</option><option value="latest" disabled={!sources.find((item)=>item.id===sourceId)?.supportsLatest}>Latest updates</option>{browseMode === "search" && <option value="search">Search results</option>}</select></label>
+      <form className="anime-search" onSubmit={(event)=>void submitSearch(event)}><label>Search<input aria-label="Search this anime source" value={searchDraft} onChange={(event)=>setSearchDraft(event.target.value)} placeholder="Search titles…" disabled={Boolean(busy)}/></label><button className="button primary compact" type="submit" disabled={Boolean(busy) || searchDraft.trim().length < 2}><Search/>Search</button></form>
     </div>
     <div className="player-source-bar">
       <label>Title<select aria-label="Anime title" value={animeId} onChange={(event)=>void changeAnime(event.target.value)} disabled={Boolean(busy)}>{catalog.map((item)=><option key={item.id} value={item.id}>{item.title}</option>)}</select></label>

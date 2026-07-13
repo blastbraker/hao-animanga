@@ -15,13 +15,16 @@ import java.io.ByteArrayInputStream
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.TimeUnit
 
 /** Executes API-v14 Aniyomi sources inside the contained child runtime. */
 class AniyomiFixtureRuntime(private val extensionRoot: Path, private val dataRoot: Path, private val expectedSignerFingerprint: String?) {
     private data class AnimeHandle(val source: AnimeSource, val anime: SAnime)
     private data class EpisodeHandle(val source: AnimeSource, val episode: SEpisode)
-    @Serializable private data class StreamHandle(val url: String, val headers: Map<String, List<String>> = emptyMap())
+    @Serializable
+    private data class StoredAnime(val sourceId: Long, val url: String, val title: String, val description: String? = null)
+
+    @Serializable
+    private data class StreamHandle(val url: String, val headers: Map<String, List<String>> = emptyMap())
 
     private val json = Json { ignoreUnknownKeys = true }
     private val probes = AniyomiApkProbe(extensionRoot, dataRoot)
@@ -33,29 +36,51 @@ class AniyomiFixtureRuntime(private val extensionRoot: Path, private val dataRoo
     @Volatile private var sources: List<AnimeSource>? = null
     private val mediaClient = eu.kanade.tachiyomi.network.NetworkRuntime.client()
 
-    fun catalog(): List<AnimeCatalogItem> = loadSources().flatMap { source ->
-        runCatching {
-            val catalogue = source as? AnimeCatalogueSource ?: return@runCatching emptyList()
-            val page = catalogue.fetchPopularAnime(1).timeout(20, TimeUnit.SECONDS).toBlocking().single()
-            val installed = sourcePackages[source.id]
-            page.animes.map { item ->
-                val id = stableId("anime", source.id.toString(), item.url)
-                anime[id] = AnimeHandle(source, item)
-                AnimeCatalogItem(id, item.title, item.description ?: "No description supplied by this source.", source.name, installed?.displayName ?: "Aniyomi extension")
+    fun sourceSummaries(): List<AnimeSourceSummary> = loadSources().mapNotNull { source ->
+        val catalogue = source as? AnimeCatalogueSource ?: return@mapNotNull null
+        AnimeSourceSummary(
+            source.id.toString(),
+            source.name,
+            catalogue.lang,
+            catalogue.supportsLatest,
+            sourcePackages[source.id]?.displayName ?: "Aniyomi extension",
+        )
+    }.sortedBy { it.name.lowercase() }
+
+    fun catalog(sourceId: String? = null, mode: String = "popular", query: String? = null, page: Int = 1): List<AnimeCatalogItem> {
+        require(page in 1..20) { "Anime catalog page is invalid" }
+        require(mode in setOf("popular", "latest", "search")) { "Anime browse mode is invalid" }
+        val normalizedQuery = query?.trim().orEmpty()
+        require(mode != "search" || normalizedQuery.length in 2..120) { "Enter at least two characters to search" }
+        return loadSources().filter { sourceId.isNullOrBlank() || it.id.toString() == sourceId }.flatMap { source ->
+            runCatching {
+                val catalogue = source as? AnimeCatalogueSource ?: return@runCatching emptyList()
+                require(mode != "latest" || catalogue.supportsLatest) { "This anime source does not support latest updates" }
+                val result = runBlocking {
+                    withTimeout(30_000) {
+                        when (mode) {
+                            "latest" -> catalogue.getLatestUpdates(page)
+                            "search" -> catalogue.getSearchAnime(page, normalizedQuery, catalogue.getFilterList())
+                            else -> catalogue.getPopularAnime(page)
+                        }
+                    }
+                }
+                val installed = sourcePackages[source.id]
+                result.animes.map { item ->
+                    val id = stableId("anime", source.id.toString(), item.url)
+                    anime[id] = AnimeHandle(source, item)
+                    persistAnime(id, StoredAnime(source.id, item.url, item.title, item.description))
+                    AnimeCatalogItem(id, item.title, item.description ?: "No description supplied by this source.", source.name, installed?.displayName ?: "Aniyomi extension")
+                }
+            }.getOrElse { error ->
+                System.err.println("Aniyomi source ${source.name} catalog failed: ${error.message ?: error.javaClass.simpleName}")
+                emptyList()
             }
-        }.getOrElse { error ->
-            System.err.println("Aniyomi source ${source.name} catalog failed: ${error.message ?: error.javaClass.simpleName}")
-            emptyList()
         }
     }
 
     fun episodes(animeId: String): List<AnimeEpisode> {
-        val handle = anime[animeId] ?: run {
-            // The containing process can be restarted after a provider failure.
-            // Rebuild deterministic catalog handles before rejecting a browser-held id.
-            catalog()
-            anime[animeId]
-        } ?: throw IllegalArgumentException("Aniyomi anime title was not found")
+        val handle = anime[animeId] ?: restoreAnime(animeId) ?: throw IllegalArgumentException("Aniyomi anime title was not found")
         return runCatching {
             runBlocking { withTimeout(30_000) { handle.source.getEpisodeList(handle.anime) } }.map { item ->
                 val id = stableId("episode", handle.source.id.toString(), item.url)
@@ -172,6 +197,28 @@ class AniyomiFixtureRuntime(private val extensionRoot: Path, private val dataRoo
         val directory = dataRoot.resolve("streams")
         Files.createDirectories(directory)
         Files.writeString(directory.resolve("$id.json"), json.encodeToString(StreamHandle.serializer(), stream))
+    }
+
+    private fun persistAnime(id: String, stored: StoredAnime) {
+        require(id.matches(Regex("aniyomi-anime-[a-f0-9]{24}"))) { "Invalid Aniyomi anime id" }
+        val directory = dataRoot.resolve("anime-handles")
+        Files.createDirectories(directory)
+        Files.writeString(directory.resolve("$id.json"), json.encodeToString(StoredAnime.serializer(), stored))
+    }
+
+    private fun restoreAnime(id: String): AnimeHandle? {
+        if (!id.matches(Regex("aniyomi-anime-[a-f0-9]{24}"))) return null
+        val directory = dataRoot.resolve("anime-handles").normalize()
+        val path = directory.resolve("$id.json").normalize()
+        if (path.parent != directory || !Files.isRegularFile(path)) return null
+        val stored = runCatching { json.decodeFromString(StoredAnime.serializer(), Files.readString(path)) }.getOrNull() ?: return null
+        val source = loadSources().find { it.id == stored.sourceId } ?: return null
+        val item = SAnime.create().apply {
+            url = stored.url
+            title = stored.title
+            description = stored.description
+        }
+        return AnimeHandle(source, item).also { anime[id] = it }
     }
 
     private fun loadStream(id: String): StreamHandle? {

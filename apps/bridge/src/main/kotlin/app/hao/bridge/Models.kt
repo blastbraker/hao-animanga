@@ -75,6 +75,14 @@ import kotlinx.serialization.Serializable
     val attribution: String,
 )
 
+@Serializable data class AnimeSourceSummary(
+    val id: String,
+    val name: String,
+    val language: String,
+    val supportsLatest: Boolean,
+    val provider: String,
+)
+
 @Serializable data class AnimeEpisode(
     val id: String,
     val animeId: String,
