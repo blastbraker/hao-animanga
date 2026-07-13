@@ -1,5 +1,5 @@
-const CACHE = "hao-shell-v1";
-const SHELL = ["/", "/library", "/settings", "/manifest.webmanifest", "/icon.svg"];
+const CACHE = "hao-shell-v2";
+const SHELL = ["/", "/library", "/settings", "/manifest.webmanifest", "/brand/hao-logo-64.png", "/brand/hao-logo-192.png", "/brand/hao-logo-512.png"];
 self.addEventListener("install", (event) => event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL))));
 self.addEventListener("activate", (event) => event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key))))));
 self.addEventListener("fetch", (event) => {

@@ -29,7 +29,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const label = user?.email?.split("@")[0] ?? "Ali";
   return <div className="app-shell">
     <aside className="sidebar" aria-label="Primary navigation">
-      <Link href="/" className="brand" aria-label="HAO home"><span className="brand-mark">H</span><span>HAO</span></Link>
+      <Link href="/" className="brand" aria-label="HAO home"><img className="brand-mark" src="/brand/hao-logo-64.png" alt=""/><span>HAO</span></Link>
       <nav>{nav.map(({ href, label: itemLabel, icon: Icon }) => <Link key={href} href={href} className={path === href ? "active" : ""}><Icon size={20}/><span>{itemLabel}</span></Link>)}</nav>
       <div className="side-bottom">
         <Link href="/admin" className={path.startsWith("/admin") ? "active" : ""}><ShieldCheck size={20}/><span>Admin</span></Link>
@@ -38,7 +38,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
     </aside>
     <header className="topbar">
-      <Link href="/" className="mobile-brand"><span className="brand-mark">H</span> HAO</Link>
+      <Link href="/" className="mobile-brand"><img className="brand-mark" src="/brand/hao-logo-64.png" alt=""/> HAO</Link>
       <Link href="/discover" className="search-pill"><Search size={18}/><span>Search your archive...</span><kbd>Ctrl K</kbd></Link>
       <span className="beta-pill">INVITE BETA</span>
     </header>

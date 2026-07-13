@@ -1,0 +1,11 @@
+.brand-mark {
+  display: block;
+  object-fit: cover;
+  box-shadow: 0 0 18px rgba(96, 239, 227, .14);
+}
+
+.login-card .brand-mark {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+}

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Instrument_Sans, Manrope } from "next/font/google";
 import "./styles.css";
+import "./brand.css";
 import "./home.css";
 import "./title.css";
 import "./auth.css";
@@ -17,6 +18,7 @@ export const metadata: Metadata = {
   title: { default: "HAO — Your AniManga Archive", template: "%s · HAO" },
   description: "Discover, watch, read, and remember everything in your anime and manga life.",
   manifest: "/manifest.webmanifest",
+  icons: { icon: "/brand/hao-logo-64.png", apple: "/brand/hao-logo-192.png" },
 };
 export const viewport: Viewport = { themeColor: "#080a12", colorScheme: "dark" };
 

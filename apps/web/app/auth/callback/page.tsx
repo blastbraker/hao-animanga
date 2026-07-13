@@ -13,5 +13,5 @@ export default function AuthCallbackPage() {
       else window.location.replace("/");
     });
   }, []);
-  return <div className="login-page"><section className="login-card"><span className="brand-mark">H</span><h1>{message}</h1></section></div>;
+  return <div className="login-page"><section className="login-card"><img className="brand-mark" src="/brand/hao-logo-64.png" alt="HAO"/><h1>{message}</h1></section></div>;
 }
