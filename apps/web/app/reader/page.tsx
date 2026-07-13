@@ -62,6 +62,8 @@ export default function ReaderPage() {
       const parameters = new URLSearchParams(window.location.search);
       const requestedSourceId = parameters.get("sourceId");
       const requestedMangaId = Number(parameters.get("mangaId"));
+      const requestedChapterIndex = Number(parameters.get("chapterIndex"));
+      const requestedQuery = parameters.get("query")?.trim() ?? "";
       const requestedMode: BrowseMode = parameters.get("mode") === "latest" ? "latest" : "popular";
       setBridge(endpoint);
       const payload = await bridgeRequest<MangaSource[]>("/v1/manga/sources", endpoint);
@@ -72,7 +74,10 @@ export default function ReaderPage() {
       const initialMode = requestedMode === "latest" && preferred.supportsLatest ? "latest" : "popular";
       setSourceId(preferred.id);
       setBrowseMode(initialMode);
-      const catalog = await bridgeRequest<MangaSearchResponse>(`/v1/manga/browse?sourceId=${encodeURIComponent(preferred.id)}&mode=${initialMode}&page=1`, endpoint);
+      if (requestedQuery) setQuery(requestedQuery);
+      const catalog = requestedQuery && !requestedMangaId
+        ? await bridgeRequest<MangaSearchResponse>(`/v1/manga/search?sourceId=${encodeURIComponent(preferred.id)}&query=${encodeURIComponent(requestedQuery)}&page=1`, endpoint)
+        : await bridgeRequest<MangaSearchResponse>(`/v1/manga/browse?sourceId=${encodeURIComponent(preferred.id)}&mode=${initialMode}&page=1`, endpoint);
       if (cancelled) return;
       setResults(catalog.items);
       if (Number.isInteger(requestedMangaId) && requestedMangaId > 0) {
@@ -83,6 +88,12 @@ export default function ReaderPage() {
         if (cancelled) return;
         setSelected(details); setChapters(chapterList);
         if (!chapterList.length) setError(`No readable ${preferred.language.toUpperCase()} chapters are available from ${preferred.name} for this title.`);
+        const requestedChapter = chapterList.find((chapter) => chapter.index === requestedChapterIndex);
+        if (requestedChapter) {
+          const chapterPages = await bridgeRequest<MangaChapterPages>(`/v1/manga/${requestedMangaId}/chapter/${requestedChapter.index}/pages`, endpoint);
+          if (cancelled) return;
+          setPages(chapterPages); setPageIndex(0);
+        }
       }
       setBusy("");
     }).catch((cause: unknown) => {

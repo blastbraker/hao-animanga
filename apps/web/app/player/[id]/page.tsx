@@ -71,18 +71,20 @@ export default function PlayerPage() {
       const parameters = new URLSearchParams(window.location.search);
       const requestedSourceId = parameters.get("sourceId");
       const requestedAnimeId = parameters.get("animeId");
-      const requestedMode = parameters.get("mode") === "latest" ? "latest" : "popular";
+      const requestedEpisodeId = parameters.get("episodeId");
+      const requestedQuery = parameters.get("query")?.trim() ?? "";
+      const requestedMode: "popular" | "latest" | "search" = parameters.get("mode") === "search" && requestedQuery.length >= 2 ? "search" : parameters.get("mode") === "latest" ? "latest" : "popular";
       const endpoint = await getActiveBridgeEndpoint();
       const nextSources = await bridgeRequest<AnimeSourceSummary[]>(endpoint, "/v1/anime/sources");
       if (!nextSources.length) throw new Error("Install and enable an Aniyomi extension before browsing anime.");
       const initialSource = nextSources.find((item) => item.id === requestedSourceId) ?? nextSources.find((item) => !item.provider.includes("HAO Signed Fixture")) ?? nextSources[0]!;
-      const initialMode = requestedMode === "latest" && initialSource.supportsLatest ? "latest" : "popular";
-      setBridge(endpoint); setSources(nextSources); setSourceId(initialSource.id); setBrowseMode(initialMode);
-      await loadCatalog(endpoint, initialSource.id, initialMode, "", requestedAnimeId ?? undefined);
+      const initialMode = requestedMode === "latest" && !initialSource.supportsLatest ? "popular" : requestedMode;
+      setBridge(endpoint); setSources(nextSources); setSourceId(initialSource.id); setBrowseMode(initialMode); setSearchDraft(requestedQuery);
+      await loadCatalog(endpoint, initialSource.id, initialMode, requestedQuery, requestedAnimeId ?? undefined, requestedEpisodeId ?? undefined);
     } catch (cause) { setBusy(""); setError(message(cause)); }
   }
 
-  async function loadCatalog(endpoint: string, nextSourceId: string, mode: "popular" | "latest" | "search", query: string, preferredAnimeId?: string) {
+  async function loadCatalog(endpoint: string, nextSourceId: string, mode: "popular" | "latest" | "search", query: string, preferredAnimeId?: string, preferredEpisodeId?: string) {
     setBusy(mode === "search" ? `Searching for “${query}”…` : mode === "latest" ? "Loading latest updates…" : "Loading popular anime…");
     setError(""); safelyResetVideo(videoRef.current);
     setCatalog([]); setAnimeId(""); setEpisodes([]); setEpisodeId(""); setServers([]); setServerId(""); setStreams([]); setStreamId("");
@@ -90,21 +92,30 @@ export default function PlayerPage() {
       const parameters = new URLSearchParams({ sourceId: nextSourceId, mode, page: "1" });
       if (mode === "search") parameters.set("query", query.trim());
       const titles = await bridgeRequest<AnimeCatalogItem[]>(endpoint, `/v1/anime/catalog?${parameters.toString()}`);
-      if (!titles.length) throw new Error(mode === "search" ? `No results found for “${query}”.` : "This source did not return any titles.");
-      const initialTitle = titles.find((item) => item.id === preferredAnimeId) ?? titles[0]!;
-      setCatalog(titles); setAnimeId(initialTitle.id);
-      await loadAnime(endpoint, initialTitle.id);
+      const persistedTitle = preferredAnimeId && !titles.some((item) => item.id === preferredAnimeId) ? {
+        id: preferredAnimeId,
+        title: query || "Selected anime",
+        description: "Selected from a verified HAO title match.",
+        provider: sources.find((item) => item.id === nextSourceId)?.name ?? "Installed anime source",
+        attribution: "HAO Bridge",
+      } satisfies AnimeCatalogItem : null;
+      const catalogItems = persistedTitle ? [persistedTitle, ...titles] : titles;
+      if (!catalogItems.length) throw new Error(mode === "search" ? `No results found for “${query}”.` : "This source did not return any titles.");
+      const initialTitle = catalogItems.find((item) => item.id === preferredAnimeId) ?? catalogItems[0]!;
+      setCatalog(catalogItems); setAnimeId(initialTitle.id);
+      await loadAnime(endpoint, initialTitle.id, false, preferredEpisodeId);
     } catch (cause) { setBusy(""); setError(message(cause)); }
   }
 
-  async function loadAnime(endpoint: string, nextAnimeId: string, cancelled = false) {
+  async function loadAnime(endpoint: string, nextAnimeId: string, cancelled = false, preferredEpisodeId?: string) {
     setBusy("Loading episodes…"); setError(""); safelyResetVideo(videoRef.current);
     try {
       const nextEpisodes = await bridgeRequest<AnimeEpisode[]>(endpoint, `/v1/anime/${encodeURIComponent(nextAnimeId)}/episodes`);
       if (!nextEpisodes.length) throw new Error("This source did not return any episodes.");
       if (cancelled) return;
-      setEpisodes(nextEpisodes); setEpisodeId(nextEpisodes[0]!.id);
-      await loadEpisode(endpoint, nextEpisodes[0]!.id, cancelled);
+      const initialEpisode = nextEpisodes.find((item) => item.id === preferredEpisodeId) ?? nextEpisodes[0]!;
+      setEpisodes(nextEpisodes); setEpisodeId(initialEpisode.id);
+      await loadEpisode(endpoint, initialEpisode.id, cancelled);
     } catch (cause) { if (!cancelled) setError(message(cause)); }
     finally { if (!cancelled) setBusy(""); }
   }

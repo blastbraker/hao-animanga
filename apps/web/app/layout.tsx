@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Instrument_Sans, Manrope } from "next/font/google";
 import "./styles.css";
 import "./home.css";
+import "./title.css";
 import "./auth.css";
 import "./extensions.css";
 import "./reader.css";
