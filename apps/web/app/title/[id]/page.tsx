@@ -27,9 +27,12 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
   const [availabilityError, setAvailabilityError] = useState("");
   const [animeAvailability, setAnimeAvailability] = useState<AnimeAvailability[]>([]);
   const [mangaAvailability, setMangaAvailability] = useState<MangaAvailability[]>([]);
+  const [resumeEpisodeNumber, setResumeEpisodeNumber] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
+    const requestedEpisode = Number(new URLSearchParams(window.location.search).get("resumeEpisode"));
+    setResumeEpisodeNumber(Number.isFinite(requestedEpisode) && requestedEpisode > 0 ? requestedEpisode : null);
     setWork(null); setError("");
     void params.then(async ({ id }) => {
       try {
@@ -65,10 +68,13 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
   const primaryManga = mangaAvailability[0];
   const primaryHref = useMemo(() => {
     if (!work) return "#";
-    if (primaryAnime) return animePlayerHref(primaryAnime.source.id, primaryAnime.item.id, work.title, primaryAnime.episodes[0]?.id, work.id);
+    if (primaryAnime) {
+      const preferredEpisode = primaryAnime.episodes.find((episode) => episode.number === resumeEpisodeNumber) ?? primaryAnime.episodes[0];
+      return animePlayerHref(primaryAnime.source.id, primaryAnime.item.id, work.title, preferredEpisode?.id, work.id);
+    }
     if (primaryManga) return mangaReaderHref(primaryManga.source.id, primaryManga.item.id);
     return work.kind === "ANIME" ? "/player/anime" : "/reader";
-  }, [primaryAnime, primaryManga, work]);
+  }, [primaryAnime, primaryManga, resumeEpisodeNumber, work]);
 
   if (error) return <div className="page inner-page"><div className="empty-state title-error"><CircleAlert/><h2>Title unavailable</h2><p>{error}</p><button className="button primary" onClick={()=>setReloadKey((value)=>value+1)}><RefreshCw/>Retry</button><Link className="button ghost" href="/discover">Back to Discover</Link></div></div>;
   if (!work) return <div className="page inner-page empty-state">Opening title…</div>;

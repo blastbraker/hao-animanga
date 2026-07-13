@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { completedEpisodeUnits, parsePlaybackPosition, playbackPercent, playbackStorageKey, resumablePosition } from "./playback-progress";
+import { completedEpisodeUnits, continueWatchingId, parseContinueWatching, parsePlaybackPosition, playbackPercent, playbackStorageKey, resumablePosition, updateContinueWatching, type ContinueWatchingEntry } from "./playback-progress";
 
 describe("anime playback progress", () => {
   it("creates an isolated key for each source title and episode", () => {
@@ -25,4 +25,26 @@ describe("anime playback progress", () => {
     expect(completedEpisodeUnits(7, false)).toBe(6);
     expect(completedEpisodeUnits(7, true)).toBe(7);
   });
+
+  it("keeps only the latest episode for a source title", () => {
+    const first = continueEntry({ episodeId: "episode-1", episodeNumber: 1, updatedAt: "2026-07-13T10:00:00.000Z" });
+    const second = continueEntry({ episodeId: "episode-2", episodeNumber: 2, updatedAt: "2026-07-13T11:00:00.000Z" });
+    expect(updateContinueWatching(updateContinueWatching([], first), second)).toEqual([second]);
+    expect(updateContinueWatching([second], second, true)).toEqual([]);
+  });
+
+  it("parses valid continue entries and rejects malformed records", () => {
+    const entry = continueEntry({});
+    expect(parseContinueWatching(JSON.stringify([entry, { id: "broken" }]))).toEqual([entry]);
+    expect(continueWatchingId("source/a", "anime:1")).toBe("source%2Fa:anime%3A1");
+  });
 });
+
+function continueEntry(overrides: Partial<ContinueWatchingEntry>): ContinueWatchingEntry {
+  return {
+    id: continueWatchingId("source", "anime"), workId: null, sourceId: "source", sourceName: "Source",
+    animeId: "anime", animeTitle: "Anime", thumbnailUrl: null, episodeId: "episode-1", episodeNumber: 1,
+    episodeTitle: "Episode 1", positionSeconds: 30, durationSeconds: 100, updatedAt: "2026-07-13T10:00:00.000Z",
+    ...overrides,
+  };
+}

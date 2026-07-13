@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, ChevronLeft, ChevronRight, Film, LoaderCircle, RefreshCw, Search, Server, TriangleAlert } from "lucide-react";
 import Hls from "hls.js";
-import { api, getActiveBridgeEndpoint } from "../../../lib/api";
-import { completedEpisodeUnits, parsePlaybackPosition, playbackPercent, playbackStorageKey, resumablePosition } from "../../../lib/playback-progress";
+import { api, getActiveBridgeEndpoint, type LibraryResponse } from "../../../lib/api";
+import { completedEpisodeUnits, continueWatchingId, CONTINUE_WATCHING_STORAGE_KEY, DISMISSED_CONTINUE_STORAGE_KEY, parseContinueWatching, parseDismissedWorkIds, parsePlaybackPosition, playbackPercent, playbackStorageKey, resumablePosition, updateContinueWatching, type ContinueWatchingEntry } from "../../../lib/playback-progress";
 
 type AnimeSourceSummary = { id: string; name: string; language: string; supportsLatest: boolean; provider: string };
 type AnimeCatalogItem = { id: string; title: string; description: string; provider: string; attribution: string; thumbnailUrl?: string | null };
@@ -18,8 +18,10 @@ export default function PlayerPage() {
   const autoplayRequestedRef = useRef(false);
   const lastSavedAtRef = useRef(0);
   const restoredPlaybackKeyRef = useRef("");
+  const remoteProgressRef = useRef<{ episodeNumber: number; positionSeconds: number } | null>(null);
   const [bridge, setBridge] = useState("");
   const [workId, setWorkId] = useState("");
+  const [workCoverUrl, setWorkCoverUrl] = useState<string | null>(null);
   const [sources, setSources] = useState<AnimeSourceSummary[]>([]);
   const [sourceId, setSourceId] = useState("");
   const [browseMode, setBrowseMode] = useState<"popular" | "latest" | "search">("popular");
@@ -92,8 +94,28 @@ export default function PlayerPage() {
       const initialSource = nextSources.find((item) => item.id === requestedSourceId) ?? nextSources.find((item) => !item.provider.includes("HAO Signed Fixture")) ?? nextSources[0]!;
       const initialMode = requestedMode === "latest" && !initialSource.supportsLatest ? "popular" : requestedMode;
       setBridge(endpoint); setWorkId(requestedWorkId); setSources(nextSources); setSourceId(initialSource.id); setBrowseMode(initialMode); setSearchDraft(requestedQuery);
+      if (requestedWorkId) await hydrateCanonicalPlayback(requestedWorkId);
       await loadCatalog(endpoint, initialSource.id, initialMode, requestedQuery, requestedAnimeId ?? undefined, requestedEpisodeId ?? undefined);
     } catch (cause) { setBusy(""); setError(message(cause)); }
+  }
+
+  async function hydrateCanonicalPlayback(canonicalWorkId: string) {
+    remoteProgressRef.current = null;
+    setWorkCoverUrl(null);
+    const [workResult, libraryResult] = await Promise.allSettled([
+      api<{ work: { coverUrl: string | null } }>(`/works/${canonicalWorkId}`),
+      api<LibraryResponse>("/library"),
+    ]);
+    if (workResult.status === "fulfilled") setWorkCoverUrl(workResult.value.work.coverUrl);
+    if (libraryResult.status !== "fulfilled") return;
+    const libraryEntry = libraryResult.value.items.find((item) => item.work.id === canonicalWorkId);
+    if (!libraryEntry) {
+      await api("/library", { method: "PUT", body: JSON.stringify({ workId: canonicalWorkId, status: "WATCHING_READING", favorite: false, rating: null, notes: "" }) }).catch(() => undefined);
+    }
+    const progress = libraryEntry?.progress;
+    if (progress?.positionSeconds && (progress.positionPercent ?? 0) < 95) {
+      remoteProgressRef.current = { episodeNumber: progress.completedUnits + 1, positionSeconds: progress.positionSeconds };
+    }
   }
 
   async function loadCatalog(endpoint: string, nextSourceId: string, mode: "popular" | "latest" | "search", query: string, preferredAnimeId?: string, preferredEpisodeId?: string) {
@@ -202,6 +224,7 @@ export default function PlayerPage() {
     const positionSeconds = completed ? video.duration : video.currentTime;
     const saved = { positionSeconds, durationSeconds: video.duration, updatedAt: new Date().toISOString(), completed };
     writePreference(playbackStorageKey(sourceId, animeId, episode.id), JSON.stringify(saved));
+    saveContinueEntry(episode, positionSeconds, video.duration, completed);
     setProgressStatus(workId ? "Saving progress…" : "Resume saved on this device");
     if (!workId) return;
     try {
@@ -221,12 +244,45 @@ export default function PlayerPage() {
     }
   }
 
+  function saveContinueEntry(targetEpisode: AnimeEpisode, positionSeconds: number, durationSeconds: number, completed = false) {
+    const id = continueWatchingId(sourceId, animeId);
+    const entry: ContinueWatchingEntry = {
+      id,
+      workId: workId || null,
+      sourceId,
+      sourceName: sources.find((item) => item.id === sourceId)?.name ?? anime?.provider ?? "Installed anime source",
+      animeId,
+      animeTitle: anime?.title ?? "Selected anime",
+      thumbnailUrl: workCoverUrl ?? anime?.thumbnailUrl ?? null,
+      episodeId: targetEpisode.id,
+      episodeNumber: targetEpisode.number,
+      episodeTitle: targetEpisode.title,
+      positionSeconds,
+      durationSeconds,
+      updatedAt: new Date().toISOString(),
+    };
+    const entries = parseContinueWatching(readPreference(CONTINUE_WATCHING_STORAGE_KEY));
+    writePreference(CONTINUE_WATCHING_STORAGE_KEY, JSON.stringify(updateContinueWatching(entries, entry, completed)));
+    if (workId) {
+      const dismissed = parseDismissedWorkIds(readPreference(DISMISSED_CONTINUE_STORAGE_KEY)).filter((id) => id !== workId);
+      writePreference(DISMISSED_CONTINUE_STORAGE_KEY, JSON.stringify(dismissed));
+    }
+  }
+
   function handleLoadedMetadata() {
     const video = videoRef.current;
     if (!video || !episode) return;
     const key = playbackStorageKey(sourceId, animeId, episode.id);
     if (restoredPlaybackKeyRef.current !== key) {
-      const resumeAt = resumablePosition(parsePlaybackPosition(readPreference(key)), video.duration);
+      const localPosition = parsePlaybackPosition(readPreference(key));
+      const remoteProgress = remoteProgressRef.current;
+      const remotePosition = !localPosition && remoteProgress?.episodeNumber === episode.number ? {
+        positionSeconds: remoteProgress.positionSeconds,
+        durationSeconds: video.duration,
+        updatedAt: new Date(0).toISOString(),
+        completed: false,
+      } : null;
+      const resumeAt = resumablePosition(localPosition ?? remotePosition, video.duration);
       if (resumeAt !== null) {
         video.currentTime = resumeAt;
         setProgressStatus(`Resumed at ${formatTime(resumeAt)}`);
@@ -264,6 +320,7 @@ export default function PlayerPage() {
 
   async function handleEnded() {
     await persistProgress(true);
+    if (nextEpisode) saveContinueEntry(nextEpisode, 0, 0);
     if (autoplayNext && nextEpisode) await changeEpisode(nextEpisode.id, true);
   }
 
@@ -280,6 +337,8 @@ export default function PlayerPage() {
 
   function clearCanonicalWork() {
     setWorkId("");
+    setWorkCoverUrl(null);
+    remoteProgressRef.current = null;
     const url = new URL(window.location.href);
     url.searchParams.delete("workId");
     window.history.replaceState(null, "", url);
@@ -287,7 +346,7 @@ export default function PlayerPage() {
 
   return <div className="player-page anime-player-page">
     <div className="video-stage">
-      {stream ? <video ref={videoRef} key={`${episodeId}:${stream.id}`} controls playsInline preload="metadata" onLoadedMetadata={handleLoadedMetadata} onTimeUpdate={handleTimeUpdate} onPause={()=>{if (!videoRef.current?.ended) void persistProgress(false);}} onEnded={()=>void handleEnded()} onError={()=>setError("The selected stream could not be loaded. Try another server or quality.")}>
+      {stream ? <video ref={videoRef} key={`${episodeId}:${stream.id}`} controls playsInline preload="metadata" onLoadedMetadata={handleLoadedMetadata} onPlay={()=>void persistProgress(false)} onTimeUpdate={handleTimeUpdate} onPause={()=>{if (!videoRef.current?.ended) void persistProgress(false);}} onEnded={()=>void handleEnded()} onError={()=>setError("The selected stream could not be loaded. Try another server or quality.")}>
         {stream.subtitles.map((subtitle)=><track key={subtitle.url} kind="subtitles" label={subtitle.label} srcLang={subtitle.language} src={subtitle.url}/>)}
       </video> : <div className="player-placeholder"><Film/><span>{busy || "Choose an episode and stream."}</span></div>}
     </div>
