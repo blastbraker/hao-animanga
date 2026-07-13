@@ -17,3 +17,8 @@ fixtures/**/local.properties
 data/extensions/
 .idea/
 .vscode/
+
+.vercel
+.env*
+!.env.example
+!.env.production.example

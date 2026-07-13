@@ -23,6 +23,17 @@ describe("API", () => {
     const other = await app.inject({ method: "GET", url: "/v1/library", headers: { "x-user-id": "00000000-0000-0000-0000-000000000002" } });
     expect(other.json().items).toHaveLength(0);
   });
+  it("rejects development identity headers in production", async () => {
+    const previous = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    try {
+      const response = await app.inject({ method: "GET", url: "/v1/library", headers: { "x-user-id": user } });
+      expect(response.statusCode).toBe(401);
+      expect(response.json().message).toBe("Sign in required");
+    } finally {
+      process.env.NODE_ENV = previous;
+    }
+  });
   it("pairs a Bridge once and persists an acknowledged extension repository", async () => {
     const pairing = await app.inject({ method: "POST", url: "/v1/bridges/pairing-code", headers: { "x-user-id": user } });
     const code = pairing.json().code as string;

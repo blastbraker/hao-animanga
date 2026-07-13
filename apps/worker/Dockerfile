@@ -3,4 +3,9 @@ RUN corepack enable
 WORKDIR /app
 COPY . .
 RUN pnpm install --frozen-lockfile && pnpm --filter @hao/worker build
+
+FROM node:22-alpine
+WORKDIR /app
+COPY --from=build /app /app
+ENV NODE_ENV=production
 CMD ["node", "apps/worker/dist/index.js"]

@@ -20,6 +20,18 @@ Production Supabase project: `HAO AniManga Beta` (`jdtdtcprborbwwqjebgp`, East U
 7. Set the PWA API URL and API `WEB_ORIGIN` to their final HTTPS origins.
 8. Invite the first identity in Supabase, then set that profile's `role` to `admin` directly in the SQL editor. All later invitations can be issued from the HAO admin console.
 
+## Staging setup checklist
+
+1. Keep public sign-up disabled in Supabase Authentication. Add the final web origin and `/auth/callback` URL to the allowed redirect URLs.
+2. Create `hao-api` and `hao-worker` Fly applications, then set their secrets from `.env.production.example`. Never expose the service-role, database, Redis, or encryption secrets to Vercel.
+3. Create the Vercel project from this repository and configure `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SUPABASE_URL`, and `NEXT_PUBLIC_SUPABASE_ANON_KEY` for Production.
+4. Set `WEB_ORIGIN` on Fly to the exact Vercel HTTPS origin. Multiple origins must be comma-separated HTTPS URLs.
+5. Configure the GitHub `staging` environment with `SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_PASSWORD`, `SUPABASE_PROJECT_REF`, `FLY_API_TOKEN`, `VERCEL_TOKEN`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID`.
+6. Run the **Deploy staging** workflow manually. It applies migrations first, then deploys the API/worker, and finally deploys the web app.
+7. Confirm `/health`, sign in through an invitation, verify that a member cannot open `/admin`, and test two accounts for library/progress isolation.
+
+Production startup is intentionally fail-closed. The API refuses to start without PostgreSQL, Supabase administration, a 32-character encryption secret, and an HTTPS web origin. Vercel builds refuse missing public API/Supabase configuration. The development `x-user-id` identity is rejected whenever `NODE_ENV=production`.
+
 ## Release gates
 
 - `pnpm typecheck`, `pnpm test`, and `pnpm build` pass.
