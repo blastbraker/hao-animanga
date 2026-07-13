@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import type { MediaKind, Work } from "@hao/domain";
 import type { CatalogProvider, ProviderResult, SearchFilters } from "@hao/providers";
 
@@ -30,6 +30,27 @@ const SEARCH_QUERY = `query Search($page: Int, $perPage: Int, $search: String, $
   }
 }`;
 
+const MEDIA_FIELDS = `
+  id type format title { romaji english native } synonyms description(asHtml: false)
+  coverImage { extraLarge large } bannerImage seasonYear startDate { year } status genres isAdult averageScore countryOfOrigin
+`;
+
+const DISCOVER_QUERY = `query Discover($perPage: Int) {
+  featured: Page(page: 1, perPage: 6) {
+    media(type: ANIME, isAdult: false, sort: [TRENDING_DESC, POPULARITY_DESC]) { ${MEDIA_FIELDS} }
+  }
+  trending: Page(page: 1, perPage: $perPage) {
+    media(isAdult: false, sort: [TRENDING_DESC, POPULARITY_DESC]) { ${MEDIA_FIELDS} }
+  }
+  updated: Page(page: 1, perPage: $perPage) {
+    media(isAdult: false, sort: [UPDATED_AT_DESC, TRENDING_DESC]) { ${MEDIA_FIELDS} }
+  }
+}`;
+
+const WORK_QUERY = `query Work($id: Int!) {
+  Media(id: $id) { ${MEDIA_FIELDS} }
+}`;
+
 function kindFor(media: AniListMedia): MediaKind {
   if (media.type === "ANIME") return "ANIME";
   if (media.format === "NOVEL") return "LIGHT_NOVEL";
@@ -40,7 +61,7 @@ function kindFor(media: AniListMedia): MediaKind {
 function mapWork(media: AniListMedia): Work {
   const title = media.title.english ?? media.title.romaji ?? media.title.native ?? `AniList ${media.id}`;
   return {
-    id: randomUUID(),
+    id: stableWorkId(media.id),
     kind: kindFor(media),
     title,
     alternateTitles: [...new Set([media.title.romaji, media.title.english, media.title.native, ...media.synonyms].filter((v): v is string => Boolean(v && v !== title)))],
@@ -54,6 +75,14 @@ function mapWork(media: AniListMedia): Work {
     averageScore: media.averageScore,
     source: { kind: "ANILIST", externalId: String(media.id) },
   };
+}
+
+function stableWorkId(externalId: number): string {
+  const digest = createHash("sha256").update(`anilist:${externalId}`).digest("hex").split("");
+  digest[12] = "4";
+  digest[16] = "8";
+  const value = digest.join("");
+  return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20, 32)}`;
 }
 
 export class AniListProvider implements CatalogProvider {
@@ -82,8 +111,56 @@ export class AniListProvider implements CatalogProvider {
     }
   }
 
-  async getWork(externalId: string): Promise<ProviderResult<Work>> {
-    const result = await this.search({ query: externalId, page: 1, pageSize: 1 });
-    return result.ok && result.data.items[0] ? { ok: true, data: result.data.items[0] } : { ok: false, error: { code: "UNAVAILABLE", message: "Work unavailable", retryable: true } };
+  async discover(signal?: AbortSignal): Promise<ProviderResult<{ featured: Work[]; trending: Work[]; updated: Work[] }>> {
+    try {
+      const init: RequestInit = {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({ query: DISCOVER_QUERY, variables: { perPage: 12 } }),
+      };
+      if (signal) init.signal = signal;
+      const response = await fetch(this.endpoint, init);
+      if (response.status === 429) return { ok: false, error: { code: "RATE_LIMITED", message: "AniList rate limit reached", retryable: true } };
+      if (!response.ok) return { ok: false, error: { code: "UNAVAILABLE", message: `AniList returned ${response.status}`, retryable: response.status >= 500 } };
+      const body = await response.json() as {
+        data?: { featured?: { media: AniListMedia[] }; trending?: { media: AniListMedia[] }; updated?: { media: AniListMedia[] } };
+        errors?: Array<{ message: string }>;
+      };
+      if (!body.data?.trending?.media?.length) return { ok: false, error: { code: "UNAVAILABLE", message: body.errors?.[0]?.message ?? "AniList returned no discovery data", retryable: true } };
+      const trending = body.data.trending.media.map(mapWork);
+      const featuredCandidates = (body.data.featured?.media ?? []).map(mapWork);
+      const featured = featuredCandidates.filter((work) => work.bannerUrl && work.coverUrl);
+      return {
+        ok: true,
+        data: {
+          featured: featured.length ? featured : trending.filter((work) => work.bannerUrl).slice(0, 4),
+          trending,
+          updated: (body.data.updated?.media ?? []).map(mapWork),
+        },
+      };
+    } catch (error) {
+      return { ok: false, error: { code: "UNAVAILABLE", message: error instanceof Error ? error.message : "AniList discovery failed", retryable: true } };
+    }
+  }
+
+  async getWork(externalId: string, signal?: AbortSignal): Promise<ProviderResult<Work>> {
+    const id = Number(externalId);
+    if (!Number.isSafeInteger(id) || id <= 0) return { ok: false, error: { code: "INVALID", message: "AniList ID is invalid", retryable: false } };
+    try {
+      const init: RequestInit = {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({ query: WORK_QUERY, variables: { id } }),
+      };
+      if (signal) init.signal = signal;
+      const response = await fetch(this.endpoint, init);
+      if (response.status === 429) return { ok: false, error: { code: "RATE_LIMITED", message: "AniList rate limit reached", retryable: true } };
+      if (!response.ok) return { ok: false, error: { code: "UNAVAILABLE", message: `AniList returned ${response.status}`, retryable: response.status >= 500 } };
+      const body = await response.json() as { data?: { Media?: AniListMedia }; errors?: Array<{ message: string }> };
+      if (!body.data?.Media) return { ok: false, error: { code: "UNAVAILABLE", message: body.errors?.[0]?.message ?? "Work unavailable", retryable: true } };
+      return { ok: true, data: mapWork(body.data.Media) };
+    } catch (error) {
+      return { ok: false, error: { code: "UNAVAILABLE", message: error instanceof Error ? error.message : "AniList work request failed", retryable: true } };
+    }
   }
 }

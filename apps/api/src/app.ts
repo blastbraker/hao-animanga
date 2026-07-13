@@ -39,11 +39,22 @@ export function buildApp() {
   app.get("/health", async () => ({ status: "ok", service: "hao-api", database: repository ? await repository.health() : "development-memory", time: new Date().toISOString() }));
   app.get("/v1/session", { preHandler: authenticate }, async (request) => ({ user: request.user, inviteOnly: true }));
 
-  app.get("/v1/discover", async () => ({
-    featured: demoWorks,
-    trending: demoWorks.slice().reverse(),
-    updated: demoWorks.slice(1),
-  }));
+  app.get("/v1/discover", async () => {
+    if (process.env.NODE_ENV === "test") return { featured: demoWorks, trending: demoWorks.slice().reverse(), updated: demoWorks.slice(1), source: "fixture" };
+    const result = await catalog.discover();
+    if (!result.ok) return { featured: demoWorks, trending: demoWorks.slice().reverse(), updated: demoWorks.slice(1), source: "fixture", warning: result.error.message };
+    const materialize = async (items: typeof result.data.trending) => {
+      const works = repository ? await Promise.all(items.map((work) => repository.upsertWork(work))) : items;
+      works.forEach((work) => workStore.set(work.id, work));
+      return works;
+    };
+    const [featured, trending, updated] = await Promise.all([
+      materialize(result.data.featured),
+      materialize(result.data.trending),
+      materialize(result.data.updated),
+    ]);
+    return { featured, trending, updated, source: "anilist" };
+  });
 
   app.get("/v1/search", async (request, reply) => {
     const parsed = SearchQuerySchema.safeParse(request.query);
@@ -69,6 +80,14 @@ export function buildApp() {
     const work = await repository?.getWork(request.params.id) ?? workStore.get(request.params.id);
     if (!work) return reply.code(404).send({ code: "NOT_FOUND", message: "Title not found", retryable: false });
     return { work, releases: [], sources: [work.source], related: demoWorks.filter((item) => item.id !== work.id).slice(0, 3) };
+  });
+
+  app.get<{ Params: { externalId: string } }>("/v1/works/anilist/:externalId", async (request, reply) => {
+    const result = await catalog.getWork(request.params.externalId);
+    if (!result.ok) return reply.code(result.error.code === "INVALID" ? 400 : 503).send({ ...result.error });
+    const work = repository ? await repository.upsertWork(result.data) : result.data;
+    workStore.set(work.id, work);
+    return { work, releases: [], sources: [work.source], related: [] };
   });
 
   app.get("/v1/library", { preHandler: authenticate }, async (request) => {

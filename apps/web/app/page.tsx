@@ -165,7 +165,7 @@ export default function HomePage() {
         <span className="eyebrow"><Sparkles size={14}/> FEATURED ARCHIVE</span>
         <h1>{hero.title}</h1><p>{hero.synopsis}</p>
         <div className="hero-meta"><span>{hero.year}</span><span>{hero.status}</span><span>{hero.averageScore}% score</span></div>
-        <div className="hero-actions"><Link href={`/title/${hero.id}`} className="button primary"><Sparkles size={18}/> Explore title</Link><Link href="#your-sources" className="button ghost"><Play size={18}/> Browse my sources</Link></div>
+        <div className="hero-actions"><Link href={`/title/${hero.id}?anilistId=${encodeURIComponent(hero.source.externalId)}`} className="button primary"><Sparkles size={18}/> Explore title</Link><Link href="#your-sources" className="button ghost"><Play size={18}/> Browse my sources</Link></div>
       </div>
       <div className="hero-index"><b>01</b><span>/ {String(Math.max(data.featured.length, 1)).padStart(2, "0")}</span></div>
     </section>
