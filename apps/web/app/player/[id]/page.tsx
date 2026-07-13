@@ -3,11 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Film, LoaderCircle, RefreshCw, Search, Server, TriangleAlert } from "lucide-react";
 import Hls from "hls.js";
-import { api } from "../../../lib/api";
+import { getActiveBridgeEndpoint } from "../../../lib/api";
 
-type BridgeDevice = { endpoint: string; revokedAt: string | null };
 type AnimeSourceSummary = { id: string; name: string; language: string; supportsLatest: boolean; provider: string };
-type AnimeCatalogItem = { id: string; title: string; description: string; provider: string; attribution: string };
+type AnimeCatalogItem = { id: string; title: string; description: string; provider: string; attribution: string; thumbnailUrl?: string | null };
 type AnimeEpisode = { id: string; animeId: string; number: number; title: string };
 type AnimeServer = { id: string; name: string };
 type AnimeSubtitle = { label: string; language?: string; url: string };
@@ -69,18 +68,21 @@ export default function PlayerPage() {
   async function connect() {
     setBusy("Connecting to your HAO Bridge…"); setError("");
     try {
-      const { items } = await api<{ items: BridgeDevice[] }>("/bridges");
-      const endpoint = items.find((item) => !item.revokedAt)?.endpoint?.replace(/\/$/, "");
-      if (!endpoint) throw new Error("Pair HAO Bridge in Settings before browsing anime.");
+      const parameters = new URLSearchParams(window.location.search);
+      const requestedSourceId = parameters.get("sourceId");
+      const requestedAnimeId = parameters.get("animeId");
+      const requestedMode = parameters.get("mode") === "latest" ? "latest" : "popular";
+      const endpoint = await getActiveBridgeEndpoint();
       const nextSources = await bridgeRequest<AnimeSourceSummary[]>(endpoint, "/v1/anime/sources");
       if (!nextSources.length) throw new Error("Install and enable an Aniyomi extension before browsing anime.");
-      const initialSource = nextSources.find((item) => !item.provider.includes("HAO Signed Fixture")) ?? nextSources[0]!;
-      setBridge(endpoint); setSources(nextSources); setSourceId(initialSource.id); setBrowseMode("popular");
-      await loadCatalog(endpoint, initialSource.id, "popular", "");
+      const initialSource = nextSources.find((item) => item.id === requestedSourceId) ?? nextSources.find((item) => !item.provider.includes("HAO Signed Fixture")) ?? nextSources[0]!;
+      const initialMode = requestedMode === "latest" && initialSource.supportsLatest ? "latest" : "popular";
+      setBridge(endpoint); setSources(nextSources); setSourceId(initialSource.id); setBrowseMode(initialMode);
+      await loadCatalog(endpoint, initialSource.id, initialMode, "", requestedAnimeId ?? undefined);
     } catch (cause) { setBusy(""); setError(message(cause)); }
   }
 
-  async function loadCatalog(endpoint: string, nextSourceId: string, mode: "popular" | "latest" | "search", query: string) {
+  async function loadCatalog(endpoint: string, nextSourceId: string, mode: "popular" | "latest" | "search", query: string, preferredAnimeId?: string) {
     setBusy(mode === "search" ? `Searching for “${query}”…` : mode === "latest" ? "Loading latest updates…" : "Loading popular anime…");
     setError(""); safelyResetVideo(videoRef.current);
     setCatalog([]); setAnimeId(""); setEpisodes([]); setEpisodeId(""); setServers([]); setServerId(""); setStreams([]); setStreamId("");
@@ -89,7 +91,7 @@ export default function PlayerPage() {
       if (mode === "search") parameters.set("query", query.trim());
       const titles = await bridgeRequest<AnimeCatalogItem[]>(endpoint, `/v1/anime/catalog?${parameters.toString()}`);
       if (!titles.length) throw new Error(mode === "search" ? `No results found for “${query}”.` : "This source did not return any titles.");
-      const initialTitle = titles[0]!;
+      const initialTitle = titles.find((item) => item.id === preferredAnimeId) ?? titles[0]!;
       setCatalog(titles); setAnimeId(initialTitle.id);
       await loadAnime(endpoint, initialTitle.id);
     } catch (cause) { setBusy(""); setError(message(cause)); }

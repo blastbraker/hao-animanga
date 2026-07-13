@@ -2,9 +2,8 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { BookOpen, ChevronLeft, ChevronRight, LoaderCircle, Search, Server, TriangleAlert } from "lucide-react";
-import { api } from "../../lib/api";
+import { getActiveBridgeEndpoint } from "../../lib/api";
 
-type BridgeDevice = { endpoint: string; revokedAt: string | null };
 type MangaSource = { id: string; name: string; displayName: string; language: string; mature: boolean; supportsLatest: boolean };
 type MangaSummary = { id: number; sourceId: string; title: string; author?: string; description?: string; status?: string; genres: string[] };
 type MangaSearchResponse = { items: MangaSummary[]; hasNextPage: boolean };
@@ -49,9 +48,9 @@ export default function ReaderPage() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [pages, readingMode]);
 
-  async function bridgeRequest<T>(path: string): Promise<T> {
-    if (!bridge) throw new Error("Pair HAO Bridge in Settings first.");
-    const response = await fetch(`${bridge}${path}`);
+  async function bridgeRequest<T>(path: string, endpoint = bridge): Promise<T> {
+    if (!endpoint) throw new Error("Pair HAO Bridge in Settings first.");
+    const response = await fetch(`${endpoint}${path}`);
     const payload = await response.json().catch(() => null) as ({ message?: string } & T) | null;
     if (!response.ok) throw new Error(payload?.message ?? `Bridge returned ${response.status}`);
     return payload as T;
@@ -59,23 +58,32 @@ export default function ReaderPage() {
 
   useEffect(() => {
     let cancelled = false;
-    void api<{ items: BridgeDevice[] }>("/bridges").then(async ({ items }) => {
-      const endpoint = items.find((item) => !item.revokedAt)?.endpoint?.replace(/\/$/, "");
-      if (!endpoint) throw new Error("Pair HAO Bridge in Settings before browsing manga.");
+    void getActiveBridgeEndpoint().then(async (endpoint) => {
+      const parameters = new URLSearchParams(window.location.search);
+      const requestedSourceId = parameters.get("sourceId");
+      const requestedMangaId = Number(parameters.get("mangaId"));
+      const requestedMode: BrowseMode = parameters.get("mode") === "latest" ? "latest" : "popular";
       setBridge(endpoint);
-      const response = await fetch(`${endpoint}/v1/manga/sources`);
-      const payload = await response.json().catch(() => null) as (MangaSource[] & { message?: string }) | null;
-      if (!response.ok) throw new Error(payload?.message ?? `Bridge returned ${response.status}`);
-      if (!payload?.length) throw new Error("No manga sources are available. Install and enable a Mihon extension first.");
+      const payload = await bridgeRequest<MangaSource[]>("/v1/manga/sources", endpoint);
+      if (!payload.length) throw new Error("No manga sources are available. Install and enable a Mihon extension first.");
       if (cancelled) return;
       setSources(payload);
-      const preferred = payload.find((source) => source.name === "MangaDex" && source.language === "en") ?? payload.find((source) => source.language === "en") ?? payload[0]!;
+      const preferred = payload.find((source) => source.id === requestedSourceId) ?? payload.find((source) => source.name === "MangaDex" && source.language === "en") ?? payload.find((source) => source.language === "en") ?? payload[0]!;
+      const initialMode = requestedMode === "latest" && preferred.supportsLatest ? "latest" : "popular";
       setSourceId(preferred.id);
-      const catalogResponse = await fetch(`${endpoint}/v1/manga/browse?sourceId=${encodeURIComponent(preferred.id)}&mode=popular&page=1`);
-      const catalog = await catalogResponse.json().catch(() => null) as (MangaSearchResponse & { message?: string }) | null;
-      if (!catalogResponse.ok) throw new Error(catalog?.message ?? `Bridge returned ${catalogResponse.status}`);
+      setBrowseMode(initialMode);
+      const catalog = await bridgeRequest<MangaSearchResponse>(`/v1/manga/browse?sourceId=${encodeURIComponent(preferred.id)}&mode=${initialMode}&page=1`, endpoint);
       if (cancelled) return;
-      setResults(catalog?.items ?? []);
+      setResults(catalog.items);
+      if (Number.isInteger(requestedMangaId) && requestedMangaId > 0) {
+        const [details, chapterList] = await Promise.all([
+          bridgeRequest<MangaSummary>(`/v1/manga/${requestedMangaId}`, endpoint),
+          bridgeRequest<MangaChapter[]>(`/v1/manga/${requestedMangaId}/chapters`, endpoint),
+        ]);
+        if (cancelled) return;
+        setSelected(details); setChapters(chapterList);
+        if (!chapterList.length) setError(`No readable ${preferred.language.toUpperCase()} chapters are available from ${preferred.name} for this title.`);
+      }
       setBusy("");
     }).catch((cause: unknown) => {
       if (!cancelled) { setBusy(""); setError(cause instanceof Error ? cause.message : "Could not connect to HAO Bridge."); }
@@ -112,7 +120,7 @@ export default function ReaderPage() {
   }
 
   async function openTitle(item: MangaSummary) {
-    setSelected(item); setResults([]); setPages(null); setBusy("Loading chapters…"); setError("");
+    setSelected(item); setPages(null); setBusy("Loading chapters…"); setError("");
     try {
       const [details, chapterList] = await Promise.all([
         bridgeRequest<MangaSummary>(`/v1/manga/${item.id}`),
@@ -179,7 +187,7 @@ export default function ReaderPage() {
     </div>
     {busy && <ReaderStatus text={busy}/>} {error && <ReaderError text={error}/>}
 
-    {results.length > 0 && <section className="manga-results" aria-label="Manga search results">{results.map((item)=><button key={item.id} className="manga-result" onClick={()=>void openTitle(item)}>
+    {results.length > 0 && !selected && <section className="manga-results" aria-label="Manga search results">{results.map((item)=><button key={item.id} className="manga-result" onClick={()=>void openTitle(item)}>
       <img src={`${bridge}/v1/manga/${item.id}/thumbnail`} alt="" loading="lazy"/>
       <span><b>{item.title}</b><small>{item.author ?? "Unknown author"}</small></span>
     </button>)}</section>}

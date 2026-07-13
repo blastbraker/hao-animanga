@@ -14,3 +14,17 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
 
 export type DiscoverResponse = { featured: Work[]; trending: Work[]; updated: Work[] };
 export type LibraryResponse = { items: LibraryEntry[] };
+
+type BridgeDevice = { endpoint: string; revokedAt: string | null };
+
+export async function getActiveBridgeEndpoint(): Promise<string> {
+  try {
+    const { items } = await api<{ items: BridgeDevice[] }>("/bridges");
+    const endpoint = items.find((item) => !item.revokedAt)?.endpoint?.replace(/\/$/, "");
+    if (endpoint) return endpoint;
+  } catch (cause) {
+    if (process.env.NODE_ENV !== "development") throw cause;
+  }
+  if (process.env.NODE_ENV === "development") return "http://127.0.0.1:4568";
+  throw new Error("Pair HAO Bridge in Settings before browsing repository sources.");
+}

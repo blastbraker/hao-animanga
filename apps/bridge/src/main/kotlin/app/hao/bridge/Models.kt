@@ -73,6 +73,7 @@ import kotlinx.serialization.Serializable
     val description: String,
     val provider: String,
     val attribution: String,
+    val thumbnailUrl: String? = null,
 )
 
 @Serializable data class AnimeSourceSummary(

@@ -21,7 +21,13 @@ class AniyomiFixtureRuntime(private val extensionRoot: Path, private val dataRoo
     private data class AnimeHandle(val source: AnimeSource, val anime: SAnime)
     private data class EpisodeHandle(val source: AnimeSource, val episode: SEpisode)
     @Serializable
-    private data class StoredAnime(val sourceId: Long, val url: String, val title: String, val description: String? = null)
+    private data class StoredAnime(
+        val sourceId: Long,
+        val url: String,
+        val title: String,
+        val description: String? = null,
+        val thumbnailUrl: String? = null,
+    )
 
     @Serializable
     private data class StreamHandle(val url: String, val headers: Map<String, List<String>> = emptyMap())
@@ -69,8 +75,15 @@ class AniyomiFixtureRuntime(private val extensionRoot: Path, private val dataRoo
                 result.animes.map { item ->
                     val id = stableId("anime", source.id.toString(), item.url)
                     anime[id] = AnimeHandle(source, item)
-                    persistAnime(id, StoredAnime(source.id, item.url, item.title, item.description))
-                    AnimeCatalogItem(id, item.title, item.description ?: "No description supplied by this source.", source.name, installed?.displayName ?: "Aniyomi extension")
+                    persistAnime(id, StoredAnime(source.id, item.url, item.title, item.description, item.thumbnail_url))
+                    AnimeCatalogItem(
+                        id,
+                        item.title,
+                        item.description ?: "No description supplied by this source.",
+                        source.name,
+                        installed?.displayName ?: "Aniyomi extension",
+                        item.thumbnail_url,
+                    )
                 }
             }.getOrElse { error ->
                 System.err.println("Aniyomi source ${source.name} catalog failed: ${error.message ?: error.javaClass.simpleName}")
@@ -217,6 +230,7 @@ class AniyomiFixtureRuntime(private val extensionRoot: Path, private val dataRoo
             url = stored.url
             title = stored.title
             description = stored.description
+            thumbnail_url = stored.thumbnailUrl
         }
         return AnimeHandle(source, item).also { anime[id] = it }
     }
