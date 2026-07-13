@@ -30,13 +30,16 @@ export function buildApp() {
   const bridgeDevices = new Map<string, Array<{ id: string; name: string; endpoint: string; lastSeenAt: string; revokedAt: null }>>();
   const extensionRepositories = new Map<string, Array<{ id: string; bridgeId: string; mediaKind: "ANIME" | "MANGA"; url: string; name: string; signerFingerprint: null; acknowledgedAt: string; enabled: boolean }>>();
 
-  app.register(cors, { origin: process.env.WEB_ORIGIN?.split(",") ?? true, credentials: true });
+  const configuredOrigins = process.env.WEB_ORIGIN?.split(",").map((origin) => origin.trim()).filter(Boolean);
+  app.register(cors, { origin: configuredOrigins?.length ? configuredOrigins : process.env.NODE_ENV === "production" ? false : true, credentials: true });
   app.register(helmet, { contentSecurityPolicy: false });
   app.register(rateLimit, { max: 120, timeWindow: "1 minute" });
   app.register(multipart, { limits: { fileSize: 50 * 1024 * 1024, files: 1 } });
 
   app.addHook("onClose", async () => { if (database) await database.end(); });
-  app.get("/health", async () => ({ status: "ok", service: "hao-api", database: repository ? await repository.health() : "development-memory", time: new Date().toISOString() }));
+  const health = async () => ({ status: "ok", service: "hao-api", database: repository ? await repository.health() : "development-memory", time: new Date().toISOString() });
+  app.get("/health", health);
+  app.get("/v1/health", health);
   app.get("/v1/session", { preHandler: authenticate }, async (request) => ({ user: request.user, inviteOnly: true }));
 
   app.get("/v1/discover", async () => {
@@ -178,20 +181,26 @@ export function buildApp() {
   app.get("/v1/bridges", { preHandler: authenticate }, async (request) => ({ items: repository ? await repository.listBridgeDevices(request.user.id) : bridgeDevices.get(request.user.id) ?? [] }));
 
   app.post("/v1/bridges/pairing-code", { preHandler: authenticate }, async (request) => {
-    const code = randomBytes(4).toString("hex").toUpperCase();
+    const code = randomBytes(6).toString("hex").toUpperCase();
     const expiresAt = Date.now() + 10 * 60_000;
-    pairingCodes.set(code, { userId: request.user.id, expiresAt });
+    if (repository) await repository.createBridgePairingCode(request.user.id, createHash("sha256").update(code).digest("hex"), new Date(expiresAt));
+    else pairingCodes.set(code, { userId: request.user.id, expiresAt });
     return { code, expiresAt: new Date(expiresAt).toISOString(), userId: request.user.id };
   });
 
   app.post("/v1/bridges/complete", { preHandler: authenticate }, async (request, reply) => {
     const body = request.body as { code?: unknown; deviceId?: unknown; publicKey?: unknown; name?: unknown; endpoint?: unknown };
-    const pairing = typeof body.code === "string" ? pairingCodes.get(body.code) : undefined;
-    if (!pairing || pairing.userId !== request.user.id || pairing.expiresAt <= Date.now()) return reply.code(400).send({ code: "INVALID", message: "Pairing code is invalid or expired", retryable: false });
-    if (typeof body.deviceId !== "string" || !/^[0-9a-f-]{36}$/i.test(body.deviceId) || typeof body.publicKey !== "string" || body.publicKey.length < 32 || typeof body.name !== "string" || !body.name.trim() || typeof body.endpoint !== "string") return reply.code(400).send({ code: "INVALID", message: "Complete Bridge device details are required", retryable: false });
+    if (typeof body.code !== "string" || typeof body.deviceId !== "string" || !/^[0-9a-f-]{36}$/i.test(body.deviceId) || typeof body.publicKey !== "string" || body.publicKey.length < 32 || typeof body.name !== "string" || !body.name.trim() || typeof body.endpoint !== "string") return reply.code(400).send({ code: "INVALID", message: "Complete Bridge device details are required", retryable: false });
     let endpoint: string;
     try { endpoint = normalizeBridgeEndpoint(body.endpoint); } catch (error) { return reply.code(400).send({ code: "INVALID", message: error instanceof Error ? error.message : "Invalid Bridge endpoint", retryable: false }); }
-    pairingCodes.delete(body.code as string);
+    if (repository) {
+      const consumed = await repository.consumeBridgePairingCode(request.user.id, createHash("sha256").update(body.code).digest("hex"));
+      if (!consumed) return reply.code(400).send({ code: "INVALID", message: "Pairing code is invalid or expired", retryable: false });
+    } else {
+      const pairing = pairingCodes.get(body.code);
+      if (!pairing || pairing.userId !== request.user.id || pairing.expiresAt <= Date.now()) return reply.code(400).send({ code: "INVALID", message: "Pairing code is invalid or expired", retryable: false });
+      pairingCodes.delete(body.code);
+    }
     const device = { id: body.deviceId, name: body.name.trim(), endpoint, lastSeenAt: new Date().toISOString(), revokedAt: null };
     if (repository) await repository.upsertBridgeDevice(request.user.id, { ...device, publicKey: body.publicKey });
     else bridgeDevices.set(request.user.id, [device, ...(bridgeDevices.get(request.user.id) ?? []).filter((item) => item.id !== device.id)]);

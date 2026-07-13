@@ -66,6 +66,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@hao/api':
+        specifier: workspace:*
+        version: link:../api
       '@hao/domain':
         specifier: workspace:*
         version: link:../../packages/domain

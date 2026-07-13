@@ -15,6 +15,14 @@ describe("production environment", () => {
     expect(() => validateProductionEnvironment(production)).not.toThrow();
   });
 
+  it("uses same-origin routing on Vercel without a fixed web origin", () => {
+    expect(() => validateProductionEnvironment({ ...production, VERCEL: "1", WEB_ORIGIN: undefined })).not.toThrow();
+  });
+
+  it("requires a fixed web origin for a standalone server", () => {
+    expect(() => validateProductionEnvironment({ ...production, WEB_ORIGIN: undefined })).toThrow(/WEB_ORIGIN/);
+  });
+
   it("rejects missing secrets and local origins", () => {
     expect(() => validateProductionEnvironment({ ...production, ENCRYPTION_KEY: "", WEB_ORIGIN: "http://localhost:3000" })).toThrow(/ENCRYPTION_KEY/);
   });

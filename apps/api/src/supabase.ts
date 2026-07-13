@@ -13,7 +13,7 @@ export function getSupabaseAdmin(): SupabaseClient | null {
 export async function inviteUser(email: string): Promise<string> {
   const supabase = getSupabaseAdmin();
   if (!supabase) throw new Error("Supabase administration is not configured");
-  const redirectTo = `${process.env.WEB_ORIGIN?.split(",")[0] ?? "http://localhost:3000"}/auth/callback`;
+  const redirectTo = `${getWebOrigin()}/auth/callback`;
   const { data, error } = await supabase.auth.admin.inviteUserByEmail(email, {
     redirectTo,
     data: { invited: true },
@@ -21,6 +21,14 @@ export async function inviteUser(email: string): Promise<string> {
   if (error) throw error;
   if (!data.user?.id) throw new Error("Supabase did not return an invited user");
   return data.user.id;
+}
+
+function getWebOrigin(): string {
+  const configured = process.env.WEB_ORIGIN?.split(",")[0]?.trim();
+  if (configured) return configured.replace(/\/$/, "");
+  const vercelHost = process.env.VERCEL_PROJECT_PRODUCTION_URL ?? process.env.VERCEL_URL;
+  if (vercelHost) return `https://${vercelHost.replace(/^https?:\/\//, "").replace(/\/$/, "")}`;
+  return "http://localhost:3000";
 }
 
 export async function uploadEpub(storageKey: string, buffer: Buffer): Promise<void> {

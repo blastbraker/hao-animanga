@@ -196,6 +196,25 @@ export class HaoRepository {
     return rows.map((row) => ({ id: row.id, name: row.name, endpoint: row.endpoint, lastSeenAt: row.last_seen_at?.toISOString() ?? null, revokedAt: row.revoked_at?.toISOString() ?? null }));
   }
 
+  async createBridgePairingCode(userId: string, codeHash: string, expiresAt: Date): Promise<void> {
+    await this.sql.begin(async (tx) => {
+      await tx`delete from bridge_pairing_codes where expires_at < now() - interval '1 day' or consumed_at is not null`;
+      await tx`
+        insert into bridge_pairing_codes (code_hash,user_id,expires_at)
+        values (${codeHash},${userId},${expiresAt})
+      `;
+    });
+  }
+
+  async consumeBridgePairingCode(userId: string, codeHash: string): Promise<boolean> {
+    const rows = await this.sql`
+      update bridge_pairing_codes set consumed_at=now()
+      where code_hash=${codeHash} and user_id=${userId} and consumed_at is null and expires_at > now()
+      returning code_hash
+    `;
+    return rows.length === 1;
+  }
+
   async upsertBridgeDevice(userId: string, input: { id: string; name: string; publicKey: string; endpoint: string }): Promise<void> {
     const [row] = await this.sql<{ id: string }[]>`
       insert into bridge_devices (id,user_id,name,public_key,endpoint,last_seen_at)

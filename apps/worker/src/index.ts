@@ -1,9 +1,8 @@
 import { Worker, type ConnectionOptions } from "bullmq";
 
 const redisUrl = process.env.REDIS_URL;
-if (!redisUrl && process.env.NODE_ENV === "production") throw new Error("REDIS_URL is required in production");
 if (!redisUrl) {
-  console.log("HAO worker is idle: REDIS_URL is not configured.");
+  console.log("HAO worker is idle: Redis is optional and not used by the zero-cost beta deployment.");
 } else {
   const redis = new URL(redisUrl);
   const connection: ConnectionOptions = {

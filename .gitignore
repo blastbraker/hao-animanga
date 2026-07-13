@@ -19,6 +19,7 @@ data/extensions/
 .vscode/
 
 .vercel
+supabase/.temp/
 .env*
 !.env.example
 !.env.production.example

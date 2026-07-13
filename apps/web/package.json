@@ -11,6 +11,7 @@
     "lint": "next lint || tsc --noEmit"
   },
   "dependencies": {
+    "@hao/api": "workspace:*",
     "@hao/domain": "workspace:*",
     "@supabase/supabase-js": "^2.110.2",
     "hls.js": "^1.6.16",

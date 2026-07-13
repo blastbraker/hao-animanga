@@ -1,12 +1,11 @@
 import type { LibraryEntry, Work } from "@hao/domain";
 import { getSupabaseBrowser } from "./supabase";
 
-export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:4000/v1" : "");
+export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:4000/v1" : "/api/v1");
 export const DEV_USER_ID = "00000000-0000-0000-0000-000000000001";
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const supabase = getSupabaseBrowser();
   const token = (await supabase?.auth.getSession())?.data.session?.access_token;
-  if (!API_URL) throw new Error("HAO API is not configured for this deployment.");
   if (!token && process.env.NODE_ENV === "production") throw new Error("Sign in required");
   const authHeaders = token ? { authorization: `Bearer ${token}` } : { "x-user-id": DEV_USER_ID };
   const response = await fetch(`${API_URL}${path}`, { ...init, headers: { "content-type": "application/json", ...authHeaders, ...init?.headers } });

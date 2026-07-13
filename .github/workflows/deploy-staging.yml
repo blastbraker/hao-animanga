@@ -29,22 +29,8 @@ jobs:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
 
-  fly:
-    needs: database
-    runs-on: ubuntu-latest
-    environment: staging
-    strategy:
-      matrix:
-        config: [fly.api.toml, fly.worker.toml]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: superfly/flyctl-actions/setup-flyctl@master
-      - run: flyctl deploy --remote-only --config "${{ matrix.config }}"
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-
   web:
-    needs: fly
+    needs: database
     runs-on: ubuntu-latest
     environment: staging
     steps:
