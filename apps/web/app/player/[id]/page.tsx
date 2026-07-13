@@ -126,6 +126,7 @@ export default function PlayerPage() {
       if (!nextEpisodes.length) throw new Error("This source did not return any episodes.");
       if (cancelled) return;
       const initialEpisode = nextEpisodes.find((item) => item.id === preferredEpisodeId) ?? nextEpisodes[0]!;
+      autoplayRequestedRef.current = true;
       setEpisodes(nextEpisodes); setEpisodeId(initialEpisode.id);
       await loadEpisode(endpoint, initialEpisode.id, cancelled);
     } catch (cause) { if (!cancelled) setError(message(cause)); }
@@ -154,7 +155,7 @@ export default function PlayerPage() {
   }
 
   async function changeAnime(next: string) { clearCanonicalWork(); setAnimeId(next); setEpisodes([]); setServers([]); setStreams([]); await loadAnime(bridge, next); }
-  async function changeEpisode(next: string, autoplayVideo = false) {
+  async function changeEpisode(next: string, autoplayVideo = true) {
     if (next === episodeId) return;
     if (!videoRef.current?.ended) await persistProgress(false);
     autoplayRequestedRef.current = autoplayVideo;
@@ -164,10 +165,12 @@ export default function PlayerPage() {
     try { await loadEpisode(bridge, next); } catch (cause) { setBusy(""); setError(message(cause)); }
   }
   async function changeServer(next: string) {
+    const continuePlaying = videoRef.current ? !videoRef.current.paused : false;
     await persistProgress(false);
     const selectedServer = servers.find((item) => item.id === next);
     if (selectedServer) writePreference("hao:anime:preferred-server", selectedServer.name);
     restoredPlaybackKeyRef.current = "";
+    autoplayRequestedRef.current = continuePlaying;
     setServerId(next); setStreams([]);
     try { await loadServer(bridge, episodeId, next); } catch (cause) { setBusy(""); setError(message(cause)); }
   }
@@ -183,10 +186,12 @@ export default function PlayerPage() {
   }
 
   async function changeStream(next: string) {
+    const continuePlaying = videoRef.current ? !videoRef.current.paused : false;
     await persistProgress(false);
     const selectedStream = streams.find((item) => item.id === next);
     if (selectedStream) writePreference("hao:anime:preferred-stream", streamPreference(selectedStream));
     restoredPlaybackKeyRef.current = "";
+    autoplayRequestedRef.current = continuePlaying;
     safelyResetVideo(videoRef.current);
     setStreamId(next);
   }
@@ -228,11 +233,26 @@ export default function PlayerPage() {
       }
       restoredPlaybackKeyRef.current = key;
     }
-    if (autoplayRequestedRef.current) {
-      autoplayRequestedRef.current = false;
-      void video.play().catch((cause: unknown) => {
-        if (!(cause instanceof DOMException && cause.name === "AbortError")) setError("The next episode is ready. Press play to continue.");
-      });
+    if (autoplayRequestedRef.current) void attemptAutoplay(video);
+  }
+
+  async function attemptAutoplay(video: HTMLVideoElement) {
+    autoplayRequestedRef.current = false;
+    try {
+      await video.play();
+    } catch (cause) {
+      if (cause instanceof DOMException && cause.name === "AbortError") return;
+      if (cause instanceof DOMException && cause.name === "NotAllowedError") {
+        video.muted = true;
+        try {
+          await video.play();
+          setProgressStatus("Autoplay started muted · use the player to unmute");
+          return;
+        } catch (fallbackCause) {
+          if (fallbackCause instanceof DOMException && fallbackCause.name === "AbortError") return;
+        }
+      }
+      setError("Autoplay was blocked by the browser. Press play once to allow playback.");
     }
   }
 
