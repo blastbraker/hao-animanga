@@ -3,19 +3,42 @@ import { useEffect, useState } from "react";
 import { getSupabaseBrowser } from "../../../lib/supabase";
 import { api } from "../../../lib/api";
 import { safeNextDestination } from "../../../lib/auth-redirect";
+import { supportedEmailOtpType } from "../../../lib/auth-callback";
 
 export default function AuthCallbackPage() {
-  const [message, setMessage] = useState("Completing sign in…");
+  const [message, setMessage] = useState("Completing sign in...");
+
   useEffect(() => {
     const supabase = getSupabaseBrowser();
     const url = new URL(window.location.href);
     const code = url.searchParams.get("code");
+    const tokenHash = url.searchParams.get("token_hash");
+    const otpType = supportedEmailOtpType(url.searchParams.get("type"));
     const authError = url.searchParams.get("error_description");
     const next = safeNextDestination(url.searchParams.get("next"));
-    if (!supabase || authError) { setMessage(authError ?? "This sign-in link is invalid or expired."); return; }
+
+    if (!supabase || authError) {
+      setMessage(authError ?? "This sign-in link is invalid or expired.");
+      return;
+    }
+
     void (async () => {
-      const result = code ? await supabase.auth.exchangeCodeForSession(code) : await supabase.auth.getSession();
-      if (result.error || !result.data.session) { setMessage(result.error?.message ?? "This sign-in link is invalid or expired."); return; }
+      if (tokenHash && !otpType) {
+        setMessage("This invitation has an invalid or missing authentication type.");
+        return;
+      }
+
+      const result = tokenHash && otpType
+        ? await supabase.auth.verifyOtp({ token_hash: tokenHash, type: otpType })
+        : code
+          ? await supabase.auth.exchangeCodeForSession(code)
+          : await supabase.auth.getSession();
+
+      if (result.error || !result.data.session) {
+        setMessage(result.error?.message ?? "This sign-in link is invalid or expired.");
+        return;
+      }
+
       try {
         await api("/session");
         window.location.replace(next);
@@ -25,5 +48,6 @@ export default function AuthCallbackPage() {
       }
     })();
   }, []);
+
   return <div className="login-page"><section className="login-card"><img className="brand-mark" src="/brand/hao-logo-64.png" alt="HAO"/><h1>{message}</h1></section></div>;
 }

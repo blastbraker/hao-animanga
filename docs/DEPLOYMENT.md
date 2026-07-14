@@ -26,9 +26,14 @@ Fly.io and managed Redis are not part of the free beta deployment. The legacy wo
    - `SUPABASE_SERVICE_ROLE_KEY`
    - `ENCRYPTION_KEY` with at least 32 random characters
    - Optional `WEB_ORIGIN` for the stable production URL; Vercel previews use same-origin API calls without CORS.
-5. Keep public sign-up disabled in Supabase Authentication. Add the production Vercel URL and `/auth/callback` to the allowed redirect URLs.
-6. Invite the first identity in Supabase, then set that profile's `role` to `admin` in the SQL editor. All later invitations can be sent from HAO's admin console.
-7. Deploy and verify `/api/v1/health`, invitation sign-in, member denial at `/admin`, two-account library/progress isolation, Bridge pairing, repository installation, reading, and playback.
+5. Keep public sign-up disabled in Supabase Authentication. Set the Site URL to the production Vercel URL and add `https://<production-domain>/auth/callback` to the allowed redirect URLs.
+6. In **Authentication > Email Templates > Invite user**, make the invitation button use a token hash so the link works across browsers and devices:
+   ```html
+   <a href="{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=invite">Accept invitation</a>
+   ```
+   Admin invitations cannot use PKCE because the browser sending an invitation is not the browser accepting it. Keep the normal magic-link template unchanged; sign-ins initiated by HAO use PKCE.
+7. Invite the first identity in Supabase, then set that profile's `role` to `admin` in the SQL editor. All later invitations can be sent from HAO's admin console.
+8. Deploy and verify `/api/v1/health`, invitation sign-in, member denial at `/admin`, two-account library/progress isolation, Bridge pairing, repository installation, reading, and playback.
 
 ## Automated deployment
 
