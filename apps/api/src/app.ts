@@ -611,21 +611,31 @@ export function buildApp() {
     else sharedBetaBridgeId = bridgeId;
     return { bridgeId, enabled: Boolean(bridgeId) };
   });
-  app.get("/v1/admin/overview", { preHandler: requireAdmin }, async () => ({
-    ...(repository
-      ? await repository.adminOverview()
-      : {
-          users: 2,
-          activeBridges: 0,
-          pendingJobs: 0,
-          invitations,
-          audit: audit.slice(-20).reverse()
-        }),
-    providers: [
-      { name: "AniList", health: "operational" },
-      { name: "Jellyfin", health: "not configured" }
-    ]
-  }));
+  app.get("/v1/admin/overview", { preHandler: requireAdmin }, async (request) => {
+    const bridges = repository
+      ? await repository.listBridgeDevices(request.user.id)
+      : (bridgeDevices.get(request.user.id) ?? []).map((device) => ({
+          ...device,
+          scope: "personal" as const,
+          sharedBeta: device.id === sharedBetaBridgeId
+        }));
+    return {
+      ...(repository
+        ? await repository.adminOverview()
+        : {
+            users: 2,
+            activeBridges: bridges.length,
+            pendingJobs: 0,
+            invitations,
+            audit: audit.slice(-20).reverse()
+          }),
+      bridges,
+      providers: [
+        { name: "AniList", health: "operational" },
+        { name: "Jellyfin", health: "not configured" }
+      ]
+    };
+  });
 
   app.setErrorHandler((error, request, reply) => {
     const cause = error as Error & { statusCode?: number };

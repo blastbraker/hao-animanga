@@ -8,6 +8,7 @@ type Overview = {
   users: number;
   activeBridges: number;
   pendingJobs: number;
+  bridges?: BridgeDevice[];
   invitations?: Array<{
     id: string;
     email: string;
@@ -39,11 +40,12 @@ export default function AdminPage() {
 
   const load = async () => {
     try {
-      const [overview, bridgeResult] = await Promise.all([api<Overview>("/admin/overview"), api<{ items: BridgeDevice[] }>("/bridges")]);
+      const overview = await api<Overview>("/admin/overview");
+      const bridgeItems = overview.bridges ?? [];
       setData(overview);
-      setBridges(bridgeResult.items);
-      const shared = bridgeResult.items.find((bridge) => bridge.sharedBeta);
-      const firstPersonal = bridgeResult.items.find((bridge) => bridge.scope === "personal" && !bridge.revokedAt);
+      setBridges(bridgeItems);
+      const shared = bridgeItems.find((bridge) => bridge.sharedBeta);
+      const firstPersonal = bridgeItems.find((bridge) => bridge.scope === "personal" && !bridge.revokedAt);
       setBridgeSelection(shared?.id ?? firstPersonal?.id ?? "");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Admin data failed");
@@ -113,7 +115,7 @@ export default function AdminPage() {
       </div>
       <div className="stat-grid">
         <Stat icon={<Users />} label="Beta users" value={String(data?.users ?? 0)} />
-        <Stat icon={<Cable />} label="Active bridges" value={String(data?.activeBridges ?? 0)} />
+        <Stat icon={<Cable />} label="Configured bridges" value={String(data?.activeBridges ?? 0)} />
         <Stat icon={<Activity />} label="Pending jobs" value={String(data?.pendingJobs ?? 0)} />
         <Stat icon={<ShieldCheck />} label="Security posture" value="RLS" />
       </div>

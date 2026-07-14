@@ -16,16 +16,43 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   if (!token && process.env.NODE_ENV === "production") throw new Error("Sign in required");
   const authHeaders = token ? { authorization: `Bearer ${token}` } : { "x-user-id": DEV_USER_ID };
   const contentHeaders = init?.body == null ? {} : { "content-type": "application/json" };
-  const response = await fetch(`${API_URL}${path}`, {
-    ...init,
-    headers: {
-      ...contentHeaders,
-      ...authHeaders,
-      ...init?.headers
+  const method = (init?.method ?? "GET").toUpperCase();
+  const attempts = method === "GET" ? 2 : 1;
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const controller = init?.signal ? null : new AbortController();
+    const timeout = controller ? window.setTimeout(() => controller.abort(), 12_000) : null;
+    try {
+      const requestInit: RequestInit = {
+        ...init,
+        headers: {
+          ...contentHeaders,
+          ...authHeaders,
+          ...init?.headers
+        }
+      };
+      const signal = init?.signal ?? controller?.signal;
+      if (signal) requestInit.signal = signal;
+      const response = await fetch(`${API_URL}${path}`, requestInit);
+      if (!response.ok) {
+        const message = (await response.json().catch(() => null))?.message ?? `Request failed: ${response.status}`;
+        if (attempt + 1 < attempts && [429, 502, 503, 504].includes(response.status)) {
+          await new Promise((resolve) => window.setTimeout(resolve, 400));
+          continue;
+        }
+        throw new Error(message);
+      }
+      return response.json() as Promise<T>;
+    } catch (error) {
+      lastError = error;
+      if (attempt + 1 >= attempts || init?.signal?.aborted) break;
+      await new Promise((resolve) => window.setTimeout(resolve, 400));
+    } finally {
+      if (timeout !== null) window.clearTimeout(timeout);
     }
-  });
-  if (!response.ok) throw new Error((await response.json().catch(() => null))?.message ?? `Request failed: ${response.status}`);
-  return response.json() as Promise<T>;
+  }
+  if (lastError instanceof DOMException && lastError.name === "AbortError") throw new Error("HAO API timed out. Please retry.");
+  throw lastError instanceof Error ? lastError : new Error("HAO API request failed");
 }
 
 export type DiscoverResponse = {

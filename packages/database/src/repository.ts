@@ -464,7 +464,7 @@ export class HaoRepository {
     const [counts, invitations, audit] = await Promise.all([
       this.sql<{ users: number; active_bridges: number; pending_jobs: number }[]>`
         select (select count(*)::int from profiles where suspended_at is null) users,
-          (select count(*)::int from bridge_devices where revoked_at is null and last_seen_at > now()-interval '5 minutes') active_bridges,
+          (select count(*)::int from bridge_devices where revoked_at is null and endpoint is not null) active_bridges,
           (select count(*)::int from epub_assets where processing_status='pending') pending_jobs
       `,
       this.sql`select id,email,expires_at,accepted_at,created_at from invitations order by created_at desc limit 50`,

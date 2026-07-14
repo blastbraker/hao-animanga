@@ -159,6 +159,20 @@ describe("API", () => {
         })
       );
 
+      const overview = await app.inject({
+        method: "GET",
+        url: "/v1/admin/overview",
+        headers: { "x-user-id": admin }
+      });
+      expect(overview.statusCode).toBe(200);
+      expect(overview.json().bridges).toContainEqual(
+        expect.objectContaining({
+          id: bridgeId,
+          scope: "personal",
+          sharedBeta: true
+        })
+      );
+
       const forbidden = await app.inject({
         method: "POST",
         url: "/v1/admin/shared-bridge",
