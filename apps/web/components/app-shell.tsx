@@ -23,6 +23,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!supabase) return;
     let cancelled = false;
+    const scheduled = new Set<number>();
     const synchronize = async (nextUser: User | null) => {
       if (cancelled) return;
       setUser(nextUser); setAuthError("");
@@ -35,9 +36,27 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         if (!cancelled) { setRole(null); setAuthError(cause instanceof Error ? cause.message : "Your session could not be verified."); }
       }
     };
-    void supabase.auth.getUser().then(({ data }) => synchronize(data.user));
-    const { data } = supabase.auth.onAuthStateChange((_event, session) => { void synchronize(session?.user ?? null); });
-    return () => { cancelled = true; data.subscription.unsubscribe(); };
+    void supabase.auth.getSession()
+      .then(({ data, error }) => {
+        if (error) throw error;
+        return synchronize(data.session?.user ?? null);
+      })
+      .catch((cause) => {
+        if (!cancelled) { setUser(null); setRole(null); setAuthError(cause instanceof Error ? cause.message : "Your session could not be verified."); }
+      });
+    const { data } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "INITIAL_SESSION") return;
+      const timeout = window.setTimeout(() => {
+        scheduled.delete(timeout);
+        void synchronize(session?.user ?? null);
+      }, 0);
+      scheduled.add(timeout);
+    });
+    return () => {
+      cancelled = true;
+      for (const timeout of scheduled) window.clearTimeout(timeout);
+      data.subscription.unsubscribe();
+    };
   }, [supabase]);
   useEffect(() => {
     if (supabase && user === null && path !== "/login" && !path.startsWith("/auth/")) {
