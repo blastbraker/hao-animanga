@@ -8,10 +8,11 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const token = (await supabase?.auth.getSession())?.data.session?.access_token;
   if (!token && process.env.NODE_ENV === "production") throw new Error("Sign in required");
   const authHeaders = token ? { authorization: `Bearer ${token}` } : { "x-user-id": DEV_USER_ID };
+  const contentHeaders = init?.body == null ? {} : { "content-type": "application/json" };
   const response = await fetch(`${API_URL}${path}`, {
     ...init,
     headers: {
-      "content-type": "application/json",
+      ...contentHeaders,
       ...authHeaders,
       ...init?.headers
     }
