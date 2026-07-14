@@ -1,0 +1,46 @@
+.invite-result {
+  margin: 16px 0 22px;
+  padding: 18px;
+  background: rgba(96, 239, 227, 0.06);
+  border: 1px solid rgba(96, 239, 227, 0.22);
+  border-radius: 12px;
+}
+
+.invite-result > p {
+  margin: 7px 0 14px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.invite-copy-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 9px;
+}
+
+.invite-copy-row input {
+  min-width: 0;
+  width: 100%;
+  padding: 11px 12px;
+  background: #080a12;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--text);
+  font-size: 11px;
+}
+
+.invite-copy-row .button svg {
+  width: 16px;
+  height: 16px;
+}
+
+@media (max-width: 760px) {
+  .invite-copy-row {
+    grid-template-columns: 1fr;
+  }
+
+  .invite-copy-row .button {
+    width: 100%;
+  }
+}

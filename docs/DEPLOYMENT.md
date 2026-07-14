@@ -27,12 +27,11 @@ Fly.io and managed Redis are not part of the free beta deployment. The legacy wo
    - `ENCRYPTION_KEY` with at least 32 random characters
    - Optional `WEB_ORIGIN` for the stable production URL; Vercel previews use same-origin API calls without CORS.
 5. Keep public sign-up disabled in Supabase Authentication. Set the Site URL to the production Vercel URL and add `https://<production-domain>/auth/callback` to the allowed redirect URLs.
-6. In **Authentication > Email Templates > Invite user**, make the invitation button use a token hash so the link works across browsers and devices:
-   ```html
-   <a href="{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=invite">Accept invitation</a>
-   ```
-   Admin invitations cannot use PKCE because the browser sending an invitation is not the browser accepting it. Keep the normal magic-link template unchanged; sign-ins initiated by HAO use PKCE.
-7. Invite the first identity in Supabase, then set that profile's `role` to `admin` in the SQL editor. All later invitations can be sent from HAO's admin console.
+6. Create later invitations from HAO's admin console. It uses Supabase Admin `generateLink`, displays a one-time HAO callback URL, and does not send email. Copy the link and send it privately to the intended recipient. The link is a bearer secret: do not log it, save it in the database, post it publicly, or reuse it.
+   - This avoids relying on Supabase's default SMTP service, which cannot deliver beta invitations to recipients outside the Supabase organization.
+   - It also avoids PKCE verifier errors because the callback verifies the token hash directly; the admin's browser is not expected to share storage with the recipient's browser.
+   - If custom SMTP is added later, the Invite user template may point to `{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=invite`.
+7. Invite the first identity in Supabase, then set that profile's `role` to `admin` in the SQL editor. All later invitation links can be created from HAO's admin console.
 8. Deploy and verify `/api/v1/health`, invitation sign-in, member denial at `/admin`, two-account library/progress isolation, Bridge pairing, repository installation, reading, and playback.
 
 ## Automated deployment

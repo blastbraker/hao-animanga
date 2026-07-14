@@ -14,7 +14,7 @@ import { inspectEpub } from "./epub.js";
 import { encryptCredential } from "./crypto.js";
 import { testJellyfin, type JellyfinConnection } from "./jellyfin.js";
 import { validatePublicHttps } from "./security.js";
-import { inviteUser, uploadEpub } from "./supabase.js";
+import { buildInviteCallbackUrl, generateInviteLink, getWebOrigin, uploadEpub } from "./supabase.js";
 
 export function buildApp() {
   const app = Fastify({ logger: process.env.NODE_ENV !== "test", trustProxy: true, bodyLimit: 2 * 1024 * 1024 });
@@ -233,13 +233,13 @@ export function buildApp() {
     const token = randomBytes(24).toString("base64url");
     const expiresAt = new Date(Date.now() + 7 * 86_400_000);
     if (repository) {
-      await inviteUser(email);
+      const generated = await generateInviteLink(email);
       const invitation = await repository.createInvitation({ email, invitedBy: request.user.id, tokenHash: createHash("sha256").update(token).digest("hex"), expiresAt });
-      return reply.code(201).send(invitation);
+      return reply.code(201).send({ ...invitation, inviteUrl: generated.inviteUrl });
     }
     const invitation = { id: randomUUID(), email, token, expiresAt: expiresAt.toISOString(), invitedBy: request.user.id };
     invitations.push(invitation);
-    return reply.code(201).send(invitation);
+    return reply.code(201).send({ ...invitation, inviteUrl: buildInviteCallbackUrl(getWebOrigin(), token) });
   });
   app.get("/v1/admin/overview", { preHandler: requireAdmin }, async () => ({ ...(repository ? await repository.adminOverview() : { users: 2, activeBridges: 0, pendingJobs: 0, invitations, audit: audit.slice(-20).reverse() }), providers: [{ name: "AniList", health: "operational" }, { name: "Jellyfin", health: "not configured" }] }));
 
