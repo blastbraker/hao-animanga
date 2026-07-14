@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { Work } from "@hao/domain";
 import { BookOpen, BookmarkPlus, CircleAlert, Clapperboard, Heart, LoaderCircle, Play, RefreshCw, Server, Star } from "lucide-react";
-import { api, getActiveBridge } from "../../../lib/api";
+import { api, bridgeFetch, getActiveBridge } from "../../../lib/api";
 import { confidentSourceMatch } from "../../../lib/source-match";
 
 type AnimeSource = {
@@ -341,7 +341,7 @@ async function loadAvailability(work: Work): Promise<{
 }
 
 async function bridgeRequest<T>(endpoint: string, path: string): Promise<T> {
-  const response = await fetch(`${endpoint}${path}`);
+  const response = await bridgeFetch(endpoint, path);
   const payload = (await response.json().catch(() => null)) as ({ message?: string } & T) | null;
   if (!response.ok) throw new Error(payload?.message ?? `Bridge returned ${response.status}`);
   return payload as T;

@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { BookOpen, ChevronLeft, ChevronRight, LoaderCircle, Search, Server, TriangleAlert } from "lucide-react";
-import { getActiveBridge } from "../../lib/api";
+import { bridgeFetch, getActiveBridge } from "../../lib/api";
 
 type MangaSource = {
   id: string;
@@ -82,7 +82,7 @@ export default function ReaderPage() {
 
   async function bridgeRequest<T>(path: string, endpoint = bridge): Promise<T> {
     if (!endpoint) throw new Error("No HAO Bridge is available.");
-    const response = await fetch(`${endpoint}${path}`);
+    const response = await bridgeFetch(endpoint, path);
     const payload = (await response.json().catch(() => null)) as ({ message?: string } & T) | null;
     if (!response.ok) throw new Error(payload?.message ?? `Bridge returned ${response.status}`);
     return payload as T;

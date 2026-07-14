@@ -3,6 +3,13 @@ import { getSupabaseBrowser } from "./supabase";
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:4000/v1" : "/api/v1");
 export const DEV_USER_ID = "00000000-0000-0000-0000-000000000001";
+
+export function bridgeFetch(endpoint: string, path: string, init?: RequestInit): Promise<Response> {
+  const headers = new Headers(init?.headers);
+  headers.set("serveo-skip-browser-warning", "true");
+  return fetch(`${endpoint}${path}`, { ...init, headers });
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const supabase = getSupabaseBrowser();
   const token = (await supabase?.auth.getSession())?.data.session?.access_token;

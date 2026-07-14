@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { Work } from "@hao/domain";
 import { ArrowRight, BookOpen, CircleAlert, Clapperboard, LoaderCircle, Play, RefreshCw, Server, Settings, Sparkles, X } from "lucide-react";
-import { api, getActiveBridge, type DiscoverResponse, type LibraryResponse } from "../lib/api";
+import { api, bridgeFetch, getActiveBridge, type DiscoverResponse, type LibraryResponse } from "../lib/api";
 import { CONTINUE_WATCHING_STORAGE_KEY, DISMISSED_CONTINUE_STORAGE_KEY, parseContinueWatching, parseDismissedWorkIds, playbackPercent } from "../lib/playback-progress";
 import { MediaCard } from "../components/media-card";
 
@@ -184,7 +184,7 @@ export default function HomePage() {
   }
 
   async function requestBridge<T>(endpoint: string, path: string): Promise<T> {
-    const response = await fetch(`${endpoint}${path}`);
+    const response = await bridgeFetch(endpoint, path);
     const payload = (await response.json().catch(() => null)) as ({ message?: string } & T) | null;
     if (!response.ok) throw new Error(payload?.message ?? `Bridge returned ${response.status}`);
     return payload as T;

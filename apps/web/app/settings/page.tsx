@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { BookOpen, Check, Cloud, Download, Film, HardDrive, Link2, Plus, Power, RefreshCw, Search, Server, ShieldAlert, ShieldCheck, Trash2 } from "lucide-react";
-import { api } from "../../lib/api";
+import { api, bridgeFetch } from "../../lib/api";
 
 const DISCLAIMER = "Third-party repositories and extensions are not created, reviewed, hosted, endorsed, supported, or controlled by HAO. Their developers and content providers are unaffiliated with HAO. Availability, safety, and legality are not guaranteed. You are responsible for using only content you are authorized to access and for complying with applicable laws and provider terms.";
 
@@ -156,7 +156,7 @@ export default function SettingsPage() {
       ...(body === undefined ? {} : { method: "POST", body: JSON.stringify(body) }),
       headers
     };
-    const response = await fetch(`${endpoint}${path}`, init);
+    const response = await bridgeFetch(endpoint, path, init);
     const payload = (await response.json().catch(() => null)) as ({ message?: string } & T) | null;
     if (!response.ok) throw new Error(payload?.message ?? `Bridge returned ${response.status}`);
     return payload as T;
