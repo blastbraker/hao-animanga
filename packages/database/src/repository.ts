@@ -32,8 +32,8 @@ type LibraryRow = WorkRow & {
   progress_updated_at: Date | string | null;
 };
 
-const numberOrNull = (value: number | string | null): number | null => value === null ? null : Number(value);
-const iso = (value: Date | string): string => value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+const numberOrNull = (value: number | string | null): number | null => (value === null ? null : Number(value));
+const iso = (value: Date | string): string => (value instanceof Date ? value.toISOString() : new Date(value).toISOString());
 
 function mapWork(row: WorkRow): Work {
   return {
@@ -49,7 +49,10 @@ function mapWork(row: WorkRow): Work {
     genres: row.genres ?? [],
     maturityRating: row.maturity_rating,
     averageScore: numberOrNull(row.average_score),
-    source: { kind: row.source_kind ?? "ANILIST", externalId: row.external_id ?? row.id },
+    source: {
+      kind: row.source_kind ?? "ANILIST",
+      externalId: row.external_id ?? row.id
+    }
   };
 }
 
@@ -75,11 +78,30 @@ export class HaoRepository {
     `;
   }
 
-  async getProfile(userId: string): Promise<{ id: string; displayName: string; role: "member" | "admin"; suspendedAt: string | null } | null> {
-    const [row] = await this.sql<{ id: string; display_name: string; role: "member" | "admin"; suspended_at: Date | null }[]>`
+  async getProfile(userId: string): Promise<{
+    id: string;
+    displayName: string;
+    role: "member" | "admin";
+    suspendedAt: string | null;
+  } | null> {
+    const [row] = await this.sql<
+      {
+        id: string;
+        display_name: string;
+        role: "member" | "admin";
+        suspended_at: Date | null;
+      }[]
+    >`
       select id, display_name, role, suspended_at from profiles where id = ${userId}
     `;
-    return row ? { id: row.id, displayName: row.display_name, role: row.role, suspendedAt: row.suspended_at?.toISOString() ?? null } : null;
+    return row
+      ? {
+          id: row.id,
+          displayName: row.display_name,
+          role: row.role,
+          suspendedAt: row.suspended_at?.toISOString() ?? null
+        }
+      : null;
   }
 
   async acceptInvitation(userId: string, email: string): Promise<void> {
@@ -124,16 +146,20 @@ export class HaoRepository {
   }
 
   async getWork(id: string): Promise<Work | null> {
-    const rows = await this.sql.unsafe<WorkRow[]>(`
+    const rows = await this.sql.unsafe<WorkRow[]>(
+      `
       select ${workSelect} from works w
       left join lateral (select source_kind, external_id from source_records where work_id=w.id order by last_seen_at desc limit 1) sr on true
       where w.id=$1
-    `, [id]);
+    `,
+      [id]
+    );
     return rows[0] ? mapWork(rows[0]) : null;
   }
 
   async listLibrary(userId: string): Promise<LibraryEntry[]> {
-    const rows = await this.sql.unsafe<LibraryRow[]>(`
+    const rows = await this.sql.unsafe<LibraryRow[]>(
+      `
       select ${workSelect}, le.id as library_id, le.status as library_status, le.favorite, le.rating, le.notes,
         le.updated_at as library_updated_at, p.release_item_id as progress_release_item_id, p.completed_units,
         p.position_seconds, p.position_percent, p.updated_at as progress_updated_at
@@ -141,7 +167,9 @@ export class HaoRepository {
       left join lateral (select source_kind, external_id from source_records where work_id=w.id order by last_seen_at desc limit 1) sr on true
       left join progress p on p.user_id=le.user_id and p.work_id=le.work_id
       where le.user_id=$1 order by le.updated_at desc
-    `, [userId]);
+    `,
+      [userId]
+    );
     return rows.map((row) => ({
       id: row.library_id,
       work: mapWork(row),
@@ -150,18 +178,29 @@ export class HaoRepository {
       rating: numberOrNull(row.rating),
       notes: row.notes,
       updatedAt: iso(row.library_updated_at),
-      progress: row.progress_updated_at ? {
-        workId: row.id,
-        releaseItemId: row.progress_release_item_id,
-        completedUnits: Number(row.completed_units ?? 0),
-        positionSeconds: numberOrNull(row.position_seconds),
-        positionPercent: numberOrNull(row.position_percent),
-        updatedAt: iso(row.progress_updated_at),
-      } : null,
+      progress: row.progress_updated_at
+        ? {
+            workId: row.id,
+            releaseItemId: row.progress_release_item_id,
+            completedUnits: Number(row.completed_units ?? 0),
+            positionSeconds: numberOrNull(row.position_seconds),
+            positionPercent: numberOrNull(row.position_percent),
+            updatedAt: iso(row.progress_updated_at)
+          }
+        : null
     }));
   }
 
-  async upsertLibrary(userId: string, input: { workId: string; status: LibraryStatus; favorite: boolean; rating: number | null; notes: string }): Promise<LibraryEntry | null> {
+  async upsertLibrary(
+    userId: string,
+    input: {
+      workId: string;
+      status: LibraryStatus;
+      favorite: boolean;
+      rating: number | null;
+      notes: string;
+    }
+  ): Promise<LibraryEntry | null> {
     await this.sql`
       insert into library_entries (user_id,work_id,status,favorite,rating,notes)
       values (${userId},${input.workId},${input.status}::library_status,${input.favorite},${input.rating},${input.notes})
@@ -171,7 +210,16 @@ export class HaoRepository {
     return (await this.listLibrary(userId)).find((entry) => entry.work.id === input.workId) ?? null;
   }
 
-  async updateProgress(userId: string, input: { workId: string; releaseItemId: string | null; completedUnits: number; positionSeconds: number | null; positionPercent: number | null }): Promise<Progress> {
+  async updateProgress(
+    userId: string,
+    input: {
+      workId: string;
+      releaseItemId: string | null;
+      completedUnits: number;
+      positionSeconds: number | null;
+      positionPercent: number | null;
+    }
+  ): Promise<Progress> {
     const [row] = await this.sql<{ updated_at: Date }[]>`
       insert into progress (user_id,work_id,release_item_id,completed_units,position_seconds,position_percent)
       values (${userId},${input.workId},${input.releaseItemId},${input.completedUnits},${input.positionSeconds},${input.positionPercent})
@@ -179,21 +227,96 @@ export class HaoRepository {
         position_seconds=excluded.position_seconds,position_percent=excluded.position_percent,updated_at=now()
       returning updated_at
     `;
-    return { ...input, updatedAt: row?.updated_at.toISOString() ?? new Date().toISOString() };
+    return {
+      ...input,
+      updatedAt: row?.updated_at.toISOString() ?? new Date().toISOString()
+    };
   }
 
-  async listConnections(userId: string): Promise<Array<{ id: string; providerType: string; displayName: string; endpoint: string | null; health: string; lastCheckedAt: string | null }>> {
-    const rows = await this.sql<{ id: string; provider_type: string; display_name: string; endpoint: string | null; health: string; last_checked_at: Date | null }[]>`
+  async listConnections(userId: string): Promise<
+    Array<{
+      id: string;
+      providerType: string;
+      displayName: string;
+      endpoint: string | null;
+      health: string;
+      lastCheckedAt: string | null;
+    }>
+  > {
+    const rows = await this.sql<
+      {
+        id: string;
+        provider_type: string;
+        display_name: string;
+        endpoint: string | null;
+        health: string;
+        last_checked_at: Date | null;
+      }[]
+    >`
       select id,provider_type,display_name,endpoint,health,last_checked_at from provider_connections where user_id=${userId} order by created_at desc
     `;
-    return rows.map((row) => ({ id: row.id, providerType: row.provider_type, displayName: row.display_name, endpoint: row.endpoint, health: row.health, lastCheckedAt: row.last_checked_at?.toISOString() ?? null }));
+    return rows.map((row) => ({
+      id: row.id,
+      providerType: row.provider_type,
+      displayName: row.display_name,
+      endpoint: row.endpoint,
+      health: row.health,
+      lastCheckedAt: row.last_checked_at?.toISOString() ?? null
+    }));
   }
 
-  async listBridgeDevices(userId: string): Promise<Array<{ id: string; name: string; endpoint: string | null; lastSeenAt: string | null; revokedAt: string | null }>> {
-    const rows = await this.sql<{ id: string; name: string; endpoint: string | null; last_seen_at: Date | null; revoked_at: Date | null }[]>`
-      select id,name,endpoint,last_seen_at,revoked_at from bridge_devices where user_id=${userId} order by created_at desc
+  async listBridgeDevices(userId: string): Promise<
+    Array<{
+      id: string;
+      name: string;
+      endpoint: string | null;
+      lastSeenAt: string | null;
+      revokedAt: string | null;
+      scope: "personal" | "beta";
+      sharedBeta: boolean;
+    }>
+  > {
+    const rows = await this.sql<
+      {
+        id: string;
+        name: string;
+        endpoint: string | null;
+        last_seen_at: Date | null;
+        revoked_at: Date | null;
+        user_id: string;
+        shared_beta: boolean;
+      }[]
+    >`
+      select id,name,endpoint,last_seen_at,revoked_at,user_id,shared_beta
+      from bridge_devices
+      where user_id=${userId} or (shared_beta=true and revoked_at is null)
+      order by (user_id=${userId}) desc, shared_beta desc, created_at desc
     `;
-    return rows.map((row) => ({ id: row.id, name: row.name, endpoint: row.endpoint, lastSeenAt: row.last_seen_at?.toISOString() ?? null, revokedAt: row.revoked_at?.toISOString() ?? null }));
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      endpoint: row.endpoint,
+      lastSeenAt: row.last_seen_at?.toISOString() ?? null,
+      revokedAt: row.revoked_at?.toISOString() ?? null,
+      scope: row.user_id === userId ? "personal" : "beta",
+      sharedBeta: row.shared_beta
+    }));
+  }
+
+  async setSharedBetaBridge(actorId: string, bridgeId: string | null): Promise<string | null> {
+    const selected = await this.sql.begin(async (tx) => {
+      await tx`update bridge_devices set shared_beta=false,shared_by=null,shared_at=null where shared_beta=true`;
+      if (!bridgeId) return null;
+      const [row] = await tx<{ id: string }[]>`
+        update bridge_devices set shared_beta=true,shared_by=${actorId},shared_at=now()
+        where id=${bridgeId} and user_id=${actorId} and revoked_at is null and endpoint is not null
+        returning id
+      `;
+      if (!row) throw new Error("Active personal Bridge not found");
+      return row.id;
+    });
+    await this.audit(actorId, selected ? "bridge.share_beta" : "bridge.unshare_beta", "bridge_device", selected ?? bridgeId, {});
+    return selected;
   }
 
   async createBridgePairingCode(userId: string, codeHash: string, expiresAt: Date): Promise<void> {
@@ -224,19 +347,63 @@ export class HaoRepository {
       returning id
     `;
     if (!row) throw new Error("Bridge device belongs to another account");
-    await this.audit(userId, "bridge.pair", "bridge_device", input.id, { endpoint: input.endpoint });
+    await this.audit(userId, "bridge.pair", "bridge_device", input.id, {
+      endpoint: input.endpoint
+    });
   }
 
-  async listExtensionRepositories(userId: string): Promise<Array<{ id: string; bridgeId: string; mediaKind: "ANIME" | "MANGA"; url: string; name: string; signerFingerprint: string | null; acknowledgedAt: string | null; enabled: boolean }>> {
-    const rows = await this.sql<{ id: string; bridge_id: string; media_kind: "ANIME" | "MANGA"; url: string; name: string; signer_fingerprint: string | null; acknowledged_at: Date | null; enabled: boolean }[]>`
-      select r.id,r.bridge_id,r.media_kind,r.url,r.name,r.signer_fingerprint,r.acknowledged_at,r.enabled
+  async listExtensionRepositories(userId: string): Promise<
+    Array<{
+      id: string;
+      bridgeId: string;
+      mediaKind: "ANIME" | "MANGA";
+      url: string;
+      name: string;
+      signerFingerprint: string | null;
+      acknowledgedAt: string | null;
+      enabled: boolean;
+      scope: "personal" | "beta";
+    }>
+  > {
+    const rows = await this.sql<
+      {
+        id: string;
+        bridge_id: string;
+        media_kind: "ANIME" | "MANGA";
+        url: string;
+        name: string;
+        signer_fingerprint: string | null;
+        acknowledged_at: Date | null;
+        enabled: boolean;
+        user_id: string;
+      }[]
+    >`
+      select r.id,r.bridge_id,r.media_kind,r.url,r.name,r.signer_fingerprint,r.acknowledged_at,r.enabled,b.user_id
       from repositories r join bridge_devices b on b.id=r.bridge_id
-      where b.user_id=${userId} and b.revoked_at is null order by r.name
+      where (b.user_id=${userId} or b.shared_beta=true) and b.revoked_at is null order by (b.user_id=${userId}) desc,r.name
     `;
-    return rows.map((row) => ({ id: row.id, bridgeId: row.bridge_id, mediaKind: row.media_kind, url: row.url, name: row.name, signerFingerprint: row.signer_fingerprint, acknowledgedAt: row.acknowledged_at?.toISOString() ?? null, enabled: row.enabled }));
+    return rows.map((row) => ({
+      id: row.id,
+      bridgeId: row.bridge_id,
+      mediaKind: row.media_kind,
+      url: row.url,
+      name: row.name,
+      signerFingerprint: row.signer_fingerprint,
+      acknowledgedAt: row.acknowledged_at?.toISOString() ?? null,
+      enabled: row.enabled,
+      scope: row.user_id === userId ? "personal" : "beta"
+    }));
   }
 
-  async upsertExtensionRepository(userId: string, input: { bridgeId: string; mediaKind: "ANIME" | "MANGA"; url: string; name: string }): Promise<string> {
+  async upsertExtensionRepository(
+    userId: string,
+    input: {
+      bridgeId: string;
+      mediaKind: "ANIME" | "MANGA";
+      url: string;
+      name: string;
+    }
+  ): Promise<string> {
     const [row] = await this.sql<{ id: string }[]>`
       insert into repositories (bridge_id,media_kind,url,name,acknowledged_at,enabled)
       select ${input.bridgeId},${input.mediaKind},${input.url},${input.name},now(),true
@@ -245,17 +412,31 @@ export class HaoRepository {
       returning id
     `;
     if (!row) throw new Error("Bridge device not found");
-    await this.audit(userId, "repository.enable", "repository", row.id, { url: input.url, mediaKind: input.mediaKind });
+    await this.audit(userId, "repository.enable", "repository", row.id, {
+      url: input.url,
+      mediaKind: input.mediaKind
+    });
     return row.id;
   }
 
-  async createConnection(userId: string, input: { providerType: string; displayName: string; endpoint: string | null; encryptedCredentials: Uint8Array | null; health: string }): Promise<string> {
+  async createConnection(
+    userId: string,
+    input: {
+      providerType: string;
+      displayName: string;
+      endpoint: string | null;
+      encryptedCredentials: Uint8Array | null;
+      health: string;
+    }
+  ): Promise<string> {
     const [row] = await this.sql<{ id: string }[]>`
       insert into provider_connections (user_id,provider_type,display_name,endpoint,encrypted_credentials,health,last_checked_at)
       values (${userId},${input.providerType},${input.displayName},${input.endpoint},${input.encryptedCredentials},${input.health},now()) returning id
     `;
     if (!row) throw new Error("Failed to create provider connection");
-    await this.audit(userId, "provider.create", "provider_connection", row.id, { providerType: input.providerType });
+    await this.audit(userId, "provider.create", "provider_connection", row.id, {
+      providerType: input.providerType
+    });
     return row.id;
   }
 
@@ -266,10 +447,20 @@ export class HaoRepository {
     `;
     if (!row) throw new Error("Failed to create invitation");
     await this.audit(input.invitedBy, "invitation.create", "invitation", row.id, { email: input.email });
-    return { id: row.id, email: row.email, expiresAt: row.expires_at.toISOString() };
+    return {
+      id: row.id,
+      email: row.email,
+      expiresAt: row.expires_at.toISOString()
+    };
   }
 
-  async adminOverview(): Promise<{ users: number; activeBridges: number; pendingJobs: number; invitations: unknown[]; audit: unknown[] }> {
+  async adminOverview(): Promise<{
+    users: number;
+    activeBridges: number;
+    pendingJobs: number;
+    invitations: unknown[];
+    audit: unknown[];
+  }> {
     const [counts, invitations, audit] = await Promise.all([
       this.sql<{ users: number; active_bridges: number; pending_jobs: number }[]>`
         select (select count(*)::int from profiles where suspended_at is null) users,
@@ -277,9 +468,15 @@ export class HaoRepository {
           (select count(*)::int from epub_assets where processing_status='pending') pending_jobs
       `,
       this.sql`select id,email,expires_at,accepted_at,created_at from invitations order by created_at desc limit 50`,
-      this.sql`select id,action,subject_type,subject_id,metadata,created_at from audit_events order by created_at desc limit 50`,
+      this.sql`select id,action,subject_type,subject_id,metadata,created_at from audit_events order by created_at desc limit 50`
     ]);
-    return { users: counts[0]?.users ?? 0, activeBridges: counts[0]?.active_bridges ?? 0, pendingJobs: counts[0]?.pending_jobs ?? 0, invitations, audit };
+    return {
+      users: counts[0]?.users ?? 0,
+      activeBridges: counts[0]?.active_bridges ?? 0,
+      pendingJobs: counts[0]?.pending_jobs ?? 0,
+      invitations,
+      audit
+    };
   }
 
   async createEpubAsset(input: { id: string; userId: string; workId: string; storageKey: string; originalName: string; byteSize: number; sha256: string; status: string; manifest: unknown }): Promise<void> {

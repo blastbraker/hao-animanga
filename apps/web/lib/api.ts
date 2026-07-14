@@ -8,24 +8,54 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const token = (await supabase?.auth.getSession())?.data.session?.access_token;
   if (!token && process.env.NODE_ENV === "production") throw new Error("Sign in required");
   const authHeaders = token ? { authorization: `Bearer ${token}` } : { "x-user-id": DEV_USER_ID };
-  const response = await fetch(`${API_URL}${path}`, { ...init, headers: { "content-type": "application/json", ...authHeaders, ...init?.headers } });
+  const response = await fetch(`${API_URL}${path}`, {
+    ...init,
+    headers: {
+      "content-type": "application/json",
+      ...authHeaders,
+      ...init?.headers
+    }
+  });
   if (!response.ok) throw new Error((await response.json().catch(() => null))?.message ?? `Request failed: ${response.status}`);
   return response.json() as Promise<T>;
 }
 
-export type DiscoverResponse = { featured: Work[]; trending: Work[]; updated: Work[] };
+export type DiscoverResponse = {
+  featured: Work[];
+  trending: Work[];
+  updated: Work[];
+};
 export type LibraryResponse = { items: LibraryEntry[] };
 
-type BridgeDevice = { endpoint: string; revokedAt: string | null };
+export type BridgeAccess = {
+  endpoint: string;
+  name: string;
+  scope: "personal" | "beta";
+  sharedBeta: boolean;
+  revokedAt: string | null;
+};
 
-export async function getActiveBridgeEndpoint(): Promise<string> {
+export async function getActiveBridge(): Promise<BridgeAccess> {
   try {
-    const { items } = await api<{ items: BridgeDevice[] }>("/bridges");
-    const endpoint = items.find((item) => !item.revokedAt)?.endpoint?.replace(/\/$/, "");
-    if (endpoint) return endpoint;
+    const { items } = await api<{ items: BridgeAccess[] }>("/bridges");
+    const personal = items.find((item) => item.scope === "personal" && !item.revokedAt && item.endpoint);
+    const shared = items.find((item) => item.scope === "beta" && !item.revokedAt && item.endpoint);
+    const selected = personal ?? shared;
+    if (selected) return { ...selected, endpoint: selected.endpoint.replace(/\/$/, "") };
   } catch (cause) {
     if (process.env.NODE_ENV !== "development") throw cause;
   }
-  if (process.env.NODE_ENV === "development") return "http://127.0.0.1:4568";
-  throw new Error("Pair HAO Bridge in Settings before browsing repository sources.");
+  if (process.env.NODE_ENV === "development")
+    return {
+      endpoint: "http://127.0.0.1:4568",
+      name: "Local HAO Bridge",
+      scope: "personal",
+      sharedBeta: false,
+      revokedAt: null
+    };
+  throw new Error("No personal or managed Beta Bridge is available. Ask the beta administrator to check the shared Bridge.");
+}
+
+export async function getActiveBridgeEndpoint(): Promise<string> {
+  return (await getActiveBridge()).endpoint;
 }

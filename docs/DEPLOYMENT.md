@@ -34,6 +34,19 @@ Fly.io and managed Redis are not part of the free beta deployment. The legacy wo
 7. Invite the first identity in Supabase, then set that profile's `role` to `admin` in the SQL editor. All later invitation links can be created from HAO's admin console.
 8. Deploy and verify `/api/v1/health`, invitation sign-in, member denial at `/admin`, two-account library/progress isolation, Bridge pairing, repository installation, reading, and playback.
 
+## Optional shared Beta Bridge
+
+To remove desktop setup for invited testers without moving extension execution into HAO Cloud:
+
+1. Run a dedicated Bridge on an administrator-controlled machine and install only reviewed, authorized extensions.
+2. Set `HAO_WEB_ORIGIN=https://hao-animanga.vercel.app` and a random `HAO_BRIDGE_ADMIN_TOKEN` of at least 32 characters before starting the Bridge.
+3. Put `127.0.0.1:4568` behind an administrator-controlled HTTPS tunnel or reverse proxy. Do not expose the raw local port and do not disable the management token.
+4. Pair that HTTPS endpoint from the administrator account. Enter the token in the Settings management field; HAO does not persist it.
+5. Open **Admin > Shared Beta Bridge** and enable the paired device. The API performs an SSRF-screened health check and refuses an unpaired or management-unprotected Bridge.
+6. Test with a member account. The Home, title, reader, and player surfaces should select the managed Bridge automatically, while Settings hides all repository and APK controls.
+
+The administrator's machine and HTTPS endpoint must remain online. All testers share its network egress and capacity, so provider throttling or outages affect the entire beta. Personal Bridges remain available and take precedence when a member has paired one.
+
 ## Automated deployment
 
 Vercel's Git integration builds every push to `main`. The optional **Deploy staging** GitHub workflow applies Supabase migrations first and then performs a Vercel production deployment. It requires:

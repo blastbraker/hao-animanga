@@ -26,6 +26,8 @@ fun main() {
     val animeHost = AnimeHostManager.default()
     val runtimes = listOf(SuwayomiRuntime(suwayomiManager), AnimeHostExtensionRuntime(animeHost), AniyomiCompatibilityRuntime(animeHost))
     val port = System.getenv("HAO_BRIDGE_PORT")?.toIntOrNull() ?: 4568
+    val adminToken = System.getenv("HAO_BRIDGE_ADMIN_TOKEN")?.trim()?.takeIf { it.isNotEmpty() }
+    require(adminToken == null || adminToken.length >= 32) { "HAO_BRIDGE_ADMIN_TOKEN must contain at least 32 characters" }
     val app = Javalin.create { config ->
         config.jsonMapper(JavalinJackson())
         config.http.defaultContentType = "application/json"
@@ -37,34 +39,35 @@ fun main() {
         ctx.status(if (clientError) error.status else 503).json(ErrorResponse(if (clientError) "INVALID" else "UNAVAILABLE", if (clientError) "Anime source request was invalid" else "Isolated anime host is unavailable", !clientError))
     }
     app.exception(Exception::class.java) { error, ctx -> error.printStackTrace(); ctx.status(500).json(ErrorResponse("UNAVAILABLE", "Bridge operation failed", true)) }
-    app.get("/health") { ctx -> ctx.json(HealthResponse("ok", "0.1.0", pairing.get() != null)) }
-    app.get("/v1/runtimes") { ctx -> ctx.json(runtimes.map { it.status() }) }
+    app.get("/health") { ctx -> ctx.json(HealthResponse("ok", "0.1.0", pairing.get() != null, adminToken != null)) }
+    app.get("/v1/runtimes") { ctx -> requireManagement(ctx, pairing, adminToken); ctx.json(runtimes.map { it.status() }) }
     app.post("/v1/pair") { ctx ->
+        requireAdminToken(ctx, adminToken)
         val body = json.decodeFromString<PairRequest>(ctx.body())
         require(body.code.matches(Regex("[A-F0-9]{8}"))) { "Invalid pairing code" }
         val keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
         val result = pairingStore.save(body, keys).response()
         pairing.set(result); ctx.status(201).contentType("application/json").result(json.encodeToString(result))
     }
-    app.post("/v1/repositories/preview") { ctx -> requirePaired(ctx, pairing); ctx.contentType("application/json").result(json.encodeToString(repositories.preview(json.decodeFromString<RepositoryRequest>(ctx.body())))) }
-    app.get("/v1/extensions") { ctx -> requirePaired(ctx, pairing); ctx.contentType("application/json").result(json.encodeToString(extensions.listInstalled(storageRoot))) }
-    app.post("/v1/extensions/inspect") { ctx -> requirePaired(ctx, pairing); ctx.contentType("application/json").result(json.encodeToString(extensions.inspect(json.decodeFromString<InspectExtensionRequest>(ctx.body()), storageRoot))) }
+    app.post("/v1/repositories/preview") { ctx -> requireManagement(ctx, pairing, adminToken); ctx.contentType("application/json").result(json.encodeToString(repositories.preview(json.decodeFromString<RepositoryRequest>(ctx.body())))) }
+    app.get("/v1/extensions") { ctx -> requireManagement(ctx, pairing, adminToken); ctx.contentType("application/json").result(json.encodeToString(extensions.listInstalled(storageRoot))) }
+    app.post("/v1/extensions/inspect") { ctx -> requireManagement(ctx, pairing, adminToken); ctx.contentType("application/json").result(json.encodeToString(extensions.inspect(json.decodeFromString<InspectExtensionRequest>(ctx.body()), storageRoot))) }
     app.post("/v1/extensions/install") { ctx ->
-        requirePaired(ctx, pairing)
+        requireManagement(ctx, pairing, adminToken)
         val installed = extensions.install(json.decodeFromString<ConfirmInstallRequest>(ctx.body()), storageRoot)
         if (installed.mediaKind == MediaKind.MANGA) suwayomiManager.sync(extensions.listInstalled(storageRoot))
         if (installed.mediaKind == MediaKind.ANIME) animeHost.close()
         ctx.status(201).contentType("application/json").result(json.encodeToString(installed))
     }
     app.post("/v1/extensions/state") { ctx ->
-        requirePaired(ctx, pairing)
+        requireManagement(ctx, pairing, adminToken)
         val updated = extensions.setEnabled(json.decodeFromString<ExtensionStateRequest>(ctx.body()), storageRoot)
         if (updated.mediaKind == MediaKind.MANGA) suwayomiManager.sync(extensions.listInstalled(storageRoot))
         if (updated.mediaKind == MediaKind.ANIME) animeHost.close()
         ctx.contentType("application/json").result(json.encodeToString(updated))
     }
     app.post("/v1/extensions/remove") { ctx ->
-        requirePaired(ctx, pairing)
+        requireManagement(ctx, pairing, adminToken)
         val request = json.decodeFromString<RemoveExtensionRequest>(ctx.body())
         if (request.mediaKind == MediaKind.MANGA) suwayomiManager.uninstall(request.packageName)
         val removed = extensions.remove(request, storageRoot)
@@ -73,15 +76,15 @@ fun main() {
     }
     System.getenv("HAO_DEV_FIXTURE_APK")?.let { fixturePath ->
         app.post("/v1/dev/fixtures/aniyomi/install") { ctx ->
-            requirePaired(ctx, pairing)
+            requireManagement(ctx, pairing, adminToken)
             val installed = extensions.installLocalFixture(Path.of(fixturePath), storageRoot)
             animeHost.close()
             ctx.status(201).contentType("application/json").result(json.encodeToString(installed))
         }
     }
-    app.get("/v1/manga/runtime") { ctx -> requirePaired(ctx, pairing); ctx.json(suwayomiManager.status()) }
-    app.post("/v1/manga/runtime/start") { ctx -> requirePaired(ctx, pairing); ctx.json(suwayomiManager.ensureStarted()) }
-    app.post("/v1/manga/runtime/sync") { ctx -> requirePaired(ctx, pairing); ctx.json(suwayomiManager.sync(extensions.listInstalled(storageRoot))) }
+    app.get("/v1/manga/runtime") { ctx -> requireManagement(ctx, pairing, adminToken); ctx.json(suwayomiManager.status()) }
+    app.post("/v1/manga/runtime/start") { ctx -> requireManagement(ctx, pairing, adminToken); ctx.json(suwayomiManager.ensureStarted()) }
+    app.post("/v1/manga/runtime/sync") { ctx -> requireManagement(ctx, pairing, adminToken); ctx.json(suwayomiManager.sync(extensions.listInstalled(storageRoot))) }
     app.get("/v1/anime/sources") { ctx -> requirePaired(ctx, pairing); ctx.json(animeHost.sources()) }
     app.get("/v1/anime/catalog") { ctx ->
         requirePaired(ctx, pairing)
@@ -94,7 +97,7 @@ fun main() {
             ),
         )
     }
-    app.get("/v1/anime/extensions/probe") { ctx -> requirePaired(ctx, pairing); ctx.json(animeHost.probes()) }
+    app.get("/v1/anime/extensions/probe") { ctx -> requireManagement(ctx, pairing, adminToken); ctx.json(animeHost.probes()) }
     app.get("/v1/anime/{animeId}/episodes") { ctx -> requirePaired(ctx, pairing); ctx.json(animeHost.episodes(ctx.pathParam("animeId"))) }
     app.get("/v1/anime/episodes/{episodeId}/servers") { ctx -> requirePaired(ctx, pairing); ctx.json(animeHost.servers(ctx.pathParam("episodeId"))) }
     app.get("/v1/anime/episodes/{episodeId}/streams") { ctx -> requirePaired(ctx, pairing); ctx.json(animeHost.streams(ctx.pathParam("episodeId"), ctx.queryParam("serverId") ?: "")) }
@@ -140,3 +143,13 @@ fun main() {
 }
 
 private fun requirePaired(ctx: Context, pairing: AtomicReference<PairResponse?>) { require(pairing.get() != null) { "Bridge must be paired first" } }
+
+private fun requireAdminToken(ctx: Context, configuredToken: String?) {
+    if (configuredToken == null) return
+    require(Security.secretsMatch(configuredToken, ctx.header("X-HAO-Bridge-Admin"))) { "Bridge administrator access required" }
+}
+
+private fun requireManagement(ctx: Context, pairing: AtomicReference<PairResponse?>, configuredToken: String?) {
+    requirePaired(ctx, pairing)
+    requireAdminToken(ctx, configuredToken)
+}

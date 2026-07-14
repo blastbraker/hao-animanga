@@ -1,4 +1,8 @@
 .settings-status { color: var(--muted); font-size: 12px; margin: 14px 0; }
+.bridge-admin-token { display: grid; gap: 7px; margin: 12px 0; color: var(--muted); font-size: 10px; }
+.bridge-admin-token input { width: 100%; padding: 11px 12px; color: var(--text); background: #080a12; border: 1px solid var(--line); border-radius: 9px; }
+.beta-bridge-panel { border-color: rgba(96,239,227,.28); background: linear-gradient(135deg,rgba(96,239,227,.1),var(--panel)); }
+.warning-box.compact { margin-bottom: 0; padding: 14px; }
 .repository-list, .extension-browser, .inspection-card, .installed-extensions { margin-top: 20px; }
 .repository-list h3, .extension-browser h3, .inspection-card h3, .installed-extensions h3 { margin: 0; font: 700 20px var(--font-display); }
 .repository-list .health-row > div { display: grid; gap: 4px; min-width: 0; }

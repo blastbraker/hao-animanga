@@ -9,6 +9,11 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 object Security {
+    fun secretsMatch(expected: String, provided: String?): Boolean {
+        if (provided == null) return false
+        return MessageDigest.isEqual(expected.encodeToByteArray(), provided.encodeToByteArray())
+    }
+
     fun validateRemoteHttps(raw: String): URI {
         val uri = URI(raw)
         require(uri.scheme == "https") { "HTTPS is required" }

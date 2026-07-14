@@ -2,7 +2,7 @@ package app.hao.bridge
 
 import kotlinx.serialization.Serializable
 
-@Serializable data class HealthResponse(val status: String, val version: String, val paired: Boolean)
+@Serializable data class HealthResponse(val status: String, val version: String, val paired: Boolean, val managementProtected: Boolean = false)
 @Serializable data class PairRequest(val code: String, val accountId: String, val deviceName: String)
 @Serializable data class PairResponse(val deviceId: String, val publicKey: String, val pairedAt: String)
 @Serializable data class RepositoryRequest(val url: String, val mediaKind: MediaKind, val acknowledged: Boolean)

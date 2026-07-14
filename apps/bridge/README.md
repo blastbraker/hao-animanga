@@ -12,6 +12,24 @@ gradle -p apps/bridge run
 
 The service binds to `127.0.0.1:4568` by default. Open the PWA's **Settings** page to pair the device and validate a repository. Pairing identity and the device private key persist under `%USERPROFILE%\.hao\bridge\state` with owner-only permissions where the platform supports POSIX permissions. Put the Bridge behind user-controlled HTTPS/private networking for access from other devices.
 
+## Managed beta sharing
+
+An administrator may share one Bridge with invited beta members so they do not install Java, HAO Bridge, repositories, or APKs themselves. Catalogs, pages, and media still travel directly between each member's browser and the administrator-operated Bridge; HAO Cloud does not proxy third-party content.
+
+Before exposing a Bridge through an HTTPS tunnel or reverse proxy, set both variables and restart it:
+
+```powershell
+$env:HAO_WEB_ORIGIN = "https://hao-animanga.vercel.app"
+$env:HAO_BRIDGE_ADMIN_TOKEN = "a-random-secret-containing-at-least-32-characters"
+gradle -p apps/bridge run
+```
+
+Generate the administrator token with a password manager or a cryptographically secure random generator. Do not put it in Vercel, send it to testers, embed it in the public Bridge URL, or commit it. Enter it only in HAO Settings when managing that Bridge. The field is held in page memory and is not persisted by HAO.
+
+When `HAO_BRIDGE_ADMIN_TOKEN` is set, pairing, repository inspection, APK installation/removal, signer changes, and runtime controls require the `X-HAO-Bridge-Admin` header. Catalog, chapter, page, episode, and stream endpoints remain read-only for beta browsers. The Admin console refuses to share a Bridge unless `/health` confirms it is paired and management-protected.
+
+After pairing the protected HTTPS endpoint, open **Admin > Shared Beta Bridge** and enable it for testers. Only extensions that the administrator installed and left enabled are exposed as approved sources. Disable sharing immediately if the endpoint, signer identity, permissions, or tunnel configuration changes unexpectedly.
+
 Pairing codes are single-use and expire after ten minutes. Repository indexes must use HTTPS, cannot target private network addresses, and are downloaded and parsed by the Bridge rather than HAO's cloud.
 
 Extension installation is a two-step local operation. **Review** downloads an APK into a ten-minute quarantine, caps it at 50 MiB, requires it to remain on the repository host, verifies the Android signing certificate, checks the manifest package identity, extracts declared permissions, and records SHA-256. **Install locally** requires permission acknowledgement and renewed signer acknowledgement when an installed package changes signing identity. The Bridge persists installation metadata under `%USERPROFILE%\.hao\bridge\extensions` by default and supports enable, disable, and removal operations.
