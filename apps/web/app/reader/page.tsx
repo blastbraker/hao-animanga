@@ -3,43 +3,17 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { BookOpen, ChevronLeft, ChevronRight, LoaderCircle, Search, Server, TriangleAlert } from "lucide-react";
 import { bridgeFetch, getActiveBridge } from "../../lib/api";
-
-type MangaSource = {
-  id: string;
-  name: string;
-  displayName: string;
-  language: string;
-  mature: boolean;
-  supportsLatest: boolean;
-};
-type MangaSummary = {
-  id: number;
-  sourceId: string;
-  title: string;
-  author?: string;
-  description?: string;
-  status?: string;
-  genres: string[];
-};
-type MangaSearchResponse = { items: MangaSummary[]; hasNextPage: boolean };
-type MangaChapter = {
-  id: number;
-  index: number;
-  name: string;
-  number: number;
-  scanlator?: string;
-  uploadDate: number;
-  read: boolean;
-  lastPageRead: number;
-  pageCount: number;
-};
-type MangaChapterPages = {
-  mangaId: number;
-  chapterIndex: number;
-  chapterName: string;
-  pageCount: number;
-  pageUrls: string[];
-};
+import {
+  MangaChapter,
+  MangaChapterPages,
+  MangaSource,
+  MangaSummary,
+  normalizeMangaChapterPages,
+  normalizeMangaChapters,
+  normalizeMangaSearchResponse,
+  normalizeMangaSources,
+  normalizeMangaSummary,
+} from "../../lib/manga-response";
 type BrowseMode = "popular" | "latest";
 type ReadingMode = "webtoon" | "ltr" | "rtl";
 
@@ -101,7 +75,7 @@ export default function ReaderPage() {
         const requestedMode: BrowseMode = parameters.get("mode") === "latest" ? "latest" : "popular";
         setBridge(endpoint);
         setBridgeScope(access.scope);
-        const payload = await bridgeRequest<MangaSource[]>("/v1/manga/sources", endpoint);
+        const payload = normalizeMangaSources(await bridgeRequest<unknown>("/v1/manga/sources", endpoint));
         if (!payload.length) throw new Error("No manga sources are available. Install and enable a Mihon extension first.");
         if (cancelled) return;
         setSources(payload);
@@ -110,18 +84,26 @@ export default function ReaderPage() {
         setSourceId(preferred.id);
         setBrowseMode(initialMode);
         if (requestedQuery) setQuery(requestedQuery);
-        const catalog = requestedQuery && !requestedMangaId ? await bridgeRequest<MangaSearchResponse>(`/v1/manga/search?sourceId=${encodeURIComponent(preferred.id)}&query=${encodeURIComponent(requestedQuery)}&page=1`, endpoint) : await bridgeRequest<MangaSearchResponse>(`/v1/manga/browse?sourceId=${encodeURIComponent(preferred.id)}&mode=${initialMode}&page=1`, endpoint);
+        const catalog = normalizeMangaSearchResponse(
+          requestedQuery && !requestedMangaId
+            ? await bridgeRequest<unknown>(`/v1/manga/search?sourceId=${encodeURIComponent(preferred.id)}&query=${encodeURIComponent(requestedQuery)}&page=1`, endpoint)
+            : await bridgeRequest<unknown>(`/v1/manga/browse?sourceId=${encodeURIComponent(preferred.id)}&mode=${initialMode}&page=1`, endpoint),
+        );
         if (cancelled) return;
         setResults(catalog.items);
         if (Number.isInteger(requestedMangaId) && requestedMangaId > 0) {
-          const [details, chapterList] = await Promise.all([bridgeRequest<MangaSummary>(`/v1/manga/${requestedMangaId}`, endpoint), bridgeRequest<MangaChapter[]>(`/v1/manga/${requestedMangaId}/chapters`, endpoint)]);
+          const [detailsPayload, chapterPayload] = await Promise.all([bridgeRequest<unknown>(`/v1/manga/${requestedMangaId}`, endpoint), bridgeRequest<unknown>(`/v1/manga/${requestedMangaId}/chapters`, endpoint)]);
           if (cancelled) return;
+          const fallback = catalog.items.find((item) => item.id === requestedMangaId) ?? { id: requestedMangaId, sourceId: preferred.id, title: "Selected title", genres: [] };
+          const details = normalizeMangaSummary(detailsPayload, fallback);
+          const chapterList = normalizeMangaChapters(chapterPayload);
           setSelected(details);
           setChapters(chapterList);
           if (!chapterList.length) setError(`No readable ${preferred.language.toUpperCase()} chapters are available from ${preferred.name} for this title.`);
           const requestedChapter = chapterList.find((chapter) => chapter.index === requestedChapterIndex);
           if (requestedChapter) {
-            const chapterPages = await bridgeRequest<MangaChapterPages>(`/v1/manga/${requestedMangaId}/chapter/${requestedChapter.index}/pages`, endpoint);
+            const chapterPages = normalizeMangaChapterPages(await bridgeRequest<unknown>(`/v1/manga/${requestedMangaId}/chapter/${requestedChapter.index}/pages`, endpoint));
+            if (!chapterPages) throw new Error("This source returned invalid page data for the selected chapter.");
             if (cancelled) return;
             setPages(chapterPages);
             setPageIndex(0);
@@ -149,7 +131,7 @@ export default function ReaderPage() {
     setChapters([]);
     setPages(null);
     try {
-      const response = await bridgeRequest<MangaSearchResponse>(`/v1/manga/search?sourceId=${encodeURIComponent(sourceId)}&query=${encodeURIComponent(query.trim())}&page=1`);
+      const response = normalizeMangaSearchResponse(await bridgeRequest<unknown>(`/v1/manga/search?sourceId=${encodeURIComponent(sourceId)}&query=${encodeURIComponent(query.trim())}&page=1`));
       setResults(response.items);
       if (!response.items.length) setError("No titles matched that search in this source.");
     } catch (cause) {
@@ -169,7 +151,7 @@ export default function ReaderPage() {
     setChapters([]);
     setPages(null);
     try {
-      const response = await bridgeRequest<MangaSearchResponse>(`/v1/manga/browse?sourceId=${encodeURIComponent(nextSourceId)}&mode=${mode}&page=1`);
+      const response = normalizeMangaSearchResponse(await bridgeRequest<unknown>(`/v1/manga/browse?sourceId=${encodeURIComponent(nextSourceId)}&mode=${mode}&page=1`));
       setResults(response.items);
       if (!response.items.length) setError(`This source did not return any ${mode} titles.`);
     } catch (cause) {
@@ -190,7 +172,9 @@ export default function ReaderPage() {
     setBusy("Loading chapters…");
     setError("");
     try {
-      const [details, chapterList] = await Promise.all([bridgeRequest<MangaSummary>(`/v1/manga/${item.id}`), bridgeRequest<MangaChapter[]>(`/v1/manga/${item.id}/chapters`)]);
+      const [detailsPayload, chapterPayload] = await Promise.all([bridgeRequest<unknown>(`/v1/manga/${item.id}`), bridgeRequest<unknown>(`/v1/manga/${item.id}/chapters`)]);
+      const details = normalizeMangaSummary(detailsPayload, item);
+      const chapterList = normalizeMangaChapters(chapterPayload);
       setSelected(details);
       setChapters(chapterList);
       if (!chapterList.length) setError(`No readable ${activeSource?.language.toUpperCase() ?? "selected-language"} chapters are available from ${activeSource?.name ?? "this source"} for this title. Try another result or source.`);
@@ -206,7 +190,9 @@ export default function ReaderPage() {
     setBusy(`Loading ${chapter.name}…`);
     setError("");
     try {
-      setPages(await bridgeRequest<MangaChapterPages>(`/v1/manga/${selected.id}/chapter/${chapter.index}/pages`));
+      const chapterPages = normalizeMangaChapterPages(await bridgeRequest<unknown>(`/v1/manga/${selected.id}/chapter/${chapter.index}/pages`));
+      if (!chapterPages) throw new Error("This source returned invalid page data for the selected chapter.");
+      setPages(chapterPages);
       setPageIndex(0);
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (cause) {
