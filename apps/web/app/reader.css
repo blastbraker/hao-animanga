@@ -4,7 +4,10 @@
 .manga-browse-tabs { margin: -10px 0 28px; }
 .reader-message { display: flex; align-items: center; justify-content: center; gap: 9px; color: var(--muted); min-height: 90px; }
 .reader-message svg { width: 18px; }
-.reader-message.error { color: #ffc1b9; }
+.reader-message.error { flex-wrap: wrap; padding: 16px; color: #ffc1b9; }
+.reader-message.error>span { max-width: 620px; }
+.reader-message.error .button { min-height: 36px; color: var(--text); }
+.reader-message.error .button svg { width: 14px; }
 .spin { animation: reader-spin .9s linear infinite; }
 @keyframes reader-spin { to { transform: rotate(360deg); } }
 .manga-results { display: grid; grid-template-columns: repeat(5,minmax(140px,1fr)); gap: 18px; }

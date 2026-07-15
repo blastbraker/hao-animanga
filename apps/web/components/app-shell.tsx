@@ -6,6 +6,8 @@ import type { User } from "@supabase/supabase-js";
 import { BookOpen, Compass, Home, Library, Search, Settings, ShieldCheck } from "lucide-react";
 import { API_URL, api } from "../lib/api";
 import { getSupabaseBrowser, hasSupabaseBrowserConfig } from "../lib/supabase";
+import { OPEN_BETA_ONBOARDING_EVENT } from "../lib/onboarding";
+import { BetaOnboarding } from "./beta-onboarding";
 
 const nav = [
   { href: "/", label: "Home", icon: Home },
@@ -83,10 +85,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <header className="topbar">
       <Link href="/" className="mobile-brand"><img className="brand-mark" src="/brand/hao-logo-64.png" alt=""/> HAO</Link>
       <Link href="/discover" className="search-pill"><Search size={18}/><span>Search your archive...</span><kbd>Ctrl K</kbd></Link>
-      <span className="beta-pill">INVITE BETA</span>
+      <button className="beta-pill" onClick={() => window.dispatchEvent(new Event(OPEN_BETA_ONBOARDING_EVENT))}>BETA GUIDE</button>
     </header>
     <main>{children}</main>
     <nav className="mobile-nav" aria-label="Mobile navigation">{nav.map(({ href, label: itemLabel, icon: Icon }) => <Link key={href} href={href} className={path === href ? "active" : ""}><Icon size={20}/><span>{itemLabel}</span></Link>)}</nav>
+    <BetaOnboarding autoOpen={role === "member"} />
   </div>;
 }
 

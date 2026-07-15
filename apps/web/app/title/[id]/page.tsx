@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { Work } from "@hao/domain";
 import { BookOpen, BookmarkPlus, CircleAlert, Clapperboard, Heart, LoaderCircle, Play, RefreshCw, Server, Star } from "lucide-react";
-import { api, bridgeFetch, getActiveBridge } from "../../../lib/api";
+import { api, bridgeErrorMessage, bridgeJson, getActiveBridge } from "../../../lib/api";
 import { confidentSourceMatch } from "../../../lib/source-match";
 
 type AnimeSource = {
@@ -119,7 +119,7 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
         setMangaAvailability(result.manga);
       })
       .catch((cause: unknown) => {
-        if (!cancelled) setAvailabilityError(cause instanceof Error ? cause.message : "Installed sources could not be checked.");
+        if (!cancelled) setAvailabilityError(bridgeErrorMessage(cause, "Installed sources could not be checked."));
       })
       .finally(() => {
         if (!cancelled) setAvailabilityBusy(false);
@@ -341,10 +341,7 @@ async function loadAvailability(work: Work): Promise<{
 }
 
 async function bridgeRequest<T>(endpoint: string, path: string): Promise<T> {
-  const response = await bridgeFetch(endpoint, path);
-  const payload = (await response.json().catch(() => null)) as ({ message?: string } & T) | null;
-  if (!response.ok) throw new Error(payload?.message ?? `Bridge returned ${response.status}`);
-  return payload as T;
+  return bridgeJson<T>(endpoint, path);
 }
 
 function preferredSources<T>(sources: T[], language: (source: T) => string, identity: (source: T) => string, limit: number): T[] {

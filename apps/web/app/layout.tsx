@@ -5,6 +5,7 @@ import "./brand.css";
 import "./home.css";
 import "./title.css";
 import "./auth.css";
+import "./onboarding.css";
 import "./admin.css";
 import "./extensions.css";
 import "./reader.css";

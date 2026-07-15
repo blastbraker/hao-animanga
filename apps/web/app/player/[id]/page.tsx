@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, ChevronLeft, ChevronRight, Film, LoaderCircle, RefreshCw, Search, Server, TriangleAlert } from "lucide-react";
 import Hls from "hls.js";
-import { api, bridgeFetch, getActiveBridge, type LibraryResponse } from "../../../lib/api";
+import { api, bridgeErrorMessage, bridgeJson, getActiveBridge, type LibraryResponse } from "../../../lib/api";
 import { completedEpisodeUnits, continueWatchingId, CONTINUE_WATCHING_STORAGE_KEY, DISMISSED_CONTINUE_STORAGE_KEY, parseContinueWatching, parseDismissedWorkIds, parsePlaybackPosition, playbackPercent, playbackStorageKey, resumablePosition, updateContinueWatching, type ContinueWatchingEntry } from "../../../lib/playback-progress";
 
 type AnimeSourceSummary = {
@@ -78,10 +78,7 @@ export default function PlayerPage() {
   const streamUrl = stream ? (stream.url.startsWith("/") ? `${bridge}${stream.url}` : stream.url) : "";
 
   async function bridgeRequest<T>(endpoint: string, path: string): Promise<T> {
-    const response = await bridgeFetch(endpoint, path);
-    const payload = (await response.json().catch(() => null)) as ({ message?: string } & T) | null;
-    if (!response.ok) throw new Error(payload?.message ?? `Bridge returned ${response.status}`);
-    return payload as T;
+    return bridgeJson<T>(endpoint, path);
   }
 
   useEffect(() => {
@@ -662,5 +659,5 @@ function formatTime(seconds: number): string {
 }
 
 function message(cause: unknown) {
-  return cause instanceof Error ? cause.message : "The anime source could not complete this request.";
+  return bridgeErrorMessage(cause, "The anime source could not complete this request.");
 }

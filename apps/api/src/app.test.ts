@@ -106,7 +106,7 @@ describe("API", () => {
     expect(repositories.json().items).toHaveLength(1);
   });
 
-  it("lets an admin share a protected Bridge with beta members", async () => {
+  it("gives a member shared Bridge access without administrator privileges", async () => {
     const pairing = await app.inject({
       method: "POST",
       url: "/v1/bridges/pairing-code",
@@ -158,6 +158,26 @@ describe("API", () => {
           sharedBeta: true
         })
       );
+
+      const memberSession = await app.inject({
+        method: "GET",
+        url: "/v1/session",
+        headers: { "x-user-id": user }
+      });
+      expect(memberSession.statusCode).toBe(200);
+      expect(memberSession.json()).toEqual(
+        expect.objectContaining({
+          inviteOnly: true,
+          user: expect.objectContaining({ id: user, role: "member" })
+        })
+      );
+
+      const memberAdminOverview = await app.inject({
+        method: "GET",
+        url: "/v1/admin/overview",
+        headers: { "x-user-id": user }
+      });
+      expect(memberAdminOverview.statusCode).toBe(403);
 
       const overview = await app.inject({
         method: "GET",

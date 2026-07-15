@@ -1,8 +1,9 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { BookOpen, ChevronLeft, ChevronRight, LoaderCircle, Search, Server, TriangleAlert } from "lucide-react";
-import { bridgeFetch, getActiveBridge } from "../../lib/api";
+import Link from "next/link";
+import { BookOpen, ChevronLeft, ChevronRight, LoaderCircle, RefreshCw, Search, Server, TriangleAlert } from "lucide-react";
+import { bridgeErrorMessage, bridgeJson, getActiveBridge } from "../../lib/api";
 import {
   MangaChapter,
   MangaChapterPages,
@@ -55,11 +56,7 @@ export default function ReaderPage() {
   }, [pages, readingMode]);
 
   async function bridgeRequest<T>(path: string, endpoint = bridge): Promise<T> {
-    if (!endpoint) throw new Error("No HAO Bridge is available.");
-    const response = await bridgeFetch(endpoint, path);
-    const payload = (await response.json().catch(() => null)) as ({ message?: string } & T) | null;
-    if (!response.ok) throw new Error(payload?.message ?? `Bridge returned ${response.status}`);
-    return payload as T;
+    return bridgeJson<T>(endpoint, path);
   }
 
   useEffect(() => {
@@ -240,7 +237,7 @@ export default function ReaderPage() {
             <span>{readingMode === "webtoon" ? `${pages.pageCount} pages` : `${pageIndex + 1} / ${pages.pageCount}`}</span>
           </div>
         </header>
-        {busy && <ReaderStatus text={busy} />} {error && <ReaderError text={error} />}
+        {busy && <ReaderStatus text={busy} />} {error && <ReaderError text={error} onRetry={() => window.location.reload()} />}
         <main className={`manga-pages ${readingMode === "webtoon" ? "webtoon" : "paged"}`} dir={readingMode === "rtl" ? "rtl" : "ltr"} aria-label={`${selected.title}, ${pages.chapterName}`}>
           {readingMode === "webtoon" ? pages.pageUrls.map((url, index) => <img key={url} loading={index < 2 ? "eager" : "lazy"} src={`${bridge}${url}`} alt={`Page ${index + 1} of ${pages.pageCount}`} />) : <img key={pages.pageUrls[pageIndex]} src={`${bridge}${pages.pageUrls[pageIndex]}`} alt={`Page ${pageIndex + 1} of ${pages.pageCount}`} />}
         </main>
@@ -296,7 +293,7 @@ export default function ReaderPage() {
           Latest updates
         </button>
       </div>
-      {busy && <ReaderStatus text={busy} />} {error && <ReaderError text={error} />}
+      {busy && <ReaderStatus text={busy} />} {error && <ReaderError text={error} onRetry={() => window.location.reload()} />}
       {results.length > 0 && !selected && (
         <section className="manga-results" aria-label="Manga search results">
           {results.map((item) => (
@@ -366,15 +363,17 @@ function ReaderStatus({ text }: { text: string }) {
     </p>
   );
 }
-function ReaderError({ text }: { text: string }) {
+function ReaderError({ text, onRetry }: { text: string; onRetry: () => void }) {
   return (
     <p className="reader-message error" role="alert">
-      <TriangleAlert /> {text}
+      <TriangleAlert /> <span>{text}</span>
+      <button className="button ghost compact" onClick={onRetry}><RefreshCw /> Retry</button>
+      <Link className="button ghost compact" href="/settings"><Server /> Source status</Link>
     </p>
   );
 }
 function message(cause: unknown) {
-  return cause instanceof Error ? cause.message : "The manga source could not complete this request.";
+  return bridgeErrorMessage(cause, "The manga source could not complete this request.");
 }
 
 function PagedNavigation({ mode, pageIndex, pageCount, setPageIndex }: { mode: ReadingMode; pageIndex: number; pageCount: number; setPageIndex: (value: number) => void }) {

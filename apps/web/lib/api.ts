@@ -10,6 +10,58 @@ export function bridgeFetch(endpoint: string, path: string, init?: RequestInit):
   return fetch(`${endpoint}${path}`, { ...init, headers });
 }
 
+export class BridgeRequestError extends Error {
+  constructor(message: string, readonly status?: number) {
+    super(message);
+    this.name = "BridgeRequestError";
+  }
+}
+
+export async function bridgeJson<T>(endpoint: string, path: string, init?: RequestInit): Promise<T> {
+  if (!endpoint.trim()) throw new BridgeRequestError("No HAO Bridge is connected. Open Settings to reconnect or ask the beta administrator to check the shared Bridge.");
+  let response: Response;
+  try {
+    response = await bridgeFetch(endpoint.replace(/\/$/, ""), path, init);
+  } catch (cause) {
+    if (cause instanceof DOMException && cause.name === "AbortError")
+      throw new BridgeRequestError("The HAO Bridge took too long to respond. Retry once, then ask the beta administrator to check it.");
+    throw new BridgeRequestError("The HAO Bridge is offline or unreachable. Retry in a moment. If this continues, ask the beta administrator to restart the shared Bridge.");
+  }
+  const payload = (await response.json().catch(() => null)) as ({ message?: unknown; title?: unknown; details?: unknown } & T) | null;
+  if (!response.ok) {
+    const detail = [payload?.message, payload?.title, payload?.details].find((value): value is string => typeof value === "string" && value.trim().length > 0);
+    throw new BridgeRequestError(bridgeResponseMessage(response.status, detail), response.status);
+  }
+  return payload as T;
+}
+
+export function bridgeErrorMessage(cause: unknown, fallback = "The source could not complete this request."): string {
+  if (cause instanceof BridgeRequestError) return cause.message;
+  if (cause instanceof Error) return cause.message;
+  return fallback;
+}
+
+export function bridgeResponseMessage(status: number, detail?: string): string {
+  const normalized = detail?.toLowerCase() ?? "";
+  if (normalized.includes("anime source request was invalid") || normalized.includes("request was invalid"))
+    return "This source could not understand that title or episode request. Search again or choose another result.";
+  if (normalized.includes("bridge operation failed"))
+    return "The extension could not complete this request. Retry once, then try another source or server.";
+  if (status === 401 || status === 403)
+    return "This source needs authentication or your beta access has expired. Check Settings or ask the beta administrator for access.";
+  if (status === 404)
+    return "This title, episode, or chapter is no longer available from this source. Try another result or source.";
+  if (status === 408 || status === 504)
+    return "The source took too long to respond. Retry once, then try another source or server.";
+  if (status === 429)
+    return "This source is receiving too many requests. Wait a minute, then retry.";
+  if (status === 502 || status === 503)
+    return "The source is temporarily unavailable. Retry shortly or choose another source.";
+  if (status >= 500)
+    return "The extension failed while handling this request. Retry once, then choose another source or server.";
+  return detail?.trim() || `The Bridge rejected this request (${status}). Try another source.`;
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const supabase = getSupabaseBrowser();
   const token = (await supabase?.auth.getSession())?.data.session?.access_token;
