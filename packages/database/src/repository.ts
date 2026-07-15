@@ -461,15 +461,16 @@ export class HaoRepository {
     invitations: unknown[];
     audit: unknown[];
   }> {
-    const [counts, invitations, audit] = await Promise.all([
-      this.sql<{ users: number; active_bridges: number; pending_jobs: number }[]>`
-        select (select count(*)::int from profiles where suspended_at is null) users,
-          (select count(*)::int from bridge_devices where revoked_at is null and endpoint is not null) active_bridges,
-          (select count(*)::int from epub_assets where processing_status='pending') pending_jobs
-      `,
-      this.sql`select id,email,expires_at,accepted_at,created_at from invitations order by created_at desc limit 50`,
-      this.sql`select id,action,subject_type,subject_id,metadata,created_at from audit_events order by created_at desc limit 50`
-    ]);
+    // Vercel deliberately uses a one-connection Postgres pool. Keep these
+    // lightweight admin reads sequential so concurrent queries cannot pin a
+    // cold serverless instance behind the same pooled connection.
+    const counts = await this.sql<{ users: number; active_bridges: number; pending_jobs: number }[]>`
+      select (select count(*)::int from profiles where suspended_at is null) users,
+        (select count(*)::int from bridge_devices where revoked_at is null and endpoint is not null) active_bridges,
+        (select count(*)::int from epub_assets where processing_status='pending') pending_jobs
+    `;
+    const invitations = await this.sql`select id,email,expires_at,accepted_at,created_at from invitations order by created_at desc limit 50`;
+    const audit = await this.sql`select id,action,subject_type,subject_id,metadata,created_at from audit_events order by created_at desc limit 50`;
     return {
       users: counts[0]?.users ?? 0,
       activeBridges: counts[0]?.active_bridges ?? 0,
