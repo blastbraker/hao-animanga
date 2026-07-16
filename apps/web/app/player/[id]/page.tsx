@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2, ChevronLeft, ChevronRight, Film, LoaderCircle, RefreshCw, Search, Server, TriangleAlert } from "lucide-react";
+import { Captions, CheckCircle2, ChevronDown, ChevronRight, Film, ListVideo, LoaderCircle, Maximize2, Pause, Play, RefreshCw, RotateCcw, RotateCw, Search, Server, Settings2, SkipBack, SkipForward, TriangleAlert, Volume2, VolumeX } from "lucide-react";
 import Hls from "hls.js";
 import { api, bridgeErrorMessage, bridgeJson, getActiveBridge, type LibraryResponse } from "../../../lib/api";
 import { completedEpisodeUnits, continueWatchingId, CONTINUE_WATCHING_STORAGE_KEY, DISMISSED_CONTINUE_STORAGE_KEY, parseContinueWatching, parseDismissedWorkIds, parsePlaybackPosition, playbackPercent, playbackStorageKey, resumablePosition, updateContinueWatching, type ContinueWatchingEntry } from "../../../lib/playback-progress";
@@ -40,7 +40,9 @@ type AnimeStream = {
 };
 
 export default function PlayerPage() {
+  const playerShellRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const controlsTimerRef = useRef<number | null>(null);
   const autoplayRequestedRef = useRef(false);
   const lastSavedAtRef = useRef(0);
   const restoredPlaybackKeyRef = useRef("");
@@ -66,6 +68,16 @@ export default function PlayerPage() {
   const [streamId, setStreamId] = useState("");
   const [autoplayNext, setAutoplayNext] = useState(true);
   const [progressStatus, setProgressStatus] = useState("");
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isBuffering, setIsBuffering] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [volume, setVolume] = useState(1);
+  const [muted, setMuted] = useState(false);
+  const [controlsVisible, setControlsVisible] = useState(true);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [subtitleMode, setSubtitleMode] = useState("off");
   const [busy, setBusy] = useState("Connecting to HAO Bridge…");
   const [error, setError] = useState("");
 
@@ -83,11 +95,67 @@ export default function PlayerPage() {
 
   useEffect(() => {
     setAutoplayNext(readPreference("hao:anime:autoplay-next") !== "false");
+    const savedVolume = Number(readPreference("hao:anime:volume"));
+    if (Number.isFinite(savedVolume) && savedVolume >= 0 && savedVolume <= 1) setVolume(savedVolume);
+    setMuted(readPreference("hao:anime:muted") === "true");
     void connect();
     return () => {
+      if (controlsTimerRef.current !== null) window.clearTimeout(controlsTimerRef.current);
       safelyResetVideo(videoRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.volume = volume;
+    video.muted = muted;
+  }, [muted, streamId, volume]);
+
+  useEffect(() => {
+    const fullscreenChanged = () => setIsFullscreen(document.fullscreenElement === playerShellRef.current);
+    document.addEventListener("fullscreenchange", fullscreenChanged);
+    return () => document.removeEventListener("fullscreenchange", fullscreenChanged);
+  }, []);
+
+  useEffect(() => {
+    if (controlsTimerRef.current !== null) window.clearTimeout(controlsTimerRef.current);
+    if (!isPlaying || settingsOpen) {
+      setControlsVisible(true);
+      return;
+    }
+    controlsTimerRef.current = window.setTimeout(() => setControlsVisible(false), 2400);
+    return () => {
+      if (controlsTimerRef.current !== null) window.clearTimeout(controlsTimerRef.current);
+    };
+  }, [isPlaying, settingsOpen]);
+
+  useEffect(() => {
+    function keyboardControls(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      if (target && ["INPUT", "SELECT", "TEXTAREA", "BUTTON"].includes(target.tagName)) return;
+      if (!stream) return;
+      const key = event.key.toLowerCase();
+      if (key === " " || key === "k") {
+        event.preventDefault();
+        void togglePlayback();
+      } else if (key === "arrowleft" || key === "j") {
+        event.preventDefault();
+        seekBy(-10);
+      } else if (key === "arrowright" || key === "l") {
+        event.preventDefault();
+        seekBy(10);
+      } else if (key === "m") {
+        event.preventDefault();
+        toggleMute();
+      } else if (key === "f") {
+        event.preventDefault();
+        void toggleFullscreen();
+      }
+    }
+    window.addEventListener("keydown", keyboardControls);
+    return () => window.removeEventListener("keydown", keyboardControls);
+  }, [isPlaying, muted, stream]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -397,6 +465,8 @@ export default function PlayerPage() {
   function handleLoadedMetadata() {
     const video = videoRef.current;
     if (!video || !episode) return;
+    setDuration(Number.isFinite(video.duration) ? video.duration : 0);
+    setCurrentTime(video.currentTime);
     const key = playbackStorageKey(sourceId, animeId, episode.id);
     if (restoredPlaybackKeyRef.current !== key) {
       const localPosition = parsePlaybackPosition(readPreference(key));
@@ -413,6 +483,7 @@ export default function PlayerPage() {
       const resumeAt = resumablePosition(localPosition ?? remotePosition, video.duration);
       if (resumeAt !== null) {
         video.currentTime = resumeAt;
+        setCurrentTime(resumeAt);
         setProgressStatus(`Resumed at ${formatTime(resumeAt)}`);
       }
       restoredPlaybackKeyRef.current = key;
@@ -428,6 +499,8 @@ export default function PlayerPage() {
       if (cause instanceof DOMException && cause.name === "AbortError") return;
       if (cause instanceof DOMException && cause.name === "NotAllowedError") {
         video.muted = true;
+        setMuted(true);
+        writePreference("hao:anime:muted", "true");
         try {
           await video.play();
           setProgressStatus("Autoplay started muted · use the player to unmute");
@@ -441,6 +514,11 @@ export default function PlayerPage() {
   }
 
   function handleTimeUpdate() {
+    const video = videoRef.current;
+    if (video) {
+      setCurrentTime(video.currentTime);
+      if (Number.isFinite(video.duration)) setDuration(video.duration);
+    }
     if (Date.now() - lastSavedAtRef.current < 10_000) return;
     lastSavedAtRef.current = Date.now();
     void persistProgress(false);
@@ -472,36 +550,178 @@ export default function PlayerPage() {
     window.history.replaceState(null, "", url);
   }
 
+  function revealControls() {
+    setControlsVisible(true);
+    if (controlsTimerRef.current !== null) window.clearTimeout(controlsTimerRef.current);
+    if (isPlaying && !settingsOpen) {
+      controlsTimerRef.current = window.setTimeout(() => setControlsVisible(false), 2400);
+    }
+  }
+
+  async function togglePlayback() {
+    const video = videoRef.current;
+    if (!video || !stream) return;
+    revealControls();
+    if (video.paused) {
+      try {
+        await video.play();
+      } catch {
+        setError("Playback could not start. Try another server or quality.");
+      }
+    } else video.pause();
+  }
+
+  function seekBy(seconds: number) {
+    const video = videoRef.current;
+    if (!video || !Number.isFinite(video.duration)) return;
+    const nextTime = Math.max(0, Math.min(video.duration, video.currentTime + seconds));
+    video.currentTime = nextTime;
+    setCurrentTime(nextTime);
+    revealControls();
+  }
+
+  function seekTo(seconds: number) {
+    const video = videoRef.current;
+    if (!video) return;
+    video.currentTime = seconds;
+    setCurrentTime(seconds);
+  }
+
+  function toggleMute() {
+    const next = !muted;
+    setMuted(next);
+    writePreference("hao:anime:muted", String(next));
+    revealControls();
+  }
+
+  function changeVolume(nextVolume: number) {
+    setVolume(nextVolume);
+    setMuted(nextVolume === 0);
+    writePreference("hao:anime:volume", String(nextVolume));
+    writePreference("hao:anime:muted", String(nextVolume === 0));
+  }
+
+  async function toggleFullscreen() {
+    const shell = playerShellRef.current;
+    if (!shell) return;
+    if (document.fullscreenElement) await document.exitFullscreen();
+    else await shell.requestFullscreen();
+    revealControls();
+  }
+
+  function changeSubtitle(next: string) {
+    const video = videoRef.current;
+    if (!video) return;
+    for (let index = 0; index < video.textTracks.length; index += 1) video.textTracks[index]!.mode = next === String(index) ? "showing" : "disabled";
+    setSubtitleMode(next);
+  }
+
+  const playedPercent = duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0;
+  const activeSourceName = sources.find((item) => item.id === sourceId)?.name ?? anime?.provider ?? "HAO source";
+  const posterUrl = workCoverUrl ?? anime?.thumbnailUrl ?? undefined;
+
   return (
     <div className="player-page anime-player-page">
-      <div className="video-stage">
+      <div className="player-watch-layout">
+      <section className="player-primary" aria-label="Video player">
+      <div
+        ref={playerShellRef}
+        className={`video-stage streaming-stage ${controlsVisible || !isPlaying ? "controls-visible" : "controls-hidden"}`}
+        onMouseMove={revealControls}
+        onMouseLeave={() => isPlaying && !settingsOpen && setControlsVisible(false)}
+        onFocusCapture={revealControls}
+        style={posterUrl && !stream ? { backgroundImage: `linear-gradient(rgba(0,0,0,.62),rgba(0,0,0,.86)),url(${posterUrl})` } : undefined}
+      >
         {stream ? (
           <video
             ref={videoRef}
             key={`${episodeId}:${stream.id}`}
-            controls
             playsInline
             preload="metadata"
+            poster={posterUrl}
+            onClick={() => void togglePlayback()}
+            onDoubleClick={() => void toggleFullscreen()}
             onLoadedMetadata={handleLoadedMetadata}
-            onPlay={() => void persistProgress(false)}
+            onPlay={() => {
+              setIsPlaying(true);
+              setIsBuffering(false);
+              revealControls();
+              void persistProgress(false);
+            }}
+            onPlaying={() => setIsBuffering(false)}
+            onWaiting={() => setIsBuffering(true)}
             onTimeUpdate={handleTimeUpdate}
             onPause={() => {
+              setIsPlaying(false);
+              setControlsVisible(true);
               if (!videoRef.current?.ended) void persistProgress(false);
             }}
-            onEnded={() => void handleEnded()}
+            onEnded={() => {
+              setIsPlaying(false);
+              setControlsVisible(true);
+              void handleEnded();
+            }}
             onError={() => setError("The selected stream could not be loaded. Try another server or quality.")}
           >
-            {stream.subtitles.map((subtitle) => (
-              <track key={subtitle.url} kind="subtitles" label={subtitle.label} srcLang={subtitle.language} src={subtitle.url} />
-            ))}
+            {stream.subtitles.map((subtitle) => <track key={subtitle.url} kind="subtitles" label={subtitle.label} srcLang={subtitle.language} src={subtitle.url} />)}
           </video>
         ) : (
-          <div className="player-placeholder">
-            <Film />
-            <span>{busy || "Choose an episode and stream."}</span>
+          <div className="player-placeholder">{busy ? <LoaderCircle className="spin" /> : <Film />}<span>{busy || "Choose an episode and stream."}</span></div>
+        )}
+
+        {stream && <div className="player-title-overlay"><div><b>{anime?.title ?? "Anime"}</b><span>{episode ? `Episode ${episode.number} · ${episode.title}` : "Select an episode"}</span></div><span className="player-quality-badge">{stream.quality ?? "AUTO"}</span></div>}
+        {stream && !isPlaying && !isBuffering && <button className="player-center-action" aria-label="Play" onClick={() => void togglePlayback()}><Play fill="currentColor" /></button>}
+        {stream && isBuffering && <div className="player-buffering" role="status"><LoaderCircle className="spin" /><span>Buffering</span></div>}
+
+        {stream && (
+          <div className="custom-player-controls" aria-label="Playback controls">
+            <input className="player-progress" aria-label="Video progress" aria-valuetext={`${formatTime(currentTime)} of ${formatTime(duration)}`} type="range" min="0" max={Math.max(duration, 0)} step="0.1" value={Math.min(currentTime, duration || 0)} onChange={(event) => seekTo(Number(event.target.value))} style={{ background: `linear-gradient(90deg,var(--cyan) ${playedPercent}%,rgba(255,255,255,.28) ${playedPercent}%)` }} />
+            <div className="player-control-row">
+              <div className="player-control-group">
+                <button aria-label={isPlaying ? "Pause" : "Play"} title={isPlaying ? "Pause (Space)" : "Play (Space)"} onClick={() => void togglePlayback()}>{isPlaying ? <Pause fill="currentColor" /> : <Play fill="currentColor" />}</button>
+                <button aria-label="Back 10 seconds" title="Back 10 seconds (J)" onClick={() => seekBy(-10)}><RotateCcw /></button>
+                <button aria-label="Forward 10 seconds" title="Forward 10 seconds (L)" onClick={() => seekBy(10)}><RotateCw /></button>
+                <button aria-label={muted ? "Unmute" : "Mute"} title="Mute (M)" onClick={toggleMute}>{muted || volume === 0 ? <VolumeX /> : <Volume2 />}</button>
+                <input className="player-volume" aria-label="Volume" type="range" min="0" max="1" step="0.05" value={muted ? 0 : volume} onChange={(event) => changeVolume(Number(event.target.value))} />
+                <span className="player-time">{formatTime(currentTime)} / {formatTime(duration)}</span>
+              </div>
+              <div className="player-control-group">
+                {nextEpisode && <button aria-label="Next episode" title="Next episode" onClick={() => void changeEpisode(nextEpisode.id, true)}><SkipForward /></button>}
+                <button className={subtitleMode !== "off" ? "active" : ""} aria-label="Subtitles" title="Subtitles" disabled={!stream.subtitles.length} onClick={() => changeSubtitle(subtitleMode === "off" ? "0" : "off")}><Captions /></button>
+                <button className={settingsOpen ? "active" : ""} aria-label="Playback settings" title="Playback settings" onClick={() => { setSettingsOpen((value) => !value); setControlsVisible(true); }}><Settings2 /></button>
+                <button aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"} title="Fullscreen (F)" onClick={() => void toggleFullscreen()}><Maximize2 /></button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {stream && settingsOpen && (
+          <div className="playback-settings" role="dialog" aria-label="Playback settings">
+            <div className="playback-settings-heading"><b>Playback settings</b><button aria-label="Close playback settings" onClick={() => setSettingsOpen(false)}>×</button></div>
+            <label>Server<select aria-label="Stream server" value={serverId} onChange={(event) => void changeServer(event.target.value)} disabled={Boolean(busy) || !servers.length}>{servers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+            <label>Quality & audio<select aria-label="Stream quality" value={streamId} onChange={(event) => void changeStream(event.target.value)} disabled={Boolean(busy) || !streams.length}>{streams.map((item) => <option key={item.id} value={item.id}>{item.quality ?? "Auto"} · {item.audio ?? "Default audio"}</option>)}</select></label>
+            <label>Subtitles<select aria-label="Subtitle track" value={subtitleMode} onChange={(event) => changeSubtitle(event.target.value)}><option value="off">Off</option>{stream.subtitles.map((subtitle, index) => <option key={subtitle.url} value={String(index)}>{subtitle.label}</option>)}</select></label>
           </div>
         )}
       </div>
+      </section>
+      <aside className="episode-rail" aria-label="Episodes">
+        <div className="episode-rail-heading"><div><ListVideo /><span><b>Episodes</b><small>{episodes.length ? `${episodes.length} available` : "Loading episodes"}</small></span></div><span>{episodeIndex >= 0 ? `${episodeIndex + 1}/${episodes.length}` : "—"}</span></div>
+        <div className="episode-list">
+          {episodes.map((item) => (
+            <button key={item.id} className={item.id === episodeId ? "active" : ""} aria-current={item.id === episodeId ? "true" : undefined} onClick={() => void changeEpisode(item.id, true)} disabled={Boolean(busy)}>
+              <span className="episode-number">{String(item.number).padStart(2, "0")}</span>
+              <span><b>Episode {item.number}</b><small>{item.title}</small></span>
+              {item.id === episodeId ? <Play fill="currentColor" /> : item.id === nextEpisode?.id ? <span className="up-next-label">UP NEXT</span> : <ChevronRight />}
+            </button>
+          ))}
+          {!busy && !episodes.length && <p>No episodes are available from this source.</p>}
+        </div>
+      </aside>
+      </div>
+      <details className="source-workbench">
+      <summary><span><Settings2 /> Change title or source</span><ChevronDown /></summary>
+      <div className="source-workbench-body">
       <div className="anime-browse-bar">
         <label>
           Source
@@ -576,9 +796,12 @@ export default function PlayerPage() {
           </select>
         </label>
       </div>
+      </div>
+      </details>
+      <section className="player-information">
       <div className="episode-navigation" aria-label="Episode navigation">
         <button className="button ghost compact" disabled={Boolean(busy) || !previousEpisode} onClick={() => previousEpisode && void changeEpisode(previousEpisode.id, true)}>
-          <ChevronLeft />
+          <SkipBack />
           Previous
         </button>
         <span>{episodeIndex >= 0 ? `${episodeIndex + 1} of ${episodes.length}` : "No episode selected"}</span>
@@ -588,7 +811,7 @@ export default function PlayerPage() {
         </label>
         <button className="button ghost compact" disabled={Boolean(busy) || !nextEpisode} onClick={() => nextEpisode && void changeEpisode(nextEpisode.id, true)}>
           Next
-          <ChevronRight />
+          <SkipForward />
         </button>
       </div>
       {busy && (
@@ -621,6 +844,8 @@ export default function PlayerPage() {
           )}
         </div>
       </div>
+      </section>
+      <div className="player-shortcuts" aria-label="Keyboard shortcuts"><span>Space Play/Pause</span><span>J/L ±10 seconds</span><span>M Mute</span><span>F Fullscreen</span></div>
     </div>
   );
 }
