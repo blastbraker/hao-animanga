@@ -5,6 +5,7 @@ import { Captions, CheckCircle2, ChevronDown, ChevronRight, Film, ListVideo, Loa
 import Hls from "hls.js";
 import { api, bridgeErrorMessage, bridgeJson, getActiveBridge, type LibraryResponse } from "../../../lib/api";
 import { completedEpisodeUnits, continueWatchingId, CONTINUE_WATCHING_STORAGE_KEY, DISMISSED_CONTINUE_STORAGE_KEY, parseContinueWatching, parseDismissedWorkIds, parsePlaybackPosition, playbackPercent, playbackStorageKey, resumablePosition, updateContinueWatching, type ContinueWatchingEntry } from "../../../lib/playback-progress";
+import { confidentSourceMatch, sourceFallbackOrder } from "../../../lib/source-match";
 
 type AnimeSourceSummary = {
   id: string;
@@ -68,6 +69,7 @@ export default function PlayerPage() {
   const [streamId, setStreamId] = useState("");
   const [autoplayNext, setAutoplayNext] = useState(true);
   const [progressStatus, setProgressStatus] = useState("");
+  const [sourceFallbackStatus, setSourceFallbackStatus] = useState("");
   const [isPlaying, setIsPlaying] = useState(false);
   const [isBuffering, setIsBuffering] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -204,20 +206,25 @@ export default function PlayerPage() {
       setSourceId(initialSource.id);
       setBrowseMode(initialMode);
       setSearchDraft(requestedQuery);
-      if (requestedWorkId) await hydrateCanonicalPlayback(requestedWorkId);
-      await loadCatalog(endpoint, initialSource.id, initialMode, requestedQuery, requestedAnimeId ?? undefined, requestedEpisodeId ?? undefined);
+      const alternateTitles = requestedWorkId ? await hydrateCanonicalPlayback(requestedWorkId) : [];
+      if (initialMode === "search" && requestedQuery && requestedAnimeId) {
+        await loadAnimeWithSourceFallback(endpoint, nextSources, initialSource.id, requestedQuery, requestedAnimeId, requestedEpisodeId ?? undefined, alternateTitles);
+      } else {
+        await loadCatalog(endpoint, initialSource.id, initialMode, requestedQuery, requestedAnimeId ?? undefined, requestedEpisodeId ?? undefined);
+      }
     } catch (cause) {
       setBusy("");
       setError(message(cause));
     }
   }
 
-  async function hydrateCanonicalPlayback(canonicalWorkId: string) {
+  async function hydrateCanonicalPlayback(canonicalWorkId: string): Promise<string[]> {
     remoteProgressRef.current = null;
     setWorkCoverUrl(null);
-    const [workResult, libraryResult] = await Promise.allSettled([api<{ work: { coverUrl: string | null } }>(`/works/${canonicalWorkId}`), api<LibraryResponse>("/library")]);
+    const [workResult, libraryResult] = await Promise.allSettled([api<{ work: { coverUrl: string | null; alternateTitles: string[] } }>(`/works/${canonicalWorkId}`), api<LibraryResponse>("/library")]);
     if (workResult.status === "fulfilled") setWorkCoverUrl(workResult.value.work.coverUrl);
-    if (libraryResult.status !== "fulfilled") return;
+    const alternateTitles = workResult.status === "fulfilled" ? workResult.value.work.alternateTitles : [];
+    if (libraryResult.status !== "fulfilled") return alternateTitles;
     const libraryEntry = libraryResult.value.items.find((item) => item.work.id === canonicalWorkId);
     if (!libraryEntry) {
       await api("/library", {
@@ -238,11 +245,13 @@ export default function PlayerPage() {
         positionSeconds: progress.positionSeconds
       };
     }
+    return alternateTitles;
   }
 
   async function loadCatalog(endpoint: string, nextSourceId: string, mode: "popular" | "latest" | "search", query: string, preferredAnimeId?: string, preferredEpisodeId?: string) {
     setBusy(mode === "search" ? `Searching for “${query}”…` : mode === "latest" ? "Loading latest updates…" : "Loading popular anime…");
     setError("");
+    setSourceFallbackStatus("");
     safelyResetVideo(videoRef.current);
     setCatalog([]);
     setAnimeId("");
@@ -280,6 +289,87 @@ export default function PlayerPage() {
       setBusy("");
       setError(message(cause));
     }
+  }
+
+  async function loadAnimeWithSourceFallback(
+    endpoint: string,
+    availableSources: AnimeSourceSummary[],
+    preferredSourceId: string,
+    query: string,
+    preferredAnimeId?: string,
+    preferredEpisodeId?: string,
+    alternateTitles: string[] = [],
+  ) {
+    setError("");
+    setSourceFallbackStatus("");
+    safelyResetVideo(videoRef.current);
+    setCatalog([]);
+    setAnimeId("");
+    setEpisodes([]);
+    setEpisodeId("");
+    setServers([]);
+    setServerId("");
+    setStreams([]);
+    setStreamId("");
+
+    const orderedSources = sourceFallbackOrder(availableSources, preferredSourceId);
+    const preferredSource = orderedSources[0];
+    let desiredEpisodeNumber = remoteProgressRef.current?.episodeNumber ?? null;
+
+    for (const [index, source] of orderedSources.entries()) {
+      setBusy(index === 0 ? `Opening “${query}”…` : `Trying ${source.name}…`);
+      try {
+        const parameters = new URLSearchParams({ sourceId: source.id, mode: "search", query, page: "1" });
+        const titles = await bridgeRequest<AnimeCatalogItem[]>(endpoint, `/v1/anime/catalog?${parameters.toString()}`);
+        const persistedPreferred =
+          source.id === preferredSourceId && preferredAnimeId
+            ? ({
+                id: preferredAnimeId,
+                title: query,
+                description: "Selected from a verified HAO title match.",
+                provider: source.name,
+                attribution: "HAO Bridge",
+              } satisfies AnimeCatalogItem)
+            : null;
+        const item =
+          (source.id === preferredSourceId && preferredAnimeId ? titles.find((title) => title.id === preferredAnimeId) ?? persistedPreferred : null) ??
+          (preferredAnimeId ? confidentSourceMatch({ title: query, alternateTitles }, titles) : titles[0] ?? null);
+        if (!item) continue;
+
+        const nextEpisodes = (await bridgeRequest<AnimeEpisode[]>(endpoint, `/v1/anime/${encodeURIComponent(item.id)}/episodes`))
+          .slice()
+          .sort((left, right) => left.number - right.number);
+        if (!nextEpisodes.length) continue;
+
+        const preferredEpisode = source.id === preferredSourceId ? nextEpisodes.find((episode) => episode.id === preferredEpisodeId) : undefined;
+        if (preferredEpisode) desiredEpisodeNumber = preferredEpisode.number;
+        const initialEpisode = preferredEpisode ?? nextEpisodes.find((episode) => episode.number === desiredEpisodeNumber) ?? nextEpisodes[0]!;
+        const nextCatalog = titles.some((title) => title.id === item.id) ? titles : [item, ...titles];
+
+        setSourceId(source.id);
+        setBrowseMode("search");
+        setSearchDraft(query);
+        setCatalog(nextCatalog);
+        setAnimeId(item.id);
+        setEpisodes(nextEpisodes);
+        setEpisodeId(initialEpisode.id);
+        autoplayRequestedRef.current = true;
+        await loadEpisode(endpoint, initialEpisode.id);
+        replacePlaybackSourceInUrl(source.id, item.id, initialEpisode.id, query);
+        if (source.id !== preferredSourceId) {
+          setSourceFallbackStatus(`Switched from ${preferredSource?.name ?? "the first source"} to ${source.name} because the first source did not have a playable match.`);
+        }
+        setBusy("");
+        return;
+      } catch {
+        setServers([]);
+        setServerId("");
+        setStreams([]);
+        setStreamId("");
+      }
+    }
+
+    throw new Error(`None of your installed anime sources could provide a playable match for “${query}”.`);
   }
 
   async function loadAnime(endpoint: string, nextAnimeId: string, cancelled = false, preferredEpisodeId?: string) {
@@ -392,7 +482,12 @@ export default function PlayerPage() {
     }
     clearCanonicalWork();
     setBrowseMode("search");
-    await loadCatalog(bridge, sourceId, "search", query);
+    try {
+      await loadAnimeWithSourceFallback(bridge, sources, sourceId, query);
+    } catch (cause) {
+      setBusy("");
+      setError(message(cause));
+    }
   }
 
   async function changeStream(next: string) {
@@ -538,6 +633,16 @@ export default function PlayerPage() {
   function replaceEpisodeInUrl(nextEpisodeId: string) {
     const url = new URL(window.location.href);
     url.searchParams.set("episodeId", nextEpisodeId);
+    window.history.replaceState(null, "", url);
+  }
+
+  function replacePlaybackSourceInUrl(nextSourceId: string, nextAnimeId: string, nextEpisodeId: string, query: string) {
+    const url = new URL(window.location.href);
+    url.searchParams.set("sourceId", nextSourceId);
+    url.searchParams.set("animeId", nextAnimeId);
+    url.searchParams.set("episodeId", nextEpisodeId);
+    url.searchParams.set("mode", "search");
+    url.searchParams.set("query", query);
     window.history.replaceState(null, "", url);
   }
 
@@ -840,6 +945,12 @@ export default function PlayerPage() {
             <span className="progress-save-status">
               <CheckCircle2 />
               {progressStatus}
+            </span>
+          )}
+          {sourceFallbackStatus && (
+            <span className="source-fallback-status">
+              <RefreshCw />
+              {sourceFallbackStatus}
             </span>
           )}
         </div>

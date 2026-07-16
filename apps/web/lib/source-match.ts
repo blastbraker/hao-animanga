@@ -6,6 +6,11 @@ export function confidentSourceMatch<T extends { title: string }>(work: Pick<Wor
   return ranked[0] && ranked[0].score >= .84 ? ranked[0].item : null;
 }
 
+export function sourceFallbackOrder<T extends { id: string }>(sources: T[], preferredSourceId: string): T[] {
+  const preferred = sources.find((source) => source.id === preferredSourceId);
+  return preferred ? [preferred, ...sources.filter((source) => source.id !== preferredSourceId)] : [...sources];
+}
+
 function matchScore(targets: string[], candidate: string): number {
   const targetSeasons = targets.map(seasonNumber).filter((value): value is number => value !== null);
   const candidateSeason = seasonNumber(candidate);

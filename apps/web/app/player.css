@@ -74,6 +74,8 @@
 .now-playing small { display: block; margin-top: 8px; color: #676e7e; font-size: 8px; }
 .progress-save-status { display: flex; align-items: center; gap: 6px; margin-top: 12px; color: var(--cyan); font-size: 10px; }
 .progress-save-status svg { width: 14px; height: 14px; }
+.source-fallback-status { display: flex; max-width: 720px; align-items: flex-start; gap: 7px; margin-top: 10px; color: #f2c96f; font-size: 10px; line-height: 1.5; }
+.source-fallback-status svg { flex: none; width: 14px; height: 14px; margin-top: 1px; }
 .episode-navigation { display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 10px; margin: 0; padding: 13px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.025); }
 .episode-navigation>span { color: var(--muted); font-size: 10px; }
 .episode-navigation .button svg { width: 16px; }

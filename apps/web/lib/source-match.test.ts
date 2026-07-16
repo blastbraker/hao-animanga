@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { confidentSourceMatch } from "./source-match";
+import { confidentSourceMatch, sourceFallbackOrder } from "./source-match";
 
 const seasonTwo = {
   title: "Skeleton Knight in Another World Season 2",
@@ -23,5 +23,17 @@ describe("confidentSourceMatch", () => {
 
   it("does not attach a sequel to base-series metadata", () => {
     expect(confidentSourceMatch({ title: "Re:ZERO -Starting Life in Another World-", alternateTitles: [] }, [{ title: "Re:ZERO -Starting Life in Another World- Season 3" }])).toBeNull();
+  });
+});
+
+describe("sourceFallbackOrder", () => {
+  const sources = [{ id: "one" }, { id: "two" }, { id: "three" }];
+
+  it("tries the requested source first and preserves the remaining install order", () => {
+    expect(sourceFallbackOrder(sources, "two").map((source) => source.id)).toEqual(["two", "one", "three"]);
+  });
+
+  it("keeps the install order when the requested source is unavailable", () => {
+    expect(sourceFallbackOrder(sources, "missing").map((source) => source.id)).toEqual(["one", "two", "three"]);
   });
 });
