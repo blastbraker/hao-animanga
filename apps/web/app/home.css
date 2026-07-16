@@ -35,6 +35,10 @@
 .bridge-status div { display: grid; gap: 2px; }
 .bridge-status b { font-size: 11px; }
 .bridge-status small { color: var(--muted); font-size: 9px; }
+.bridge-status .bridge-readiness { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.bridge-readiness span { padding: 3px 6px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); background: rgba(255,255,255,.025); font-size: 7px; font-weight: 750; letter-spacing: .04em; text-transform: uppercase; }
+.bridge-readiness span.ready { color: #8ff0c4; border-color: rgba(104,227,173,.2); background: rgba(104,227,173,.06); }
+.bridge-readiness span.degraded { color: #ffc1b9; border-color: rgba(255,124,112,.22); background: rgba(255,124,112,.06); }
 .source-hub-error { display: grid; grid-template-columns: auto 1fr auto auto; gap: 16px; align-items: center; min-height: 116px; padding: 22px; border: 1px solid rgba(255,124,112,.25); border-radius: 18px; background: linear-gradient(135deg, rgba(255,124,112,.08), var(--panel)); }
 .source-hub-error > svg { color: var(--coral); }
 .source-hub-error b { font: 650 16px var(--font-display); }

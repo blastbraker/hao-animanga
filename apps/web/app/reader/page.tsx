@@ -15,8 +15,10 @@ import {
   normalizeMangaSources,
   normalizeMangaSummary,
 } from "../../lib/manga-response";
+import { dedupeSourceResults, rankSourcesByReliability, recordSourceResult } from "../../lib/source-reliability";
 type BrowseMode = "popular" | "latest";
 type ReadingMode = "webtoon" | "ltr" | "rtl";
+const ALL_SOURCES_ID = "all-installed-sources";
 
 export default function ReaderPage() {
   const [bridge, setBridge] = useState("");
@@ -33,8 +35,10 @@ export default function ReaderPage() {
   const [pageIndex, setPageIndex] = useState(0);
   const [busy, setBusy] = useState("Connecting to HAO Bridge…");
   const [error, setError] = useState("");
+  const [searchSummary, setSearchSummary] = useState("");
 
   const activeSource = useMemo(() => sources.find((source) => source.id === sourceId), [sourceId, sources]);
+  const selectedSource = useMemo(() => sources.find((source) => source.id === selected?.sourceId), [selected?.sourceId, sources]);
   const currentChapter = useMemo(() => chapters.find((chapter) => chapter.index === pages?.chapterIndex), [chapters, pages]);
   const chapterPosition = currentChapter ? chapters.indexOf(currentChapter) : -1;
 
@@ -122,15 +126,36 @@ export default function ReaderPage() {
   async function search(event: FormEvent) {
     event.preventDefault();
     if (!sourceId || !query.trim()) return;
-    setBusy("Searching your local source…");
+    const searchSources = sourceId === ALL_SOURCES_ID
+      ? rankSourcesByReliability(sources.filter((source) => source.language === "en"), "manga").slice(0, 8)
+      : sources.filter((source) => source.id === sourceId);
+    if (!searchSources.length) {
+      setError("No eligible manga sources are available for this search.");
+      return;
+    }
+    setBusy(searchSources.length > 1 ? `Searching ${searchSources.length} approved sources…` : `Searching ${searchSources[0]?.displayName ?? "your source"}…`);
     setError("");
+    setSearchSummary("");
     setSelected(null);
     setChapters([]);
     setPages(null);
     try {
-      const response = normalizeMangaSearchResponse(await bridgeRequest<unknown>(`/v1/manga/search?sourceId=${encodeURIComponent(sourceId)}&query=${encodeURIComponent(query.trim())}&page=1`));
-      setResults(response.items);
-      if (!response.items.length) setError("No titles matched that search in this source.");
+      const responses = await Promise.allSettled(searchSources.map(async (source) => {
+        const startedAt = performance.now();
+        try {
+          const response = normalizeMangaSearchResponse(await bridgeRequest<unknown>(`/v1/manga/search?sourceId=${encodeURIComponent(source.id)}&query=${encodeURIComponent(query.trim())}&page=1`));
+          recordSourceResult("manga", source.id, response.items.length > 0, performance.now() - startedAt);
+          return response.items;
+        } catch (cause) {
+          recordSourceResult("manga", source.id, false, performance.now() - startedAt);
+          throw cause;
+        }
+      }));
+      const successful = responses.filter((response): response is PromiseFulfilledResult<MangaSummary[]> => response.status === "fulfilled");
+      const items = dedupeSourceResults(successful.flatMap((response) => response.value)).slice(0, 100);
+      setResults(items);
+      if (searchSources.length > 1) setSearchSummary(`${items.length} unique titles from ${successful.length} of ${searchSources.length} sources.`);
+      if (!items.length) setError(successful.length ? "No titles matched that search in the available sources." : "Every manga source failed. Retry shortly or ask the beta administrator to check the Bridge.");
     } catch (cause) {
       setError(message(cause));
     } finally {
@@ -139,9 +164,10 @@ export default function ReaderPage() {
   }
 
   async function browse(mode: BrowseMode, nextSourceId = sourceId) {
-    if (!nextSourceId) return;
+    if (!nextSourceId || nextSourceId === ALL_SOURCES_ID) return;
     setBrowseMode(mode);
     setQuery("");
+    setSearchSummary("");
     setBusy(`Loading ${mode} titles…`);
     setError("");
     setSelected(null);
@@ -160,6 +186,15 @@ export default function ReaderPage() {
 
   function changeSource(nextSourceId: string) {
     setSourceId(nextSourceId);
+    if (nextSourceId === ALL_SOURCES_ID) {
+      setResults([]);
+      setSelected(null);
+      setChapters([]);
+      setPages(null);
+      setError("");
+      setSearchSummary("Search will check up to eight approved English sources and combine duplicate titles.");
+      return;
+    }
     void browse(browseMode, nextSourceId);
   }
 
@@ -174,7 +209,7 @@ export default function ReaderPage() {
       const chapterList = normalizeMangaChapters(chapterPayload);
       setSelected(details);
       setChapters(chapterList);
-      if (!chapterList.length) setError(`No readable ${activeSource?.language.toUpperCase() ?? "selected-language"} chapters are available from ${activeSource?.name ?? "this source"} for this title. Try another result or source.`);
+      if (!chapterList.length) setError(`No readable ${selectedSource?.language.toUpperCase() ?? "selected-language"} chapters are available from ${selectedSource?.name ?? "this source"} for this title. Try another result or source.`);
     } catch (cause) {
       setError(message(cause));
     } finally {
@@ -298,6 +333,7 @@ export default function ReaderPage() {
           <input aria-label="Search manga" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search titles…" />
         </label>
         <select aria-label="Manga source" value={sourceId} onChange={(event) => changeSource(event.target.value)} disabled={!sources.length}>
+          <option value={ALL_SOURCES_ID}>All approved English sources</option>
           {sources.map((source) => (
             <option key={source.id} value={source.id}>
               {source.displayName} · {source.language.toUpperCase()}
@@ -308,28 +344,33 @@ export default function ReaderPage() {
           Search
         </button>
       </form>
-      {activeSource && (
+      {sourceId === ALL_SOURCES_ID ? (
+        <p className="source-disclosure">
+          <Server /> Unified search checks the healthiest approved sources first and keeps one result per title.
+        </p>
+      ) : activeSource && (
         <p className="source-disclosure">
           <Server /> Browsing {activeSource.displayName} through {bridgeScope === "beta" ? "the managed Beta Bridge" : "your personal Bridge"}. Use only content you are authorized to access.
         </p>
       )}
       <div className="tabs manga-browse-tabs" aria-label="Browse manga">
-        <button className={browseMode === "popular" && !query ? "active" : ""} disabled={Boolean(busy)} onClick={() => void browse("popular")}>
+        <button className={browseMode === "popular" && !query ? "active" : ""} disabled={Boolean(busy) || sourceId === ALL_SOURCES_ID} onClick={() => void browse("popular")}>
           Popular
         </button>
-        <button className={browseMode === "latest" && !query ? "active" : ""} disabled={Boolean(busy) || !activeSource?.supportsLatest} onClick={() => void browse("latest")}>
+        <button className={browseMode === "latest" && !query ? "active" : ""} disabled={Boolean(busy) || sourceId === ALL_SOURCES_ID || !activeSource?.supportsLatest} onClick={() => void browse("latest")}>
           Latest updates
         </button>
       </div>
+      {searchSummary && <p className="unified-search-summary" role="status">{searchSummary}</p>}
       {busy && <ReaderStatus text={busy} />} {error && <ReaderError text={error} onRetry={() => window.location.reload()} />}
       {results.length > 0 && !selected && (
         <section className="manga-results" aria-label="Manga search results">
           {results.map((item) => (
-            <button key={item.id} className="manga-result" onClick={() => void openTitle(item)}>
+            <button key={`${item.sourceId}:${item.id}`} className="manga-result" onClick={() => void openTitle(item)}>
               <img src={`${bridge}/v1/manga/${item.id}/thumbnail`} alt="" loading="lazy" />
               <span>
                 <b>{item.title}</b>
-                <small>{item.author ?? "Unknown author"}</small>
+                <small>{item.author ?? "Unknown author"}{sourceId === ALL_SOURCES_ID ? ` · ${sources.find((source) => source.id === item.sourceId)?.name ?? "Installed source"}` : ""}</small>
               </span>
             </button>
           ))}

@@ -5,7 +5,8 @@ import { Captions, CheckCircle2, ChevronDown, ChevronRight, Film, ListVideo, Loa
 import Hls from "hls.js";
 import { api, bridgeErrorMessage, bridgeJson, getActiveBridge, type LibraryResponse } from "../../../lib/api";
 import { completedEpisodeUnits, continueWatchingId, CONTINUE_WATCHING_STORAGE_KEY, DISMISSED_CONTINUE_STORAGE_KEY, parseContinueWatching, parseDismissedWorkIds, parsePlaybackPosition, playbackPercent, playbackStorageKey, resumablePosition, updateContinueWatching, type ContinueWatchingEntry } from "../../../lib/playback-progress";
-import { confidentSourceMatch, sourceFallbackOrder } from "../../../lib/source-match";
+import { confidentSourceMatch } from "../../../lib/source-match";
+import { rankSourcesByReliability, recordSourceResult } from "../../../lib/source-reliability";
 
 type AnimeSourceSummary = {
   id: string;
@@ -312,11 +313,12 @@ export default function PlayerPage() {
     setStreams([]);
     setStreamId("");
 
-    const orderedSources = sourceFallbackOrder(availableSources, preferredSourceId);
+    const orderedSources = rankSourcesByReliability(availableSources, "anime", preferredSourceId);
     const preferredSource = orderedSources[0];
     let desiredEpisodeNumber = remoteProgressRef.current?.episodeNumber ?? null;
 
     for (const [index, source] of orderedSources.entries()) {
+      const startedAt = performance.now();
       setBusy(index === 0 ? `Opening “${query}”…` : `Trying ${source.name}…`);
       try {
         const parameters = new URLSearchParams({ sourceId: source.id, mode: "search", query, page: "1" });
@@ -334,12 +336,18 @@ export default function PlayerPage() {
         const item =
           (source.id === preferredSourceId && preferredAnimeId ? titles.find((title) => title.id === preferredAnimeId) ?? persistedPreferred : null) ??
           (preferredAnimeId ? confidentSourceMatch({ title: query, alternateTitles }, titles) : titles[0] ?? null);
-        if (!item) continue;
+        if (!item) {
+          recordSourceResult("anime", source.id, false, performance.now() - startedAt);
+          continue;
+        }
 
         const nextEpisodes = (await bridgeRequest<AnimeEpisode[]>(endpoint, `/v1/anime/${encodeURIComponent(item.id)}/episodes`))
           .slice()
           .sort((left, right) => left.number - right.number);
-        if (!nextEpisodes.length) continue;
+        if (!nextEpisodes.length) {
+          recordSourceResult("anime", source.id, false, performance.now() - startedAt);
+          continue;
+        }
 
         const preferredEpisode = source.id === preferredSourceId ? nextEpisodes.find((episode) => episode.id === preferredEpisodeId) : undefined;
         if (preferredEpisode) desiredEpisodeNumber = preferredEpisode.number;
@@ -355,6 +363,7 @@ export default function PlayerPage() {
         setEpisodeId(initialEpisode.id);
         autoplayRequestedRef.current = true;
         await loadEpisode(endpoint, initialEpisode.id);
+        recordSourceResult("anime", source.id, true, performance.now() - startedAt);
         replacePlaybackSourceInUrl(source.id, item.id, initialEpisode.id, query);
         if (source.id !== preferredSourceId) {
           setSourceFallbackStatus(`Switched from ${preferredSource?.name ?? "the first source"} to ${source.name} because the first source did not have a playable match.`);
@@ -362,6 +371,7 @@ export default function PlayerPage() {
         setBusy("");
         return;
       } catch {
+        recordSourceResult("anime", source.id, false, performance.now() - startedAt);
         setServers([]);
         setServerId("");
         setStreams([]);

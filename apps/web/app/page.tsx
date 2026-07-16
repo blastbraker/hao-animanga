@@ -41,6 +41,12 @@ type MangaItem = {
 };
 type MangaCatalog = { items: MangaItem[]; hasNextPage: boolean };
 type BrowseMode = "popular" | "latest";
+type BridgeReadiness = {
+  online: boolean;
+  animeCount: number | null;
+  mangaCount: number | null;
+  latencyMs: number | null;
+};
 type HomeContinueItem = {
   id: string;
   storageId: string | null;
@@ -96,6 +102,7 @@ export default function HomePage() {
   const [animeError, setAnimeError] = useState("");
   const [mangaError, setMangaError] = useState("");
   const [continueItems, setContinueItems] = useState<HomeContinueItem[]>([]);
+  const [bridgeReadiness, setBridgeReadiness] = useState<BridgeReadiness>({ online: false, animeCount: null, mangaCount: null, latencyMs: null });
 
   const hero = data.featured[0] ?? fallback[0]!;
   const activeAnimeSource = useMemo(() => animeSources.find((source) => source.id === animeSourceId), [animeSourceId, animeSources]);
@@ -109,6 +116,12 @@ export default function HomePage() {
     void loadContinueItems();
     void connectRepositories();
   }, []);
+
+  useEffect(() => {
+    if (!bridge) return;
+    const interval = window.setInterval(() => void refreshBridgeReadiness(bridge), 30_000);
+    return () => window.clearInterval(interval);
+  }, [bridge]);
 
   async function loadContinueItems() {
     const dismissed = new Set(parseDismissedWorkIds(readLocal(DISMISSED_CONTINUE_STORAGE_KEY)));
@@ -195,11 +208,18 @@ export default function HomePage() {
     try {
       const access = await getActiveBridge();
       const endpoint = access.endpoint;
+      const startedAt = performance.now();
       await requestBridge(endpoint, "/health");
       setBridge(endpoint);
       setBridgeScope(access.scope);
 
       const [animeResult, mangaResult] = await Promise.allSettled([requestBridge<AnimeSource[]>(endpoint, "/v1/anime/sources"), requestBridge<MangaSource[]>(endpoint, "/v1/manga/sources")]);
+      setBridgeReadiness({
+        online: true,
+        animeCount: animeResult.status === "fulfilled" ? animeResult.value.length : null,
+        mangaCount: mangaResult.status === "fulfilled" ? mangaResult.value.length : null,
+        latencyMs: Math.round(performance.now() - startedAt),
+      });
       const catalogRequests: Promise<void>[] = [];
 
       if (animeResult.status === "fulfilled") {
@@ -225,9 +245,25 @@ export default function HomePage() {
     } catch (cause) {
       setBridgeError(errorMessage(cause));
       setBridge("");
+      setBridgeReadiness({ online: false, animeCount: null, mangaCount: null, latencyMs: null });
     } finally {
       setConnecting(false);
     }
+  }
+
+  async function refreshBridgeReadiness(endpoint: string) {
+    const startedAt = performance.now();
+    const [health, anime, manga] = await Promise.allSettled([
+      requestBridge(endpoint, "/health"),
+      requestBridge<AnimeSource[]>(endpoint, "/v1/anime/sources"),
+      requestBridge<MangaSource[]>(endpoint, "/v1/manga/sources"),
+    ]);
+    setBridgeReadiness({
+      online: health.status === "fulfilled",
+      animeCount: anime.status === "fulfilled" ? anime.value.length : null,
+      mangaCount: manga.status === "fulfilled" ? manga.value.length : null,
+      latencyMs: health.status === "fulfilled" ? Math.round(performance.now() - startedAt) : null,
+    });
   }
 
   async function loadAnimeCatalog(endpoint: string, sourceId: string, mode: BrowseMode) {
@@ -327,11 +363,18 @@ export default function HomePage() {
             <h2>{bridgeScope === "beta" ? "From your approved sources" : "From your repositories"}</h2>
             <p>{bridgeScope === "beta" ? "Browse sources approved by your beta administrator. Catalog and media requests go directly from this browser to the managed Beta Bridge." : "Browse installed sources directly. Catalog requests stay between this browser and your HAO Bridge."}</p>
           </div>
-          <div className={`bridge-status ${bridge ? "online" : ""}`}>
+          <div className={`bridge-status ${bridgeReadiness.online ? "online" : ""}`}>
             <span />
             <div>
-              <b>{connecting ? "Connecting" : bridge ? (bridgeScope === "beta" ? "Beta Bridge online" : "Bridge online") : "Bridge unavailable"}</b>
-              <small>{bridge ? `${sourceCount} approved sources ready` : "Check Settings to reconnect"}</small>
+              <b>{connecting ? "Connecting" : bridgeReadiness.online ? (bridgeScope === "beta" ? "Beta Bridge online" : "Bridge online") : "Bridge unavailable"}</b>
+              <small>{bridgeReadiness.online ? `${sourceCount} approved sources ready` : "Check Settings to reconnect"}</small>
+              {bridgeReadiness.online && (
+                <div className="bridge-readiness" aria-label="Bridge source readiness">
+                  <span className={bridgeReadiness.animeCount ? "ready" : "degraded"}>Anime {bridgeReadiness.animeCount ?? "—"}</span>
+                  <span className={bridgeReadiness.mangaCount ? "ready" : "degraded"}>Manga {bridgeReadiness.mangaCount ?? "—"}</span>
+                  <span>{bridgeReadiness.latencyMs ?? "—"} ms</span>
+                </div>
+              )}
             </div>
           </div>
         </div>

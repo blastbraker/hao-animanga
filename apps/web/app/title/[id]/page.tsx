@@ -6,6 +6,7 @@ import type { Work } from "@hao/domain";
 import { BookOpen, BookmarkPlus, CircleAlert, Clapperboard, Heart, LoaderCircle, Play, RefreshCw, Server, Star } from "lucide-react";
 import { api, bridgeErrorMessage, bridgeJson, getActiveBridge } from "../../../lib/api";
 import { confidentSourceMatch } from "../../../lib/source-match";
+import { rankSourcesByReliability, recordSourceResult } from "../../../lib/source-reliability";
 
 type AnimeSource = {
   id: string;
@@ -273,30 +274,40 @@ async function loadAvailability(work: Work): Promise<{
   const endpoint = access.endpoint;
   if (work.kind === "ANIME") {
     const sources = await bridgeRequest<AnimeSource[]>(endpoint, "/v1/anime/sources");
-    const candidates = preferredSources(
+    const candidates = rankSourcesByReliability(preferredSources(
       sources,
       (source) => source.language,
       (source) => source.id,
       8
-    );
+    ), "anime");
     const results = await Promise.allSettled(
       candidates.map(async (source): Promise<AnimeAvailability | null> => {
-        const parameters = new URLSearchParams({
-          sourceId: source.id,
-          mode: "search",
-          query: work.title,
-          page: "1"
-        });
-        const searchItems = await bridgeRequest<AnimeItem[]>(endpoint, `/v1/anime/catalog?${parameters.toString()}`);
-        let item = confidentSourceMatch(work, searchItems);
-        if (!item) {
-          const modes = source.supportsLatest ? ["popular", "latest"] : ["popular"];
-          const catalogs = await Promise.all(modes.map((mode) => bridgeRequest<AnimeItem[]>(endpoint, `/v1/anime/catalog?${new URLSearchParams({ sourceId: source.id, mode, page: "1" }).toString()}`)));
-          item = confidentSourceMatch(work, catalogs.flat());
+        const startedAt = performance.now();
+        try {
+          const parameters = new URLSearchParams({
+            sourceId: source.id,
+            mode: "search",
+            query: work.title,
+            page: "1"
+          });
+          const searchItems = await bridgeRequest<AnimeItem[]>(endpoint, `/v1/anime/catalog?${parameters.toString()}`);
+          let item = confidentSourceMatch(work, searchItems);
+          if (!item) {
+            const modes = source.supportsLatest ? ["popular", "latest"] : ["popular"];
+            const catalogs = await Promise.all(modes.map((mode) => bridgeRequest<AnimeItem[]>(endpoint, `/v1/anime/catalog?${new URLSearchParams({ sourceId: source.id, mode, page: "1" }).toString()}`)));
+            item = confidentSourceMatch(work, catalogs.flat());
+          }
+          if (!item) {
+            recordSourceResult("anime", source.id, false, performance.now() - startedAt);
+            return null;
+          }
+          const episodes = (await bridgeRequest<AnimeEpisode[]>(endpoint, `/v1/anime/${encodeURIComponent(item.id)}/episodes`)).slice().sort((left, right) => left.number - right.number);
+          recordSourceResult("anime", source.id, episodes.length > 0, performance.now() - startedAt);
+          return episodes.length ? { source, item, episodes } : null;
+        } catch (cause) {
+          recordSourceResult("anime", source.id, false, performance.now() - startedAt);
+          throw cause;
         }
-        if (!item) return null;
-        const episodes = (await bridgeRequest<AnimeEpisode[]>(endpoint, `/v1/anime/${encodeURIComponent(item.id)}/episodes`)).slice().sort((left, right) => left.number - right.number);
-        return episodes.length ? { source, item, episodes } : null;
       })
     );
     return {
@@ -310,24 +321,34 @@ async function loadAvailability(work: Work): Promise<{
   if (work.kind === "MANGA" || work.kind === "MANHWA") {
     const sources = await bridgeRequest<MangaSource[]>(endpoint, "/v1/manga/sources");
     const generalSources = sources.filter((source) => !source.mature);
-    const candidates = preferredSources(
+    const candidates = rankSourcesByReliability(preferredSources(
       generalSources,
       (source) => source.language,
       (source) => `${source.name}:${source.language}`,
       8
-    );
+    ), "manga");
     const results = await Promise.allSettled(
       candidates.map(async (source): Promise<MangaAvailability | null> => {
-        const parameters = new URLSearchParams({
-          sourceId: source.id,
-          query: work.title,
-          page: "1"
-        });
-        const response = await bridgeRequest<MangaSearchResponse>(endpoint, `/v1/manga/search?${parameters.toString()}`);
-        const item = confidentSourceMatch(work, response.items);
-        if (!item) return null;
-        const chapters = await bridgeRequest<MangaChapter[]>(endpoint, `/v1/manga/${item.id}/chapters`);
-        return chapters.length ? { source, item, chapters } : null;
+        const startedAt = performance.now();
+        try {
+          const parameters = new URLSearchParams({
+            sourceId: source.id,
+            query: work.title,
+            page: "1"
+          });
+          const response = await bridgeRequest<MangaSearchResponse>(endpoint, `/v1/manga/search?${parameters.toString()}`);
+          const item = confidentSourceMatch(work, response.items);
+          if (!item) {
+            recordSourceResult("manga", source.id, false, performance.now() - startedAt);
+            return null;
+          }
+          const chapters = await bridgeRequest<MangaChapter[]>(endpoint, `/v1/manga/${item.id}/chapters`);
+          recordSourceResult("manga", source.id, chapters.length > 0, performance.now() - startedAt);
+          return chapters.length ? { source, item, chapters } : null;
+        } catch (cause) {
+          recordSourceResult("manga", source.id, false, performance.now() - startedAt);
+          throw cause;
+        }
       })
     );
     return {
