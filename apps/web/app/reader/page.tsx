@@ -239,7 +239,35 @@ export default function ReaderPage() {
         </header>
         {busy && <ReaderStatus text={busy} />} {error && <ReaderError text={error} onRetry={() => window.location.reload()} />}
         <main className={`manga-pages ${readingMode === "webtoon" ? "webtoon" : "paged"}`} dir={readingMode === "rtl" ? "rtl" : "ltr"} aria-label={`${selected.title}, ${pages.chapterName}`}>
-          {readingMode === "webtoon" ? pages.pageUrls.map((url, index) => <img key={url} loading={index < 2 ? "eager" : "lazy"} src={`${bridge}${url}`} alt={`Page ${index + 1} of ${pages.pageCount}`} />) : <img key={pages.pageUrls[pageIndex]} src={`${bridge}${pages.pageUrls[pageIndex]}`} alt={`Page ${pageIndex + 1} of ${pages.pageCount}`} />}
+          {readingMode === "webtoon" ? (
+            pages.pageUrls.map((url, index) => <img key={url} loading={index < 2 ? "eager" : "lazy"} src={`${bridge}${url}`} alt={`Page ${index + 1} of ${pages.pageCount}`} />)
+          ) : (
+            <>
+              <img key={pages.pageUrls[pageIndex]} src={`${bridge}${pages.pageUrls[pageIndex]}`} alt={`Page ${pageIndex + 1} of ${pages.pageCount}`} />
+              <div className="page-turn-zones" role="group" aria-label="Page turn controls">
+                <button
+                  type="button"
+                  className="page-turn-zone previous"
+                  aria-label="Previous page"
+                  title="Previous page"
+                  disabled={pageIndex === 0}
+                  onClick={() => setPageIndex((current) => Math.max(0, current - 1))}
+                >
+                  <span><ChevronLeft /> Previous</span>
+                </button>
+                <button
+                  type="button"
+                  className="page-turn-zone next"
+                  aria-label="Next page"
+                  title="Next page"
+                  disabled={pageIndex >= pages.pageCount - 1}
+                  onClick={() => setPageIndex((current) => Math.min(pages.pageCount - 1, current + 1))}
+                >
+                  <span>Next <ChevronRight /></span>
+                </button>
+              </div>
+            </>
+          )}
         </main>
         {readingMode === "webtoon" ? (
           <footer className="reader-footer chapter-navigation">
