@@ -75,7 +75,7 @@ class SuwayomiManager(
                 if (current?.version == item.version) {
                     unchanged += item.packageName
                 } else {
-                    client.installExtension(apk)
+                    client.installExtension(apk, item.packageName)
                     installed += item.packageName
                     runtime[item.packageName] = SuwayomiExtension(item.packageName, item.version)
                 }

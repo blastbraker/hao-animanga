@@ -88,10 +88,11 @@ class SuwayomiClient(
         .filter { it.installed }
         .map { SuwayomiExtension(it.pkgName, it.versionName) }
 
-    fun installExtension(apk: Path) {
+    fun installExtension(apk: Path, packageName: String) {
         require(Files.isRegularFile(apk)) { "Extension APK is missing" }
+        require(packageName.matches(Regex("[A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)+"))) { "Invalid extension package" }
         val boundary = "----hao-${java.util.UUID.randomUUID()}"
-        val prefix = "--$boundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"extension.apk\"\r\nContent-Type: application/vnd.android.package-archive\r\n\r\n".toByteArray(StandardCharsets.UTF_8)
+        val prefix = "--$boundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"$packageName.apk\"\r\nContent-Type: application/vnd.android.package-archive\r\n\r\n".toByteArray(StandardCharsets.UTF_8)
         val suffix = "\r\n--$boundary--\r\n".toByteArray(StandardCharsets.UTF_8)
         val publisher = HttpRequest.BodyPublishers.concat(
             HttpRequest.BodyPublishers.ofByteArray(prefix),
