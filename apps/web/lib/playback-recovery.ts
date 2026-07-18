@@ -15,3 +15,8 @@ export function nextPlaybackCandidate(
   if (serverIndex >= 0 && serverIndex < servers.length - 1) return { kind: "server", id: servers[serverIndex + 1]!.id };
   return null;
 }
+
+export function prioritizePlaybackItems<T extends { id: string }>(items: T[], preferredId: string): T[] {
+  const preferred = items.find((item) => item.id === preferredId);
+  return preferred ? [preferred, ...items.filter((item) => item.id !== preferredId)] : [...items];
+}

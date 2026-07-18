@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { nextPlaybackCandidate } from "./playback-recovery";
+import { nextPlaybackCandidate, prioritizePlaybackItems } from "./playback-recovery";
 
 describe("playback recovery", () => {
   const streams = [{ id: "auto" }, { id: "720p" }];
@@ -15,5 +15,9 @@ describe("playback recovery", () => {
 
   it("reports exhaustion after the final server", () => {
     expect(nextPlaybackCandidate(streams, "720p", servers, "backup")).toBeNull();
+  });
+
+  it("tries a preferred server first without dropping the others", () => {
+    expect(prioritizePlaybackItems([{ id: "one" }, { id: "two" }, { id: "three" }], "two").map((item) => item.id)).toEqual(["two", "one", "three"]);
   });
 });

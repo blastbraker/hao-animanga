@@ -7,7 +7,7 @@ import { api, bridgeErrorMessage, bridgeJson, getActiveBridge, type LibraryRespo
 import { completedEpisodeUnits, continueWatchingId, CONTINUE_WATCHING_STORAGE_KEY, DISMISSED_CONTINUE_STORAGE_KEY, parseContinueWatching, parseDismissedWorkIds, parsePlaybackPosition, playbackPercent, playbackStorageKey, resumablePosition, updateContinueWatching, type ContinueWatchingEntry } from "../../../lib/playback-progress";
 import { confidentSourceMatch } from "../../../lib/source-match";
 import { rankSourcesByReliability, recordSourceResult } from "../../../lib/source-reliability";
-import { nextPlaybackCandidate } from "../../../lib/playback-recovery";
+import { nextPlaybackCandidate, prioritizePlaybackItems } from "../../../lib/playback-recovery";
 
 type AnimeSourceSummary = {
   id: string;
@@ -416,8 +416,26 @@ export default function PlayerPage() {
     const preferredServerName = readPreference("hao:anime:preferred-server");
     const initialServer = nextServers.find((item) => item.name === preferredServerName) ?? nextServers[0]!;
     setServers(nextServers);
-    setServerId(initialServer.id);
-    await loadServer(endpoint, nextEpisodeId, initialServer.id, cancelled);
+    await loadPlayableServer(endpoint, nextEpisodeId, nextServers, initialServer.id, cancelled);
+  }
+
+  async function loadPlayableServer(endpoint: string, nextEpisodeId: string, availableServers: AnimeServer[], preferredServerId: string, cancelled = false) {
+    const orderedServers = prioritizePlaybackItems(availableServers, preferredServerId);
+    let lastFailure: unknown = null;
+    for (const [index, candidateServer] of orderedServers.entries()) {
+      if (cancelled) return;
+      setServerId(candidateServer.id);
+      setStreams([]);
+      setStreamId("");
+      try {
+        await loadServer(endpoint, nextEpisodeId, candidateServer.id, cancelled);
+        if (index > 0) setSourceFallbackStatus(`Switched to ${candidateServer.name} because the preferred server had no playable stream.`);
+        return;
+      } catch (cause) {
+        lastFailure = cause;
+      }
+    }
+    throw new Error(lastFailure ? "Every server from this source was checked, but none returned a playable stream." : "No stream server returned a playable stream for this episode.");
   }
 
   async function loadServer(endpoint: string, nextEpisodeId: string, nextServerId: string, cancelled = false) {
@@ -445,6 +463,7 @@ export default function PlayerPage() {
   }
   async function changeEpisode(next: string, autoplayVideo = true) {
     if (next === episodeId) return;
+    const nextEpisode = episodes.find((item) => item.id === next);
     failedPlaybackSourcesRef.current.clear();
     if (!videoRef.current?.ended) await persistProgress(false);
     autoplayRequestedRef.current = autoplayVideo;
@@ -457,8 +476,16 @@ export default function PlayerPage() {
     try {
       await loadEpisode(bridge, next);
     } catch (cause) {
+      if (nextEpisode && anime?.title) {
+        try {
+          await fallBackToAnotherSource(nextEpisode.number, 0);
+          return;
+        } catch {
+          // Show the original source error with a useful all-sources explanation below.
+        }
+      }
       setBusy("");
-      setError(message(cause));
+      setError(sources.length > 1 ? "No installed source returned a playable stream for this episode." : message(cause));
     }
   }
   async function changeServer(next: string) {
@@ -471,7 +498,7 @@ export default function PlayerPage() {
     setServerId(next);
     setStreams([]);
     try {
-      await loadServer(bridge, episodeId, next);
+      await loadPlayableServer(bridge, episodeId, servers, next);
     } catch (cause) {
       setBusy("");
       setError(message(cause));
@@ -534,22 +561,31 @@ export default function PlayerPage() {
       }
       if (candidate?.kind === "server") {
         setSourceFallbackStatus("That server failed, so HAO switched to a backup server automatically.");
-        await loadServer(bridge, episode.id, candidate.id);
-        return;
+        const candidateIndex = servers.findIndex((item) => item.id === candidate.id);
+        try {
+          await loadPlayableServer(bridge, episode.id, candidateIndex >= 0 ? servers.slice(candidateIndex) : servers, candidate.id);
+          return;
+        } catch {
+          // Every remaining server failed, so continue with another installed source.
+        }
       }
 
-      failedPlaybackSourcesRef.current.add(sourceId);
-      const remainingSources = sources.filter((source) => !failedPlaybackSourcesRef.current.has(source.id));
-      if (!remainingSources.length || !anime?.title) throw new Error("No additional source is available.");
-      remoteProgressRef.current = { episodeNumber: episode.number, positionSeconds: currentTime };
-      setSourceFallbackStatus("That source could not play this episode. Trying another installed source…");
-      await loadAnimeWithSourceFallback(bridge, remainingSources, remainingSources[0]!.id, anime.title, undefined, undefined, []);
+      await fallBackToAnotherSource(episode.number, currentTime);
     } catch {
       setBusy("");
       setError("HAO tried the available qualities, servers, and installed sources, but this episode still could not be played.");
     } finally {
       playbackRecoveryRef.current = false;
     }
+  }
+
+  async function fallBackToAnotherSource(episodeNumber: number, positionSeconds: number) {
+    failedPlaybackSourcesRef.current.add(sourceId);
+    const remainingSources = sources.filter((source) => !failedPlaybackSourcesRef.current.has(source.id));
+    if (!remainingSources.length || !anime?.title) throw new Error("No additional source is available.");
+    remoteProgressRef.current = { episodeNumber, positionSeconds };
+    setSourceFallbackStatus("That source could not play this episode. Trying another installed source…");
+    await loadAnimeWithSourceFallback(bridge, remainingSources, remainingSources[0]!.id, anime.title, undefined, undefined, []);
   }
 
   async function persistProgress(completed: boolean) {
