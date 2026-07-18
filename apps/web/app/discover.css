@@ -5,8 +5,11 @@
 .discover-results-heading .eyebrow { margin-bottom: 6px; }
 .discover-results-heading > span { color: var(--muted); font-size: 11px; }
 .user-score { color: var(--cyan); }
+.discover-page .filter-row { flex-wrap: wrap; overflow: visible; }
 
 @media(max-width:760px) {
   .discover-page .search-panel select { display: block; grid-column: 1/-1; grid-row: 2; height: 42px; }
+  .discover-page .filter-row { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .discover-page .filter-row::-webkit-scrollbar { display: none; }
   .discover-results-heading h2 { font-size: 23px; }
 }

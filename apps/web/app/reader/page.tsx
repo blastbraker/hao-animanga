@@ -32,6 +32,8 @@ export default function ReaderPage() {
   const [browseMode, setBrowseMode] = useState<BrowseMode>("popular");
   const [selected, setSelected] = useState<MangaSummary | null>(null);
   const [chapters, setChapters] = useState<MangaChapter[]>([]);
+  const [chapterQuery, setChapterQuery] = useState("");
+  const [visibleChapterCount, setVisibleChapterCount] = useState(50);
   const [pages, setPages] = useState<MangaChapterPages | null>(null);
   const [readingMode, setReadingMode] = useState<ReadingMode>("webtoon");
   const [pageIndex, setPageIndex] = useState(0);
@@ -46,11 +48,21 @@ export default function ReaderPage() {
   const selectedSource = useMemo(() => sources.find((source) => source.id === selected?.sourceId), [selected?.sourceId, sources]);
   const currentChapter = useMemo(() => chapters.find((chapter) => chapter.index === pages?.chapterIndex), [chapters, pages]);
   const chapterPosition = currentChapter ? chapters.indexOf(currentChapter) : -1;
+  const filteredChapters = useMemo(() => {
+    const normalizedQuery = chapterQuery.trim().toLowerCase();
+    if (!normalizedQuery) return chapters;
+    return chapters.filter((chapter) => [chapter.name, chapter.number, chapter.scanlator].some((value) => String(value ?? "").toLowerCase().includes(normalizedQuery)));
+  }, [chapterQuery, chapters]);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("hao:manga-reading-mode");
     if (saved === "webtoon" || saved === "ltr" || saved === "rtl") setReadingMode(saved);
   }, []);
+
+  useEffect(() => {
+    setChapterQuery("");
+    setVisibleChapterCount(50);
+  }, [selected?.id, selected?.sourceId]);
 
   useEffect(() => {
     if (!pages || readingMode === "webtoon") return;
@@ -528,8 +540,19 @@ export default function ReaderPage() {
             </div>
           </div>
           <div className="chapter-list">
-            <h3>Chapters</h3>
-            {chapters.map((chapter) => (
+            <div className="chapter-list-head">
+              <div>
+                <h3>Chapters</h3>
+                <small>{filteredChapters.length === chapters.length ? `${chapters.length} available` : `${filteredChapters.length} of ${chapters.length}`}</small>
+              </div>
+              {chapters.length > 12 && (
+                <label className="chapter-search">
+                  <Search />
+                  <input value={chapterQuery} onChange={(event) => { setChapterQuery(event.target.value); setVisibleChapterCount(50); }} placeholder="Find a chapter" aria-label="Find a chapter" />
+                </label>
+              )}
+            </div>
+            {filteredChapters.slice(0, visibleChapterCount).map((chapter) => (
               <button key={chapter.id} onClick={() => void openChapter(chapter)}>
                 <BookOpen />
                 <span>
@@ -542,6 +565,12 @@ export default function ReaderPage() {
                 <ChevronRight />
               </button>
             ))}
+            {filteredChapters.length > visibleChapterCount && (
+              <button className="chapter-show-more" onClick={() => setVisibleChapterCount((count) => count + 50)}>
+                Show {Math.min(50, filteredChapters.length - visibleChapterCount)} more chapters
+              </button>
+            )}
+            {!filteredChapters.length && <p className="chapter-filter-empty">No chapters match “{chapterQuery}”.</p>}
           </div>
         </section>
       )}

@@ -447,7 +447,7 @@ export default function HomePage() {
       </section>
 
       <MediaRow title="Trending across HAO" eyebrow="ANILIST DISCOVERY" items={data.trending} />
-      <MediaRow title="Fresh from the shelves" eyebrow="RECENTLY UPDATED" items={data.updated} />
+      <MediaRow title="New this year" eyebrow="FRESH RELEASES" items={data.updated} />
     </div>
   );
 }

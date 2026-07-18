@@ -77,6 +77,8 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
   const [availabilityError, setAvailabilityError] = useState("");
   const [animeAvailability, setAnimeAvailability] = useState<AnimeAvailability[]>([]);
   const [mangaAvailability, setMangaAvailability] = useState<MangaAvailability[]>([]);
+  const [activeAnimeSourceId, setActiveAnimeSourceId] = useState("");
+  const [activeMangaSourceId, setActiveMangaSourceId] = useState("");
   const [resumeEpisodeNumber, setResumeEpisodeNumber] = useState<number | null>(null);
 
   useEffect(() => {
@@ -134,6 +136,8 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
         setBridgeScope(result.scope);
         setAnimeAvailability(result.anime);
         setMangaAvailability(result.manga);
+        setActiveAnimeSourceId(result.anime[0]?.source.id ?? "");
+        setActiveMangaSourceId(result.manga[0]?.source.id ?? "");
       })
       .catch((cause: unknown) => {
         if (!cancelled) setAvailabilityError(bridgeErrorMessage(cause, "Installed sources could not be checked."));
@@ -146,17 +150,23 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
     };
   }, [work]);
 
-  const primaryAnime = animeAvailability[0];
-  const primaryManga = mangaAvailability[0];
+  const primaryAnime = animeAvailability.find((availability) => availability.source.id === activeAnimeSourceId) ?? animeAvailability[0];
+  const primaryManga = mangaAvailability.find((availability) => availability.source.id === activeMangaSourceId) ?? mangaAvailability[0];
   const primaryHref = useMemo(() => {
     if (!work) return "#";
     if (primaryAnime) {
       const preferredEpisode = primaryAnime.episodes.find((episode) => episode.number === resumeEpisodeNumber) ?? primaryAnime.episodes[0];
       return animePlayerHref(primaryAnime.source.id, primaryAnime.item.id, work.title, preferredEpisode?.id, work.id);
     }
-    if (primaryManga) return mangaReaderHref(primaryManga.source.id, primaryManga.item.id, undefined, work.id);
+    if (primaryManga) {
+      const completedUnits = libraryEntry?.progress?.completedUnits;
+      const resumeChapter = completedUnits == null
+        ? undefined
+        : primaryManga.chapters.find((chapter) => chapter.number === completedUnits || chapter.index === completedUnits);
+      return mangaReaderHref(primaryManga.source.id, primaryManga.item.id, resumeChapter?.index, work.id);
+    }
     return work.kind === "ANIME" ? "/player/anime" : "/reader";
-  }, [primaryAnime, primaryManga, resumeEpisodeNumber, work]);
+  }, [libraryEntry?.progress?.completedUnits, primaryAnime, primaryManga, resumeEpisodeNumber, work]);
 
   if (error)
     return (
@@ -225,21 +235,22 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
         <img className="detail-cover" src={work.coverUrl ?? "/icon.svg"} alt={`${work.title} cover`} />
         <div className="detail-copy">
           <span className="eyebrow">
-            {work.kind.replace("_", " ")} · {work.year}
+            {[work.kind.replace("_", " "), work.year].filter(Boolean).join(" · ")}
           </span>
           <h1>{work.title}</h1>
           <div className="title-meta">
-            <span>
-              <Star size={15} fill="currentColor" /> {((work.averageScore ?? 0) / 10).toFixed(1)}
-            </span>
-            <span>{work.status}</span>
-            <span>{work.maturityRating}</span>
+            {work.averageScore != null && <span>
+              <Star size={15} fill="currentColor" /> {(work.averageScore / 10).toFixed(1)}
+            </span>}
+            {work.status && <span>{work.status}</span>}
+            {work.maturityRating && <span>{work.maturityRating}</span>}
           </div>
           <p>{work.synopsis}</p>
           <div className="genre-row">
-            {work.genres.map((genre) => (
+            {work.genres.slice(0, 8).map((genre) => (
               <span key={genre}>{genre}</span>
             ))}
+            {work.genres.length > 8 && <span>+{work.genres.length - 8} more</span>}
           </div>
           <div className="hero-actions">
             {availabilityBusy ? (
@@ -268,7 +279,7 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
               <option value="">Not rated</option>
               {Array.from({ length: 10 }, (_, index) => 10 - index).map((value) => <option key={value} value={value}>{value} / 10</option>)}
             </select>
-            <small>Saved privately in HAO. Use the IMDb button to rate or add this title on IMDb.</small>
+            <small>{work.kind === "ANIME" ? "Saved privately in HAO. Use the IMDb button to rate or add this title on IMDb." : "Saved privately in HAO."}</small>
           </div>
         </div>
       </div>
@@ -278,11 +289,23 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
             <span className="eyebrow">AVAILABLE FROM YOUR SOURCES</span>
             <h2>{work.kind === "ANIME" ? "Episodes" : "Chapters"}</h2>
           </div>
-          {bridge && (
-            <span className="availability-bridge">
-              <Server /> {bridgeScope === "beta" ? "Managed Beta Bridge" : "Personal Bridge"}
-            </span>
-          )}
+          <div className="availability-tools">
+            {work.kind === "ANIME" && animeAvailability.length > 1 && (
+              <select aria-label="Anime source" value={primaryAnime?.source.id ?? ""} onChange={(event) => setActiveAnimeSourceId(event.target.value)}>
+                {animeAvailability.map((availability) => <option key={availability.source.id} value={availability.source.id}>{availability.source.name} · {availability.source.language.toUpperCase()}</option>)}
+              </select>
+            )}
+            {work.kind !== "ANIME" && mangaAvailability.length > 1 && (
+              <select aria-label="Manga source" value={primaryManga?.source.id ?? ""} onChange={(event) => setActiveMangaSourceId(event.target.value)}>
+                {mangaAvailability.map((availability) => <option key={availability.source.id} value={availability.source.id}>{availability.source.displayName} · {availability.source.language.toUpperCase()}</option>)}
+              </select>
+            )}
+            {bridge && (
+              <span className="availability-bridge">
+                <Server /> {bridgeScope === "beta" ? "Managed Beta Bridge" : "Personal Bridge"}
+              </span>
+            )}
+          </div>
         </div>
         {availabilityBusy && <AvailabilitySkeleton kind={work.kind} />}
         {availabilityError && !availabilityBusy && (
@@ -298,8 +321,8 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
             </button>
           </div>
         )}
-        {!availabilityBusy && !availabilityError && work.kind === "ANIME" && animeAvailability.map((availability) => <AnimeSourcePanel key={availability.source.id} availability={availability} workTitle={work.title} workId={work.id} />)}
-        {!availabilityBusy && !availabilityError && work.kind !== "ANIME" && mangaAvailability.map((availability) => <MangaSourcePanel key={availability.source.id} availability={availability} workId={work.id} />)}
+        {!availabilityBusy && !availabilityError && work.kind === "ANIME" && primaryAnime && <AnimeSourcePanel availability={primaryAnime} workTitle={work.title} workId={work.id} />}
+        {!availabilityBusy && !availabilityError && work.kind !== "ANIME" && primaryManga && <MangaSourcePanel availability={primaryManga} workId={work.id} />}
         {!availabilityBusy && !availabilityError && !animeAvailability.length && !mangaAvailability.length && (
           <div className="source-empty">
             <b>No confident installed match was found.</b>
@@ -368,6 +391,33 @@ async function loadAvailability(work: Work): Promise<{
 
   if (work.kind === "MANGA" || work.kind === "MANHWA") {
     const sources = await bridgeRequest<MangaSource[]>(endpoint, "/v1/manga/sources");
+    const importedReference = work.source.kind === "MIHON_EXTENSION" ? parseMihonReference(work.source.externalId) : null;
+    if (importedReference) {
+      const source = sources.find((candidate) => candidate.id === importedReference.sourceId);
+      if (source) {
+        const startedAt = performance.now();
+        try {
+          const [itemPayload, chapters] = await Promise.all([
+            bridgeRequest<Partial<MangaItem>>(endpoint, `/v1/manga/${importedReference.mangaId}`),
+            bridgeRequest<MangaChapter[]>(endpoint, `/v1/manga/${importedReference.mangaId}/chapters`)
+          ]);
+          if (chapters.length) {
+            const item: MangaItem = {
+              ...itemPayload,
+              id: importedReference.mangaId,
+              sourceId: source.id,
+              title: itemPayload.title ?? work.title,
+              description: itemPayload.description ?? work.synopsis,
+              genres: Array.isArray(itemPayload.genres) ? itemPayload.genres : work.genres
+            };
+            recordSourceResult("manga", source.id, true, performance.now() - startedAt);
+            return { endpoint, scope: access.scope, anime: [], manga: [{ source, item, chapters }] };
+          }
+        } catch {
+          recordSourceResult("manga", source.id, false, performance.now() - startedAt);
+        }
+      }
+    }
     const generalSources = sources.filter((source) => !source.mature);
     const candidates = rankSourcesByReliability(preferredSources(
       generalSources,
@@ -407,6 +457,14 @@ async function loadAvailability(work: Work): Promise<{
     };
   }
   return { endpoint, scope: access.scope, anime: [], manga: [] };
+}
+
+function parseMihonReference(externalId: string): { sourceId: string; mangaId: number } | null {
+  const separator = externalId.lastIndexOf(":");
+  if (separator <= 0) return null;
+  const sourceId = externalId.slice(0, separator);
+  const mangaId = Number(externalId.slice(separator + 1));
+  return sourceId && Number.isSafeInteger(mangaId) && mangaId > 0 ? { sourceId, mangaId } : null;
 }
 
 async function bridgeRequest<T>(endpoint: string, path: string): Promise<T> {

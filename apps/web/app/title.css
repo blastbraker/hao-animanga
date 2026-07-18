@@ -1,5 +1,7 @@
 .availability-section { max-width: 1180px; margin-inline: auto; }
 .availability-section .section-head { align-items: center; }
+.availability-tools { display: flex; align-items: center; justify-content: flex-end; gap: 9px; flex-wrap: wrap; }
+.availability-tools select { max-width: 270px; min-height: 36px; padding: 0 34px 0 11px; border: 1px solid var(--line); border-radius: 10px; color: var(--text); background: var(--panel2); font-size: 10px; }
 .availability-bridge { display: inline-flex; align-items: center; gap: 7px; padding: 8px 11px; border: 1px solid rgba(96,239,227,.22); border-radius: 20px; color: var(--cyan); background: rgba(96,239,227,.06); font-size: 9px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
 .availability-bridge svg { width: 14px; }
 .availability-panel { overflow: hidden; margin-bottom: 15px; border: 1px solid var(--line); border-radius: 16px; background: linear-gradient(145deg, rgba(20,24,38,.96), rgba(12,15,25,.9)); }
@@ -33,6 +35,9 @@
 
 @media(max-width:760px) {
   .availability-section { padding-inline: 20px; }
+  .availability-section .section-head { align-items: flex-start; }
+  .availability-tools { width: 100%; justify-content: flex-start; }
+  .availability-tools select { width: 100%; max-width: none; }
   .availability-panel > header { grid-template-columns: auto 1fr; padding: 15px; }
   .availability-panel > header .button { grid-column: 1/-1; width: 100%; }
   .release-list { grid-template-columns: 1fr; }

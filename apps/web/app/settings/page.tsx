@@ -100,6 +100,7 @@ export default function SettingsPage() {
   const [installedExtensions, setInstalledExtensions] = useState<InstalledExtension[]>([]);
   const [mangaRuntime, setMangaRuntime] = useState<MangaRuntimeStatus | null>(null);
   const [bridgeRuntimes, setBridgeRuntimes] = useState<BridgeRuntimeStatus[]>([]);
+  const [managementLocked, setManagementLocked] = useState(false);
   const [repo, setRepo] = useState("https://raw.githubusercontent.com/yuzono/anime-repo/repo/index.min.json");
   const [mediaKind, setMediaKind] = useState<MediaKind>("ANIME");
   const [acknowledged, setAcknowledged] = useState(false);
@@ -143,7 +144,7 @@ export default function SettingsPage() {
   }, []);
   useEffect(() => {
     if (!activeBridge?.endpoint || activeBridge.scope !== "personal") return;
-    void Promise.all([requestBridgeAt<InstalledExtension[]>(activeBridge.endpoint, "/v1/extensions").then(setInstalledExtensions), requestBridgeAt<MangaRuntimeStatus>(activeBridge.endpoint, "/v1/manga/runtime").then(setMangaRuntime), requestBridgeAt<BridgeRuntimeStatus[]>(activeBridge.endpoint, "/v1/runtimes").then(setBridgeRuntimes)]).catch((error: Error) => setMessage(`Bridge extension status unavailable: ${error.message}`));
+    void refreshManagement(activeBridge.endpoint);
   }, [activeBridge?.endpoint, activeBridge?.scope]);
 
   async function requestBridgeAt<T>(endpointValue: string, path: string, body?: unknown): Promise<T> {
@@ -161,6 +162,26 @@ export default function SettingsPage() {
 
   function bridgeRequest<T>(path: string, body?: unknown) {
     return requestBridgeAt<T>(bridgeEndpoint, path, body);
+  }
+
+  async function refreshManagement(endpointValue = bridgeEndpoint) {
+    try {
+      const [extensions, runtime, runtimes] = await Promise.all([
+        requestBridgeAt<InstalledExtension[]>(endpointValue, "/v1/extensions"),
+        requestBridgeAt<MangaRuntimeStatus>(endpointValue, "/v1/manga/runtime"),
+        requestBridgeAt<BridgeRuntimeStatus[]>(endpointValue, "/v1/runtimes")
+      ]);
+      setInstalledExtensions(extensions);
+      setMangaRuntime(runtime);
+      setBridgeRuntimes(runtimes);
+      setManagementLocked(false);
+      setMessage("Bridge management unlocked.");
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "Bridge management is unavailable.";
+      const locked = /administrator access required/i.test(detail);
+      setManagementLocked(locked);
+      setMessage(locked ? "Enter the Bridge administrator token to manage runtimes and extensions." : `Bridge extension status unavailable: ${detail}`);
+    }
   }
 
   async function loadInstalled() {
@@ -406,6 +427,11 @@ export default function SettingsPage() {
               <span>Bridge administrator token</span>
               <input type="password" autoComplete="off" value={adminToken} onChange={(event) => setAdminToken(event.target.value)} placeholder="Required when management protection is enabled" />
             </label>
+            {managementLocked && (
+              <button className="button ghost" disabled={!adminToken.trim() || busyAction !== null} onClick={() => void refreshManagement()}>
+                <RefreshCw /> Unlock management
+              </button>
+            )}
             <button className="button primary" disabled={busyAction !== null} onClick={() => void pair()}>
               <Server />
               {personalBridge ? "Pair again" : "Pair Bridge"}
@@ -425,30 +451,30 @@ export default function SettingsPage() {
             <div>
               <span className="eyebrow">MANGA EXECUTION</span>
               <h2>Suwayomi runtime</h2>
-              <p>{mangaRuntime?.message ?? "Checking the local manga runtime…"}</p>
+              <p>{managementLocked ? "Enter the administrator token above to view and control this runtime." : mangaRuntime?.message ?? "Checking the local manga runtime…"}</p>
             </div>
             <span className={mangaRuntime?.running ? "runtime-badge running" : "runtime-badge"}>
               <i />
-              {mangaRuntime?.running ? "Running" : "Stopped"}
+              {managementLocked ? "Locked" : mangaRuntime?.running ? "Running" : "Stopped"}
             </span>
           </div>
           <div className="runtime-stats">
             <span>
-              <b>{mangaRuntime?.sourceCount ?? 0}</b> sources
+               <b>{managementLocked ? "—" : mangaRuntime?.sourceCount ?? 0}</b> sources
             </span>
             <span>
-              <b>{mangaRuntime?.installedExtensionCount ?? 0}</b> synchronized extensions
+               <b>{managementLocked ? "—" : mangaRuntime?.installedExtensionCount ?? 0}</b> synchronized extensions
             </span>
             <span>
-              <b>{mangaRuntime?.managed ? "Automatic" : "External"}</b> lifecycle
+               <b>{managementLocked ? "Locked" : mangaRuntime?.managed ? "Automatic" : "External"}</b> lifecycle
             </span>
           </div>
           <div className="runtime-actions">
-            <button className="button primary" disabled={busyAction !== null || mangaRuntime?.running === true || mangaRuntime?.managed === false} onClick={() => void startRuntime()}>
+            <button className="button primary" disabled={managementLocked || busyAction !== null || mangaRuntime?.running === true || mangaRuntime?.managed === false} onClick={() => void startRuntime()}>
               <Power />
               {busyAction === "runtime-start" ? "Starting…" : "Start runtime"}
             </button>
-            <button className="button ghost" disabled={busyAction !== null || !mangaRuntime?.running} onClick={() => void syncRuntime()}>
+            <button className="button ghost" disabled={managementLocked || busyAction !== null || !mangaRuntime?.running} onClick={() => void syncRuntime()}>
               <RefreshCw />
               {busyAction === "runtime-sync" ? "Synchronizing…" : "Sync extensions"}
             </button>

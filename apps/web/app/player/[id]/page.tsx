@@ -7,6 +7,7 @@ import { api, bridgeErrorMessage, bridgeJson, getActiveBridge, type LibraryRespo
 import { completedEpisodeUnits, continueWatchingId, CONTINUE_WATCHING_STORAGE_KEY, DISMISSED_CONTINUE_STORAGE_KEY, parseContinueWatching, parseDismissedWorkIds, parsePlaybackPosition, playbackPercent, playbackStorageKey, resumablePosition, updateContinueWatching, type ContinueWatchingEntry } from "../../../lib/playback-progress";
 import { confidentSourceMatch } from "../../../lib/source-match";
 import { rankSourcesByReliability, recordSourceResult } from "../../../lib/source-reliability";
+import { nextPlaybackCandidate } from "../../../lib/playback-recovery";
 
 type AnimeSourceSummary = {
   id: string;
@@ -52,6 +53,8 @@ export default function PlayerPage() {
     episodeNumber: number;
     positionSeconds: number;
   } | null>(null);
+  const playbackRecoveryRef = useRef(false);
+  const failedPlaybackSourcesRef = useRef(new Set<string>());
   const [bridge, setBridge] = useState("");
   const [bridgeScope, setBridgeScope] = useState<"personal" | "beta">("personal");
   const [workId, setWorkId] = useState("");
@@ -169,7 +172,7 @@ export default function PlayerPage() {
       hls.loadSource(streamUrl);
       hls.attachMedia(video);
       hls.on(Hls.Events.ERROR, (_event, data) => {
-        if (data.fatal) setError("The selected HLS stream could not be loaded. Try another quality.");
+        if (data.fatal) void recoverFromPlaybackFailure();
       });
       return () => {
         hls.destroy();
@@ -184,6 +187,7 @@ export default function PlayerPage() {
   }, [stream, streamUrl]);
 
   async function connect() {
+    failedPlaybackSourcesRef.current.clear();
     setBusy("Connecting to HAO Bridge…");
     setError("");
     try {
@@ -431,6 +435,7 @@ export default function PlayerPage() {
   }
 
   async function changeAnime(next: string) {
+    failedPlaybackSourcesRef.current.clear();
     clearCanonicalWork();
     setAnimeId(next);
     setEpisodes([]);
@@ -440,6 +445,7 @@ export default function PlayerPage() {
   }
   async function changeEpisode(next: string, autoplayVideo = true) {
     if (next === episodeId) return;
+    failedPlaybackSourcesRef.current.clear();
     if (!videoRef.current?.ended) await persistProgress(false);
     autoplayRequestedRef.current = autoplayVideo;
     restoredPlaybackKeyRef.current = "";
@@ -472,6 +478,7 @@ export default function PlayerPage() {
     }
   }
   async function changeSource(next: string) {
+    failedPlaybackSourcesRef.current.clear();
     clearCanonicalWork();
     setSourceId(next);
     setBrowseMode("popular");
@@ -491,6 +498,7 @@ export default function PlayerPage() {
       return;
     }
     clearCanonicalWork();
+    failedPlaybackSourcesRef.current.clear();
     setBrowseMode("search");
     try {
       await loadAnimeWithSourceFallback(bridge, sources, sourceId, query);
@@ -509,6 +517,39 @@ export default function PlayerPage() {
     autoplayRequestedRef.current = continuePlaying;
     safelyResetVideo(videoRef.current);
     setStreamId(next);
+  }
+
+  async function recoverFromPlaybackFailure() {
+    if (playbackRecoveryRef.current || !episode) return;
+    playbackRecoveryRef.current = true;
+    setError("");
+    autoplayRequestedRef.current = true;
+    try {
+      const candidate = nextPlaybackCandidate(streams, streamId, servers, serverId);
+      if (candidate?.kind === "stream") {
+        setSourceFallbackStatus("That quality failed, so HAO switched to another stream automatically.");
+        safelyResetVideo(videoRef.current);
+        setStreamId(candidate.id);
+        return;
+      }
+      if (candidate?.kind === "server") {
+        setSourceFallbackStatus("That server failed, so HAO switched to a backup server automatically.");
+        await loadServer(bridge, episode.id, candidate.id);
+        return;
+      }
+
+      failedPlaybackSourcesRef.current.add(sourceId);
+      const remainingSources = sources.filter((source) => !failedPlaybackSourcesRef.current.has(source.id));
+      if (!remainingSources.length || !anime?.title) throw new Error("No additional source is available.");
+      remoteProgressRef.current = { episodeNumber: episode.number, positionSeconds: currentTime };
+      setSourceFallbackStatus("That source could not play this episode. Trying another installed source…");
+      await loadAnimeWithSourceFallback(bridge, remainingSources, remainingSources[0]!.id, anime.title, undefined, undefined, []);
+    } catch {
+      setBusy("");
+      setError("HAO tried the available qualities, servers, and installed sources, but this episode still could not be played.");
+    } finally {
+      playbackRecoveryRef.current = false;
+    }
   }
 
   async function persistProgress(completed: boolean) {
@@ -570,6 +611,7 @@ export default function PlayerPage() {
   function handleLoadedMetadata() {
     const video = videoRef.current;
     if (!video || !episode) return;
+    setError("");
     setDuration(Number.isFinite(video.duration) ? video.duration : 0);
     setCurrentTime(video.currentTime);
     const key = playbackStorageKey(sourceId, animeId, episode.id);
@@ -776,7 +818,7 @@ export default function PlayerPage() {
               setControlsVisible(true);
               void handleEnded();
             }}
-            onError={() => setError("The selected stream could not be loaded. Try another server or quality.")}
+            onError={() => void recoverFromPlaybackFailure()}
           >
             {stream.subtitles.map((subtitle) => <track key={subtitle.url} kind="subtitles" label={subtitle.label} srcLang={subtitle.language} src={subtitle.url} />)}
           </video>

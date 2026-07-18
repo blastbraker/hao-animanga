@@ -35,7 +35,7 @@ const MEDIA_FIELDS = `
   coverImage { extraLarge large } bannerImage seasonYear startDate { year } status genres isAdult averageScore countryOfOrigin
 `;
 
-const DISCOVER_QUERY = `query Discover($perPage: Int) {
+const DISCOVER_QUERY = `query Discover($perPage: Int, $year: Int) {
   featured: Page(page: 1, perPage: 6) {
     media(type: ANIME, isAdult: false, sort: [TRENDING_DESC, POPULARITY_DESC]) { ${MEDIA_FIELDS} }
   }
@@ -43,7 +43,7 @@ const DISCOVER_QUERY = `query Discover($perPage: Int) {
     media(isAdult: false, sort: [TRENDING_DESC, POPULARITY_DESC]) { ${MEDIA_FIELDS} }
   }
   updated: Page(page: 1, perPage: $perPage) {
-    media(isAdult: false, sort: [UPDATED_AT_DESC, TRENDING_DESC]) { ${MEDIA_FIELDS} }
+    media(type: ANIME, seasonYear: $year, isAdult: false, sort: [START_DATE_DESC, POPULARITY_DESC]) { ${MEDIA_FIELDS} }
   }
 }`;
 
@@ -128,7 +128,7 @@ export class AniListProvider implements CatalogProvider {
       const init: RequestInit = {
         method: "POST",
         headers: { "content-type": "application/json", accept: "application/json" },
-        body: JSON.stringify({ query: DISCOVER_QUERY, variables: { perPage: 12 } }),
+        body: JSON.stringify({ query: DISCOVER_QUERY, variables: { perPage: 12, year: new Date().getUTCFullYear() } }),
       };
       if (signal) init.signal = signal;
       const response = await fetch(this.endpoint, init);
