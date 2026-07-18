@@ -44,7 +44,7 @@ fun main() {
     app.post("/v1/pair") { ctx ->
         requireAdminToken(ctx, adminToken)
         val body = json.decodeFromString<PairRequest>(ctx.body())
-        require(body.code.matches(Regex("[A-F0-9]{8}"))) { "Invalid pairing code" }
+        require(body.code.matches(Regex("[A-F0-9]{8,64}"))) { "Invalid pairing code" }
         val keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
         val result = pairingStore.save(body, keys).response()
         pairing.set(result); ctx.status(201).contentType("application/json").result(json.encodeToString(result))

@@ -15,6 +15,7 @@ import {
   normalizeMangaSources,
   normalizeMangaSummary,
 } from "../../lib/manga-response";
+import { findReadableMangaFallback, type ReadableMangaFallback } from "../../lib/manga-fallback";
 import { dedupeSourceResults, rankSourcesByReliability, recordSourceResult } from "../../lib/source-reliability";
 type BrowseMode = "popular" | "latest";
 type ReadingMode = "webtoon" | "ltr" | "rtl";
@@ -63,6 +64,24 @@ export default function ReaderPage() {
     return bridgeJson<T>(endpoint, path);
   }
 
+  async function findMangaFallback(title: string, currentSource: MangaSource, availableSources: MangaSource[], endpoint = bridge): Promise<ReadableMangaFallback | null> {
+    const fallbackSources = rankSourcesByReliability(
+      availableSources.filter((source) => source.id !== currentSource.id && source.language === currentSource.language),
+      "manga",
+    ).slice(0, 8);
+    return findReadableMangaFallback({
+      title,
+      currentSourceId: currentSource.id,
+      language: currentSource.language,
+      sources: fallbackSources,
+      searchSource: async (source, fallbackTitle) => normalizeMangaSearchResponse(
+        await bridgeRequest<unknown>(`/v1/manga/search?sourceId=${encodeURIComponent(source.id)}&query=${encodeURIComponent(fallbackTitle)}&page=1`, endpoint),
+      ).items,
+      loadChapters: async (item) => normalizeMangaChapters(await bridgeRequest<unknown>(`/v1/manga/${item.id}/chapters`, endpoint)),
+      onAttempt: (source, succeeded, latencyMs) => recordSourceResult("manga", source.id, succeeded, latencyMs),
+    });
+  }
+
   useEffect(() => {
     let cancelled = false;
     void getActiveBridge()
@@ -96,14 +115,30 @@ export default function ReaderPage() {
           const [detailsPayload, chapterPayload] = await Promise.all([bridgeRequest<unknown>(`/v1/manga/${requestedMangaId}`, endpoint), bridgeRequest<unknown>(`/v1/manga/${requestedMangaId}/chapters`, endpoint)]);
           if (cancelled) return;
           const fallback = catalog.items.find((item) => item.id === requestedMangaId) ?? { id: requestedMangaId, sourceId: preferred.id, title: "Selected title", genres: [] };
-          const details = normalizeMangaSummary(detailsPayload, fallback);
-          const chapterList = normalizeMangaChapters(chapterPayload);
+          let details = normalizeMangaSummary(detailsPayload, fallback);
+          let chapterList = normalizeMangaChapters(chapterPayload);
+          let selectedMangaId = requestedMangaId;
+          const currentSource = payload.find((source) => source.id === details.sourceId) ?? preferred;
+          setSourceId(currentSource.id);
+          if (!chapterList.length) {
+            const readableFallback = await findMangaFallback(details.title, currentSource, payload, endpoint);
+            if (cancelled) return;
+            if (readableFallback) {
+              details = normalizeMangaSummary(await bridgeRequest<unknown>(`/v1/manga/${readableFallback.item.id}`, endpoint), readableFallback.item);
+              chapterList = readableFallback.chapters;
+              selectedMangaId = readableFallback.item.id;
+              setSourceId(readableFallback.source.id);
+              setResults(dedupeSourceResults([readableFallback.item, ...catalog.items]));
+              setSearchSummary(`${currentSource.displayName} had no ${currentSource.language.toUpperCase()} chapters. Switched to ${readableFallback.source.displayName} with ${chapterList.length} chapters.`);
+            } else {
+              setError(`No readable ${currentSource.language.toUpperCase()} chapters are available from the installed sources for this title.`);
+            }
+          }
           setSelected(details);
           setChapters(chapterList);
-          if (!chapterList.length) setError(`No readable ${preferred.language.toUpperCase()} chapters are available from ${preferred.name} for this title.`);
           const requestedChapter = chapterList.find((chapter) => chapter.index === requestedChapterIndex);
           if (requestedChapter) {
-            const chapterPages = normalizeMangaChapterPages(await bridgeRequest<unknown>(`/v1/manga/${requestedMangaId}/chapter/${requestedChapter.index}/pages`, endpoint));
+            const chapterPages = normalizeMangaChapterPages(await bridgeRequest<unknown>(`/v1/manga/${selectedMangaId}/chapter/${requestedChapter.index}/pages`, endpoint));
             if (!chapterPages) throw new Error("This source returned invalid page data for the selected chapter.");
             if (cancelled) return;
             setPages(chapterPages);
@@ -203,13 +238,26 @@ export default function ReaderPage() {
     setPages(null);
     setBusy("Loading chapters…");
     setError("");
+    setSearchSummary("");
     try {
       const [detailsPayload, chapterPayload] = await Promise.all([bridgeRequest<unknown>(`/v1/manga/${item.id}`), bridgeRequest<unknown>(`/v1/manga/${item.id}/chapters`)]);
-      const details = normalizeMangaSummary(detailsPayload, item);
-      const chapterList = normalizeMangaChapters(chapterPayload);
+      let details = normalizeMangaSummary(detailsPayload, item);
+      let chapterList = normalizeMangaChapters(chapterPayload);
+      const currentSource = sources.find((source) => source.id === item.sourceId) ?? selectedSource ?? activeSource;
+      if (!chapterList.length && currentSource) {
+        setBusy(`No chapters from ${currentSource.displayName}. Trying other ${currentSource.language.toUpperCase()} sources…`);
+        const fallback = await findMangaFallback(details.title, currentSource, sources);
+        if (fallback) {
+          details = normalizeMangaSummary(await bridgeRequest<unknown>(`/v1/manga/${fallback.item.id}`), fallback.item);
+          chapterList = fallback.chapters;
+          setSourceId(fallback.source.id);
+          setResults((current) => dedupeSourceResults([fallback.item, ...current]));
+          setSearchSummary(`${currentSource.displayName} had no ${currentSource.language.toUpperCase()} chapters. Switched to ${fallback.source.displayName} with ${chapterList.length} chapters.`);
+        }
+      }
       setSelected(details);
       setChapters(chapterList);
-      if (!chapterList.length) setError(`No readable ${selectedSource?.language.toUpperCase() ?? "selected-language"} chapters are available from ${selectedSource?.name ?? "this source"} for this title. Try another result or source.`);
+      if (!chapterList.length) setError(`No readable ${currentSource?.language.toUpperCase() ?? "selected-language"} chapters are available from the installed sources for this title.`);
     } catch (cause) {
       setError(message(cause));
     } finally {
