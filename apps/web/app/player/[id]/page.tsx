@@ -8,6 +8,7 @@ import { completedEpisodeUnits, continueWatchingId, CONTINUE_WATCHING_STORAGE_KE
 import { confidentSourceMatch } from "../../../lib/source-match";
 import { rankSourcesByReliability, recordSourceResult } from "../../../lib/source-reliability";
 import { nextPlaybackCandidate, prioritizePlaybackItems } from "../../../lib/playback-recovery";
+import { pickAudioVariant, streamAudioMode, type AudioMode } from "../../../lib/stream-audio";
 
 type AnimeSourceSummary = {
   id: string;
@@ -94,6 +95,11 @@ export default function PlayerPage() {
   const nextEpisode = episodeIndex >= 0 && episodeIndex < episodes.length - 1 ? episodes[episodeIndex + 1] : undefined;
   const stream = useMemo(() => streams.find((item) => item.id === streamId), [streamId, streams]);
   const streamUrl = stream ? (stream.url.startsWith("/") ? `${bridge}${stream.url}` : stream.url) : "";
+  const activeAudioMode = stream ? streamAudioMode(stream) : null;
+  const availableAudioModes = useMemo(() => new Set(streams.map(streamAudioMode).filter((mode): mode is AudioMode => mode !== null)), [streams]);
+  const audioSwitchTarget: AudioMode | null = activeAudioMode === "dub"
+    ? (availableAudioModes.has("sub") ? "sub" : null)
+    : (availableAudioModes.has("dub") ? "dub" : null);
 
   async function bridgeRequest<T>(endpoint: string, path: string): Promise<T> {
     return bridgeJson<T>(endpoint, path);
@@ -463,8 +469,13 @@ export default function PlayerPage() {
     if (!nextStreams.length) throw new Error("This server did not return a playable stream.");
     if (cancelled) return;
     const preferredStream = readPreference("hao:anime:preferred-stream");
-    const initialStream = nextStreams.find((item) => streamPreference(item) === preferredStream) ?? nextStreams[0]!;
-    setStreams(nextStreams);
+    const preferredAudioMode: AudioMode = readPreference("hao:anime:audio-mode") === "dub" ? "dub" : "sub";
+    const preferredAudioStreams = nextStreams.filter((item) => streamAudioMode(item) === preferredAudioMode);
+    const orderedStreams = preferredAudioStreams.length
+      ? [...preferredAudioStreams, ...nextStreams.filter((item) => streamAudioMode(item) !== preferredAudioMode)]
+      : nextStreams;
+    const initialStream = orderedStreams.find((item) => streamPreference(item) === preferredStream) ?? orderedStreams[0]!;
+    setStreams(orderedStreams);
     setStreamId(initialStream.id);
     setBusy("");
   }
@@ -575,6 +586,14 @@ export default function PlayerPage() {
     autoplayRequestedRef.current = continuePlaying;
     safelyResetVideo(videoRef.current);
     setStreamId(next);
+  }
+
+  async function switchAudioVersion(target: AudioMode) {
+    const nextStream = pickAudioVariant(streams, stream, target);
+    if (!nextStream) return;
+    writePreference("hao:anime:audio-mode", target);
+    setSourceFallbackStatus(`Switched to ${target === "dub" ? "dubbed audio" : "subtitled audio"}.`);
+    await changeStream(nextStream.id);
   }
 
   async function recoverFromPlaybackFailure() {
@@ -911,6 +930,7 @@ export default function PlayerPage() {
               </div>
               <div className="player-control-group">
                 {nextEpisode && <button aria-label="Next episode" title="Next episode" onClick={() => void changeEpisode(nextEpisode.id, true)}><SkipForward /></button>}
+                {audioSwitchTarget && <button className="audio-version-toggle" aria-label={`Switch to ${audioSwitchTarget === "dub" ? "dubbed" : "subtitled"} audio`} title={`Switch to ${audioSwitchTarget === "dub" ? "Dub" : "Sub"}`} onClick={() => void switchAudioVersion(audioSwitchTarget)}><span>{audioSwitchTarget.toUpperCase()}</span></button>}
                 <button className={subtitleMode !== "off" ? "active" : ""} aria-label="Subtitles" title="Subtitles" disabled={!stream.subtitles.length} onClick={() => changeSubtitle(subtitleMode === "off" ? "0" : "off")}><Captions /></button>
                 <button className={settingsOpen ? "active" : ""} aria-label="Playback settings" title="Playback settings" onClick={() => { setSettingsOpen((value) => !value); setControlsVisible(true); }}><Settings2 /></button>
                 <button aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"} title="Fullscreen (F)" onClick={() => void toggleFullscreen()}><Maximize2 /></button>
