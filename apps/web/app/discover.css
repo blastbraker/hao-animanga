@@ -1,0 +1,12 @@
+.filter-row button.active { color: var(--cyan); border-color: rgba(96,239,227,.45); background: rgba(96,239,227,.1); }
+.filter-row .clear-filters { color: var(--coral); }
+.discover-results-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; margin: 6px 0 24px; }
+.discover-results-heading h2 { margin: 0; font: 700 28px var(--font-display); }
+.discover-results-heading .eyebrow { margin-bottom: 6px; }
+.discover-results-heading > span { color: var(--muted); font-size: 11px; }
+.user-score { color: var(--cyan); }
+
+@media(max-width:760px) {
+  .discover-page .search-panel select { display: block; grid-column: 1/-1; grid-row: 2; height: 42px; }
+  .discover-results-heading h2 { font-size: 23px; }
+}

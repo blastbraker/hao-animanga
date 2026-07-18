@@ -2,9 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import type { Work } from "@hao/domain";
-import { BookOpen, BookmarkPlus, CircleAlert, Clapperboard, Heart, LoaderCircle, Play, RefreshCw, Server, Star } from "lucide-react";
-import { api, bridgeErrorMessage, bridgeJson, getActiveBridge } from "../../../lib/api";
+import type { LibraryEntry, Work } from "@hao/domain";
+import { BookOpen, BookmarkPlus, CircleAlert, Clapperboard, ExternalLink, Heart, LoaderCircle, Play, RefreshCw, Server, Star } from "lucide-react";
+import { api, bridgeErrorMessage, bridgeJson, getActiveBridge, type LibraryResponse } from "../../../lib/api";
 import { confidentSourceMatch } from "../../../lib/source-match";
 import { rankSourcesByReliability, recordSourceResult } from "../../../lib/source-reliability";
 
@@ -67,6 +67,8 @@ type MangaAvailability = {
 export default function TitlePage({ params }: { params: Promise<{ id: string }> }) {
   const [work, setWork] = useState<Work | null>(null);
   const [saved, setSaved] = useState(false);
+  const [libraryEntry, setLibraryEntry] = useState<LibraryEntry | null>(null);
+  const [ratingBusy, setRatingBusy] = useState(false);
   const [error, setError] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
   const [bridge, setBridge] = useState("");
@@ -107,6 +109,20 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
   useEffect(() => {
     if (!work) return;
     let cancelled = false;
+    void api<LibraryResponse>("/library")
+      .then((library) => {
+        if (cancelled) return;
+        const entry = library.items.find((item) => item.work.id === work.id) ?? null;
+        setLibraryEntry(entry);
+        setSaved(Boolean(entry));
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [work]);
+
+  useEffect(() => {
+    if (!work) return;
+    let cancelled = false;
     setAvailabilityBusy(true);
     setAvailabilityError("");
     setAnimeAvailability([]);
@@ -138,7 +154,7 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
       const preferredEpisode = primaryAnime.episodes.find((episode) => episode.number === resumeEpisodeNumber) ?? primaryAnime.episodes[0];
       return animePlayerHref(primaryAnime.source.id, primaryAnime.item.id, work.title, preferredEpisode?.id, work.id);
     }
-    if (primaryManga) return mangaReaderHref(primaryManga.source.id, primaryManga.item.id);
+    if (primaryManga) return mangaReaderHref(primaryManga.source.id, primaryManga.item.id, undefined, work.id);
     return work.kind === "ANIME" ? "/player/anime" : "/reader";
   }, [primaryAnime, primaryManga, resumeEpisodeNumber, work]);
 
@@ -162,15 +178,38 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
   if (!work) return <div className="page inner-page empty-state">Opening title…</div>;
 
   async function save() {
-    await api("/library", {
+    const entry = await api<LibraryEntry>("/library", {
       method: "PUT",
       body: JSON.stringify({
         workId: work!.id,
         status: "WATCHING_READING",
-        favorite: true
+        favorite: libraryEntry?.favorite ?? true,
+        rating: libraryEntry?.rating ?? null,
+        notes: libraryEntry?.notes ?? ""
       })
     });
+    setLibraryEntry(entry);
     setSaved(true);
+  }
+
+  async function rate(value: number | null) {
+    setRatingBusy(true);
+    try {
+      const entry = await api<LibraryEntry>("/library", {
+        method: "PUT",
+        body: JSON.stringify({
+          workId: work!.id,
+          status: libraryEntry?.status ?? "PLANNING",
+          favorite: libraryEntry?.favorite ?? false,
+          rating: value,
+          notes: libraryEntry?.notes ?? ""
+        })
+      });
+      setLibraryEntry(entry);
+      setSaved(true);
+    } finally {
+      setRatingBusy(false);
+    }
   }
 
   const mediaLabel = work.kind === "ANIME" ? "anime" : "manga";
@@ -221,6 +260,15 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
               {saved ? <Heart fill="currentColor" /> : <BookmarkPlus />}
               {saved ? "Saved" : "Add to library"}
             </button>
+            {work.kind === "ANIME" && <a className="button ghost imdb-button" href={imdbSearchHref(work)} target="_blank" rel="noreferrer"><ExternalLink /> IMDb rating & watchlist</a>}
+          </div>
+          <div className="personal-rating">
+            <span><Star size={15} /> Your HAO rating</span>
+            <select aria-label="Your rating" value={libraryEntry?.rating ?? ""} disabled={ratingBusy} onChange={(event) => void rate(event.target.value ? Number(event.target.value) : null)}>
+              <option value="">Not rated</option>
+              {Array.from({ length: 10 }, (_, index) => 10 - index).map((value) => <option key={value} value={value}>{value} / 10</option>)}
+            </select>
+            <small>Saved privately in HAO. Use the IMDb button to rate or add this title on IMDb.</small>
           </div>
         </div>
       </div>
@@ -251,7 +299,7 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
           </div>
         )}
         {!availabilityBusy && !availabilityError && work.kind === "ANIME" && animeAvailability.map((availability) => <AnimeSourcePanel key={availability.source.id} availability={availability} workTitle={work.title} workId={work.id} />)}
-        {!availabilityBusy && !availabilityError && work.kind !== "ANIME" && mangaAvailability.map((availability) => <MangaSourcePanel key={availability.source.id} availability={availability} />)}
+        {!availabilityBusy && !availabilityError && work.kind !== "ANIME" && mangaAvailability.map((availability) => <MangaSourcePanel key={availability.source.id} availability={availability} workId={work.id} />)}
         {!availabilityBusy && !availabilityError && !animeAvailability.length && !mangaAvailability.length && (
           <div className="source-empty">
             <b>No confident installed match was found.</b>
@@ -394,12 +442,13 @@ function animePlayerHref(sourceId: string, animeId: string, query: string, episo
   return `/player/anime?${parameters.toString()}`;
 }
 
-function mangaReaderHref(sourceId: string, mangaId: number, chapterIndex?: number) {
+function mangaReaderHref(sourceId: string, mangaId: number, chapterIndex?: number, workId?: string) {
   const parameters = new URLSearchParams({
     sourceId,
     mangaId: String(mangaId)
   });
   if (chapterIndex !== undefined) parameters.set("chapterIndex", String(chapterIndex));
+  if (workId) parameters.set("workId", workId);
   return `/reader?${parameters.toString()}`;
 }
 
@@ -437,7 +486,7 @@ function AnimeSourcePanel({ availability, workTitle, workId }: { availability: A
   );
 }
 
-function MangaSourcePanel({ availability }: { availability: MangaAvailability }) {
+function MangaSourcePanel({ availability, workId }: { availability: MangaAvailability; workId: string }) {
   return (
     <article className="availability-panel">
       <header>
@@ -450,14 +499,14 @@ function MangaSourcePanel({ availability }: { availability: MangaAvailability })
             {availability.source.displayName} · {availability.source.language.toUpperCase()} · {availability.chapters.length} chapters
           </p>
         </div>
-        <Link className="button ghost compact" href={mangaReaderHref(availability.source.id, availability.item.id)}>
+        <Link className="button ghost compact" href={mangaReaderHref(availability.source.id, availability.item.id, undefined, workId)}>
           <BookOpen />
           Read
         </Link>
       </header>
       <div className="release-list">
         {availability.chapters.slice(0, 40).map((chapter) => (
-          <Link key={chapter.id} href={mangaReaderHref(availability.source.id, availability.item.id, chapter.index)}>
+          <Link key={chapter.id} href={mangaReaderHref(availability.source.id, availability.item.id, chapter.index, workId)}>
             <span className="release-number">{chapter.number || "—"}</span>
             <span>
               <b>{chapter.name}</b>
@@ -472,6 +521,11 @@ function MangaSourcePanel({ availability }: { availability: MangaAvailability })
       </div>
     </article>
   );
+}
+
+function imdbSearchHref(work: Work): string {
+  const query = [work.title, work.year, work.kind === "ANIME" ? "anime" : ""].filter(Boolean).join(" ");
+  return `https://www.imdb.com/find/?q=${encodeURIComponent(query)}&s=tt`;
 }
 
 function AvailabilitySkeleton({ kind }: { kind: Work["kind"] }) {

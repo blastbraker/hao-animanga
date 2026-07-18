@@ -9,6 +9,8 @@ export interface SearchFilters {
   kind?: MediaKind;
   genre?: string;
   year?: number;
+  status?: "RELEASING" | "FINISHED" | "NOT_YET_RELEASED" | "CANCELLED" | "HIATUS";
+  maturity?: "GENERAL" | "ADULT";
   page: number;
   pageSize: number;
 }

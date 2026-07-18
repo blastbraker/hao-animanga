@@ -3,6 +3,7 @@ import { Instrument_Sans, Manrope } from "next/font/google";
 import "./styles.css";
 import "./brand.css";
 import "./home.css";
+import "./discover.css";
 import "./title.css";
 import "./auth.css";
 import "./onboarding.css";

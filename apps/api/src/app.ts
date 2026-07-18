@@ -5,7 +5,7 @@ import multipart from "@fastify/multipart";
 import rateLimit from "@fastify/rate-limit";
 import Fastify from "fastify";
 import { createDatabase, HaoRepository } from "@hao/database";
-import { SearchQuerySchema, UpdateProgressSchema, UpsertLibraryEntrySchema } from "@hao/domain";
+import { ImportExtensionWorkSchema, SearchQuerySchema, UpdateProgressSchema, UpsertLibraryEntrySchema } from "@hao/domain";
 import type { SearchFilters } from "@hao/providers";
 import { AniListProvider } from "./anilist.js";
 import { authenticate, requireAdmin } from "./auth.js";
@@ -125,6 +125,8 @@ export function buildApp() {
     if (parsed.data.kind) filters.kind = parsed.data.kind;
     if (parsed.data.genre) filters.genre = parsed.data.genre;
     if (parsed.data.year) filters.year = parsed.data.year;
+    if (parsed.data.status) filters.status = parsed.data.status;
+    if (parsed.data.maturity) filters.maturity = parsed.data.maturity;
     const result = await catalog.search(filters);
     if (result.ok) {
       const items = repository ? await Promise.all(result.data.items.map((work) => repository.upsertWork(work))) : result.data.items;
@@ -163,6 +165,40 @@ export function buildApp() {
     const work = repository ? await repository.upsertWork(result.data) : result.data;
     workStore.set(work.id, work);
     return { work, releases: [], sources: [work.source], related: [] };
+  });
+
+  app.post("/v1/works/import-extension", { preHandler: authenticate }, async (request, reply) => {
+    const parsed = ImportExtensionWorkSchema.safeParse(request.body);
+    if (!parsed.success)
+      return reply.code(400).send({
+        code: "INVALID",
+        message: parsed.error.issues[0]?.message ?? "Invalid extension title",
+        retryable: false
+      });
+    const input = parsed.data;
+    const externalId = `${input.sourceId}:${input.externalId}`;
+    const digest = createHash("sha256").update(`mihon:${externalId}`).digest("hex").split("");
+    digest[12] = "4";
+    digest[16] = "8";
+    const stableId = `${digest.slice(0, 8).join("")}-${digest.slice(8, 12).join("")}-${digest.slice(12, 16).join("")}-${digest.slice(16, 20).join("")}-${digest.slice(20, 32).join("")}`;
+    const imported = {
+      id: stableId,
+      kind: input.kind,
+      title: input.title,
+      alternateTitles: [],
+      synopsis: input.synopsis,
+      coverUrl: input.coverUrl,
+      bannerUrl: null,
+      year: null,
+      status: input.status,
+      genres: input.genres,
+      maturityRating: null,
+      averageScore: null,
+      source: { kind: "MIHON_EXTENSION" as const, externalId }
+    };
+    const work = repository ? await repository.upsertWork(imported) : imported;
+    workStore.set(work.id, work);
+    return { work };
   });
 
   app.get("/v1/library", { preHandler: authenticate }, async (request) => {
@@ -222,6 +258,9 @@ export function buildApp() {
       });
     const progress = repository ? await repository.updateProgress(request.user.id, parsed.data) : { ...parsed.data, updatedAt: new Date().toISOString() };
     progressStore.set(keyFor(request.user.id, parsed.data.workId), progress);
+    const libraryKey = keyFor(request.user.id, parsed.data.workId);
+    const entry = libraryStore.get(libraryKey);
+    if (entry) libraryStore.set(libraryKey, { ...entry, updatedAt: progress.updatedAt });
     return progress;
   });
 

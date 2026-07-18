@@ -227,6 +227,7 @@ export class HaoRepository {
         position_seconds=excluded.position_seconds,position_percent=excluded.position_percent,updated_at=now()
       returning updated_at
     `;
+    await this.sql`update library_entries set updated_at=now() where user_id=${userId} and work_id=${input.workId}`;
     return {
       ...input,
       updatedAt: row?.updated_at.toISOString() ?? new Date().toISOString()

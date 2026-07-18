@@ -37,6 +37,23 @@ describe("API", () => {
     });
     expect(other.json().items).toHaveLength(0);
   });
+  it("imports a selected extension title as a stable work", async () => {
+    const payload = {
+      kind: "MANGA",
+      sourceId: "mangadex-en",
+      externalId: "42",
+      title: "Fixture Manga",
+      synopsis: "A selected extension title",
+      coverUrl: "https://bridge.example/v1/manga/42/thumbnail",
+      status: "ONGOING",
+      genres: ["Action"]
+    };
+    const first = await app.inject({ method: "POST", url: "/v1/works/import-extension", headers: { "x-user-id": user }, payload });
+    const second = await app.inject({ method: "POST", url: "/v1/works/import-extension", headers: { "x-user-id": user }, payload });
+    expect(first.statusCode).toBe(200);
+    expect(first.json().work.id).toBe(second.json().work.id);
+    expect(first.json().work.source.kind).toBe("MIHON_EXTENSION");
+  });
   it("rejects development identity headers in production", async () => {
     const previous = process.env.NODE_ENV;
     process.env.NODE_ENV = "production";

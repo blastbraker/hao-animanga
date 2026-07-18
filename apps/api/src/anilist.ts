@@ -20,10 +20,10 @@ interface AniListMedia {
   countryOfOrigin: string | null;
 }
 
-const SEARCH_QUERY = `query Search($page: Int, $perPage: Int, $search: String, $type: MediaType, $genre: String, $year: Int) {
+const SEARCH_QUERY = `query Search($page: Int, $perPage: Int, $search: String, $type: MediaType, $genre: String, $year: Int, $status: MediaStatus, $isAdult: Boolean) {
   Page(page: $page, perPage: $perPage) {
     pageInfo { hasNextPage }
-    media(search: $search, type: $type, genre: $genre, seasonYear: $year, sort: [TRENDING_DESC, POPULARITY_DESC]) {
+    media(search: $search, type: $type, genre: $genre, seasonYear: $year, status: $status, isAdult: $isAdult, sort: [TRENDING_DESC, POPULARITY_DESC]) {
       id type format title { romaji english native } synonyms description(asHtml: false)
       coverImage { extraLarge large } bannerImage seasonYear startDate { year } status genres isAdult averageScore countryOfOrigin
     }
@@ -95,7 +95,19 @@ export class AniListProvider implements CatalogProvider {
       const init: RequestInit = {
         method: "POST",
         headers: { "content-type": "application/json", accept: "application/json" },
-        body: JSON.stringify({ query: SEARCH_QUERY, variables: { page: filters.page, perPage: filters.pageSize, search: filters.query || undefined, type: requestedType, genre: filters.genre, year: filters.year } }),
+        body: JSON.stringify({
+          query: SEARCH_QUERY,
+          variables: {
+            page: filters.page,
+            perPage: filters.pageSize,
+            search: filters.query || undefined,
+            type: requestedType,
+            genre: filters.genre,
+            year: filters.year,
+            status: filters.status,
+            isAdult: filters.maturity === "GENERAL" ? false : filters.maturity === "ADULT" ? true : undefined,
+          },
+        }),
       };
       if (signal) init.signal = signal;
       const response = await fetch(this.endpoint, init);

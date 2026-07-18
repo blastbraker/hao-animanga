@@ -84,10 +84,21 @@ export const SearchQuerySchema = z.object({
   kind: MediaKindSchema.optional(),
   genre: z.string().optional(),
   year: z.coerce.number().int().min(1900).max(2200).optional(),
-  status: z.string().optional(),
-  maturity: z.string().optional(),
+  status: z.enum(["RELEASING", "FINISHED", "NOT_YET_RELEASED", "CANCELLED", "HIATUS"]).optional(),
+  maturity: z.enum(["GENERAL", "ADULT"]).optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(50).default(20),
+});
+
+export const ImportExtensionWorkSchema = z.object({
+  kind: z.enum(["MANGA", "MANHWA"]),
+  sourceId: z.string().min(1).max(200),
+  externalId: z.string().min(1).max(200),
+  title: z.string().trim().min(1).max(500),
+  synopsis: z.string().max(20_000).default(""),
+  coverUrl: z.string().url().nullable().default(null),
+  status: z.string().max(100).nullable().default(null),
+  genres: z.array(z.string().trim().min(1).max(100)).max(50).default([]),
 });
 
 export const UpsertLibraryEntrySchema = z.object({

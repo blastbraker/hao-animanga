@@ -1,9 +1,10 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import type { Work } from "@hao/domain";
 import { BookOpen, ChevronLeft, ChevronRight, LoaderCircle, RefreshCw, Search, Server, TriangleAlert } from "lucide-react";
-import { bridgeErrorMessage, bridgeJson, getActiveBridge } from "../../lib/api";
+import { api, bridgeErrorMessage, bridgeJson, getActiveBridge, type LibraryResponse } from "../../lib/api";
 import {
   MangaChapter,
   MangaChapterPages,
@@ -37,6 +38,9 @@ export default function ReaderPage() {
   const [busy, setBusy] = useState("Connecting to HAO Bridge…");
   const [error, setError] = useState("");
   const [searchSummary, setSearchSummary] = useState("");
+  const [syncStatus, setSyncStatus] = useState("");
+  const libraryWorkIdRef = useRef<string | null>(null);
+  const libraryReadyWorkIdRef = useRef<string | null>(null);
 
   const activeSource = useMemo(() => sources.find((source) => source.id === sourceId), [sourceId, sources]);
   const selectedSource = useMemo(() => sources.find((source) => source.id === selected?.sourceId), [selected?.sourceId, sources]);
@@ -60,8 +64,81 @@ export default function ReaderPage() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [pages, readingMode]);
 
+  useEffect(() => {
+    if (!pages || !selected || !currentChapter) return;
+    const timer = window.setTimeout(() => {
+      const positionPercent = readingMode === "webtoon" ? null : pages.pageCount <= 1 ? 100 : Math.round((pageIndex / (pages.pageCount - 1)) * 1000) / 10;
+      void syncChapterProgress(currentChapter, positionPercent);
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [currentChapter, pageIndex, pages, readingMode, selected]);
+
   async function bridgeRequest<T>(path: string, endpoint = bridge): Promise<T> {
     return bridgeJson<T>(endpoint, path);
+  }
+
+  function unlinkCanonicalWork() {
+    libraryWorkIdRef.current = null;
+    libraryReadyWorkIdRef.current = null;
+    setSyncStatus("");
+  }
+
+  async function ensureLibraryWork(): Promise<string> {
+    if (!selected) throw new Error("No manga title is selected.");
+    let workId = libraryWorkIdRef.current;
+    if (!workId) {
+      const imported = await api<{ work: Work }>("/works/import-extension", {
+        method: "POST",
+        body: JSON.stringify({
+          kind: selected.genres.some((genre) => genre.toLocaleLowerCase() === "manhwa") ? "MANHWA" : "MANGA",
+          sourceId: selected.sourceId || sourceId,
+          externalId: String(selected.id),
+          title: selected.title,
+          synopsis: selected.description ?? "",
+          coverUrl: bridge ? `${bridge}/v1/manga/${selected.id}/thumbnail` : null,
+          status: selected.status ?? null,
+          genres: selected.genres,
+        }),
+      });
+      workId = imported.work.id;
+      libraryWorkIdRef.current = workId;
+    }
+    if (libraryReadyWorkIdRef.current !== workId) {
+      const library = await api<LibraryResponse>("/library");
+      const existing = library.items.find((entry) => entry.work.id === workId);
+      await api("/library", {
+        method: "PUT",
+        body: JSON.stringify({
+          workId,
+          status: !existing || existing.status === "PLANNING" ? "WATCHING_READING" : existing.status,
+          favorite: existing?.favorite ?? false,
+          rating: existing?.rating ?? null,
+          notes: existing?.notes ?? "",
+        }),
+      });
+      libraryReadyWorkIdRef.current = workId;
+      setSyncStatus("Added to Library");
+    }
+    return workId;
+  }
+
+  async function syncChapterProgress(chapter: MangaChapter, positionPercent: number | null) {
+    try {
+      const workId = await ensureLibraryWork();
+      await api("/progress", {
+        method: "PUT",
+        body: JSON.stringify({
+          workId,
+          releaseItemId: null,
+          completedUnits: Math.max(0, chapter.number || chapter.index),
+          positionSeconds: null,
+          positionPercent,
+        }),
+      });
+      setSyncStatus(`Chapter ${chapter.number || chapter.index} synced`);
+    } catch {
+      setSyncStatus("Progress saved on this page only · sync unavailable");
+    }
   }
 
   async function findMangaFallback(title: string, currentSource: MangaSource, availableSources: MangaSource[], endpoint = bridge): Promise<ReadableMangaFallback | null> {
@@ -92,8 +169,10 @@ export default function ReaderPage() {
         const requestedMangaId = Number(parameters.get("mangaId"));
         const requestedChapterIndex = Number(parameters.get("chapterIndex"));
         const requestedQuery = parameters.get("query")?.trim() ?? "";
+        const requestedWorkId = parameters.get("workId");
         const requestedMode: BrowseMode = parameters.get("mode") === "latest" ? "latest" : "popular";
         setBridge(endpoint);
+        if (requestedWorkId) libraryWorkIdRef.current = requestedWorkId;
         setBridgeScope(access.scope);
         const payload = normalizeMangaSources(await bridgeRequest<unknown>("/v1/manga/sources", endpoint));
         if (!payload.length) throw new Error("No manga sources are available. Install and enable a Mihon extension first.");
@@ -174,6 +253,7 @@ export default function ReaderPage() {
     setSelected(null);
     setChapters([]);
     setPages(null);
+    unlinkCanonicalWork();
     try {
       const responses = await Promise.allSettled(searchSources.map(async (source) => {
         const startedAt = performance.now();
@@ -208,6 +288,7 @@ export default function ReaderPage() {
     setSelected(null);
     setChapters([]);
     setPages(null);
+    unlinkCanonicalWork();
     try {
       const response = normalizeMangaSearchResponse(await bridgeRequest<unknown>(`/v1/manga/browse?sourceId=${encodeURIComponent(nextSourceId)}&mode=${mode}&page=1`));
       setResults(response.items);
@@ -220,6 +301,7 @@ export default function ReaderPage() {
   }
 
   function changeSource(nextSourceId: string) {
+    unlinkCanonicalWork();
     setSourceId(nextSourceId);
     if (nextSourceId === ALL_SOURCES_ID) {
       setResults([]);
@@ -234,6 +316,7 @@ export default function ReaderPage() {
   }
 
   async function openTitle(item: MangaSummary) {
+    unlinkCanonicalWork();
     setSelected(item);
     setPages(null);
     setBusy("Loading chapters…");
@@ -309,7 +392,7 @@ export default function ReaderPage() {
           </button>
           <div>
             <b>{selected.title}</b>
-            <span>{pages.chapterName}</span>
+            <span>{pages.chapterName}{syncStatus ? ` · ${syncStatus}` : ""}</span>
           </div>
           <div className="reader-mode-controls">
             <select aria-label="Reading mode" value={readingMode} onChange={(event) => changeReadingMode(event.target.value as ReadingMode)}>

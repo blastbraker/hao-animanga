@@ -39,3 +39,9 @@
   .source-empty.availability-error { grid-template-columns: auto 1fr; }
   .availability-error .button { grid-column: 1/-1; width: 100%; }
 }
+
+.personal-rating { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+.personal-rating > span { display: inline-flex; align-items: center; gap: 6px; color: #f4c667; font-size: 11px; font-weight: 700; }
+.personal-rating select { min-height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 9px; color: var(--text); background: var(--panel2); }
+.personal-rating small { flex-basis: 100%; color: var(--muted); font-size: 9px; }
+.imdb-button svg { width: 16px; }
