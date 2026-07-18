@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { BookOpen, Compass, Play, ShieldCheck, X } from "lucide-react";
+import { Activity, BookOpen, Compass, Play, ShieldCheck, Shuffle, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { BETA_ONBOARDING_STORAGE_KEY, hasCompletedBetaOnboarding, OPEN_BETA_ONBOARDING_EVENT } from "../lib/onboarding";
 
@@ -74,7 +74,15 @@ export function BetaOnboarding({ autoOpen }: { autoOpen: boolean }) {
           </article>
           <article>
             <BookOpen />
-            <div><b>Read</b><span>Browse manga and switch between webtoon, left-to-right, and right-to-left modes.</span></div>
+            <div><b>Read</b><span>Use webtoon, left-to-right, right-to-left, or double-page layouts and save bookmarks.</span></div>
+          </article>
+          <article>
+            <Shuffle />
+            <div><b>Automatic recovery</b><span>HAO ranks source health and tries another installed source when one fails.</span></div>
+          </article>
+          <article>
+            <Activity />
+            <div><b>Activity</b><span>Resume from your timeline, enable release alerts, and review source issues.</span></div>
           </article>
         </div>
 
@@ -85,7 +93,7 @@ export function BetaOnboarding({ autoOpen }: { autoOpen: boolean }) {
 
         <div className="onboarding-actions">
           <button ref={startButton} className="button primary" onClick={() => dismiss(true)}>Start exploring</button>
-          <Link className="button ghost" href="/settings" onClick={() => dismiss(true)}>View source status</Link>
+          <Link className="button ghost" href="/activity" onClick={() => dismiss(true)}>Open activity</Link>
         </div>
         <small>You can reopen this guide anytime with <b>Beta guide</b> at the top of HAO.</small>
       </section>

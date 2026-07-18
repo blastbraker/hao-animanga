@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Captions, CheckCircle2, ChevronDown, ChevronRight, Film, ListVideo, LoaderCircle, Maximize2, Pause, Play, RefreshCw, RotateCcw, RotateCw, Search, Server, Settings2, SkipBack, SkipForward, TriangleAlert, Volume2, VolumeX } from "lucide-react";
+import { Captions, CheckCircle2, ChevronDown, ChevronRight, Film, Flag, ListVideo, LoaderCircle, Maximize2, Pause, Play, RefreshCw, RotateCcw, RotateCw, Scissors, Search, Server, Settings2, SkipBack, SkipForward, TriangleAlert, Volume2, VolumeX } from "lucide-react";
 import Hls from "hls.js";
 import { api, bridgeErrorMessage, bridgeJson, getActiveBridge, type LibraryResponse } from "../../../lib/api";
 import { completedEpisodeUnits, continueWatchingId, CONTINUE_WATCHING_STORAGE_KEY, DISMISSED_CONTINUE_STORAGE_KEY, parseContinueWatching, parseDismissedWorkIds, parsePlaybackPosition, playbackPercent, playbackStorageKey, resumablePosition, updateContinueWatching, type ContinueWatchingEntry } from "../../../lib/playback-progress";
@@ -9,6 +9,7 @@ import { confidentSourceMatch } from "../../../lib/source-match";
 import { rankSourcesByReliability, recordSourceResult } from "../../../lib/source-reliability";
 import { nextPlaybackCandidate, prioritizePlaybackItems } from "../../../lib/playback-recovery";
 import { pickAudioVariant, streamAudioMode, type AudioMode } from "../../../lib/stream-audio";
+import { maybeNotifyNewReleases, recordActivity, RELEASE_SNAPSHOTS_STORAGE_KEY, saveSourceReport, updateReleaseSnapshot } from "../../../lib/beta-features";
 
 type AnimeSourceSummary = {
   id: string;
@@ -85,6 +86,10 @@ export default function PlayerPage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [subtitleMode, setSubtitleMode] = useState("off");
+  const [subtitleSize, setSubtitleSize] = useState("100");
+  const [subtitleBackground, setSubtitleBackground] = useState("dark");
+  const [introEnd, setIntroEnd] = useState(0);
+  const [outroStart, setOutroStart] = useState(0);
   const [busy, setBusy] = useState("Connecting to HAO Bridge…");
   const [error, setError] = useState("");
 
@@ -110,12 +115,31 @@ export default function PlayerPage() {
     const savedVolume = Number(readPreference("hao:anime:volume"));
     if (Number.isFinite(savedVolume) && savedVolume >= 0 && savedVolume <= 1) setVolume(savedVolume);
     setMuted(readPreference("hao:anime:muted") === "true");
+    setSubtitleSize(readPreference("hao:anime:subtitle-size") || "100");
+    setSubtitleBackground(readPreference("hao:anime:subtitle-background") || "dark");
     void connect();
     return () => {
       if (controlsTimerRef.current !== null) window.clearTimeout(controlsTimerRef.current);
       safelyResetVideo(videoRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (!anime || !episodes.length) return;
+    const key = `anime:${sourceId}:${anime.id}`;
+    const snapshot = updateReleaseSnapshot(key, episodes.length, readPreference(RELEASE_SNAPSHOTS_STORAGE_KEY));
+    writePreference(RELEASE_SNAPSHOTS_STORAGE_KEY, JSON.stringify(snapshot.snapshots));
+    maybeNotifyNewReleases(anime.title, "episode", snapshot.previous, episodes.length);
+  }, [anime?.id, anime?.title, episodes.length, sourceId]);
+
+  useEffect(() => {
+    if (!sourceId || !animeId) return;
+    try {
+      const markers = JSON.parse(readPreference(`hao:anime:skip:${sourceId}:${animeId}`) || "{}") as { introEnd?: unknown; outroStart?: unknown };
+      setIntroEnd(typeof markers.introEnd === "number" ? markers.introEnd : 0);
+      setOutroStart(typeof markers.outroStart === "number" ? markers.outroStart : 0);
+    } catch { setIntroEnd(0); setOutroStart(0); }
+  }, [animeId, sourceId]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -650,6 +674,7 @@ export default function PlayerPage() {
     };
     writePreference(playbackStorageKey(sourceId, animeId, episode.id), JSON.stringify(saved));
     saveContinueEntry(episode, positionSeconds, video.duration, completed);
+    recordActivity({ id: `anime:${sourceId}:${animeId}`, kind: "watch", title: anime?.title ?? "Selected anime", detail: `Episode ${episode.number} · ${episode.title}`, href: window.location.pathname + window.location.search, sourceName: sources.find((item) => item.id === sourceId)?.name ?? anime?.provider ?? "Anime source", progressPercent: playbackPercent(positionSeconds, video.duration) });
     setProgressStatus(workId ? "Saving progress…" : "Resume saved on this device");
     if (!workId) return;
     try {
@@ -859,6 +884,17 @@ export default function PlayerPage() {
     setSubtitleMode(next);
   }
 
+  function saveSkipMarkers(nextIntro = introEnd, nextOutro = outroStart) {
+    setIntroEnd(nextIntro); setOutroStart(nextOutro);
+    writePreference(`hao:anime:skip:${sourceId}:${animeId}`, JSON.stringify({ introEnd: nextIntro, outroStart: nextOutro }));
+  }
+
+  function reportPlayerIssue() {
+    saveSourceReport({ medium: "anime", sourceId, sourceName: activeSourceName, title: anime?.title ?? "Selected anime", detail: error || `Playback issue for episode ${episode?.number ?? "unknown"}`, pageUrl: window.location.href });
+    void api("/source-reports", { method: "POST", body: JSON.stringify({ medium: "anime", sourceId, sourceName: activeSourceName, title: anime?.title ?? "Selected anime", detail: error || `Playback issue for episode ${episode?.number ?? "unknown"}` }) }).catch(() => undefined);
+    setProgressStatus("Issue saved for the beta administrator");
+  }
+
   const playedPercent = duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0;
   const activeSourceName = sources.find((item) => item.id === sourceId)?.name ?? anime?.provider ?? "HAO source";
   const posterUrl = workCoverUrl ?? anime?.thumbnailUrl ?? undefined;
@@ -878,6 +914,7 @@ export default function PlayerPage() {
         {stream ? (
           <video
             ref={videoRef}
+            className={`subtitle-size-${subtitleSize} subtitle-background-${subtitleBackground}`}
             key={`${episodeId}:${stream.id}`}
             playsInline
             preload="metadata"
@@ -915,6 +952,8 @@ export default function PlayerPage() {
         {stream && <div className="player-title-overlay"><div><b>{anime?.title ?? "Anime"}</b><span>{episode ? `Episode ${episode.number} · ${episode.title}` : "Select an episode"}</span></div><span className="player-quality-badge">{stream.quality ?? "AUTO"}</span></div>}
         {stream && !isPlaying && !isBuffering && <button className="player-center-action" aria-label="Play" onClick={() => void togglePlayback()}><Play fill="currentColor" /></button>}
         {stream && isBuffering && <div className="player-buffering" role="status"><LoaderCircle className="spin" /><span>Buffering</span></div>}
+        {stream && introEnd > 0 && currentTime < introEnd && <button className="skip-segment-button" onClick={() => seekTo(introEnd)}><SkipForward /> Skip intro</button>}
+        {stream && outroStart > 0 && currentTime >= outroStart && nextEpisode && <button className="skip-segment-button" onClick={() => void changeEpisode(nextEpisode.id, true)}><SkipForward /> Skip outro</button>}
 
         {stream && (
           <div className="custom-player-controls" aria-label="Playback controls">
@@ -945,6 +984,9 @@ export default function PlayerPage() {
             <label>Server<select aria-label="Stream server" value={serverId} onChange={(event) => void changeServer(event.target.value)} disabled={Boolean(busy) || !servers.length}>{servers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
             <label>Quality & audio<select aria-label="Stream quality" value={streamId} onChange={(event) => void changeStream(event.target.value)} disabled={Boolean(busy) || !streams.length}>{streams.map((item) => <option key={item.id} value={item.id}>{item.quality ?? "Auto"} · {item.audio ?? "Default audio"}</option>)}</select></label>
             <label>Subtitles<select aria-label="Subtitle track" value={subtitleMode} onChange={(event) => changeSubtitle(event.target.value)}><option value="off">Off</option>{stream.subtitles.map((subtitle, index) => <option key={subtitle.url} value={String(index)}>{subtitle.label}</option>)}</select></label>
+            <label>Subtitle size<select aria-label="Subtitle size" value={subtitleSize} onChange={(event) => { setSubtitleSize(event.target.value); writePreference("hao:anime:subtitle-size", event.target.value); }}><option value="75">Small</option><option value="100">Medium</option><option value="125">Large</option><option value="150">Extra large</option></select></label>
+            <label>Subtitle background<select aria-label="Subtitle background" value={subtitleBackground} onChange={(event) => { setSubtitleBackground(event.target.value); writePreference("hao:anime:subtitle-background", event.target.value); }}><option value="dark">Dark</option><option value="none">None</option></select></label>
+            <div className="skip-marker-settings"><span><Scissors/> Skip markers</span><button onClick={() => saveSkipMarkers(currentTime, outroStart)}>Intro ends here</button><button onClick={() => saveSkipMarkers(introEnd, currentTime)}>Outro starts here</button><button onClick={() => saveSkipMarkers(0, 0)}>Clear</button></div>
           </div>
         )}
       </div>
@@ -1070,6 +1112,7 @@ export default function PlayerPage() {
             <RefreshCw />
             Retry
           </button>
+          <button className="button ghost compact" onClick={reportPlayerIssue}><Flag /> Report source</button>
         </p>
       )}
       <div className="now-playing">

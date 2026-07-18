@@ -54,6 +54,17 @@ describe("API", () => {
     expect(first.json().work.id).toBe(second.json().work.id);
     expect(first.json().work.source.kind).toBe("MIHON_EXTENSION");
   });
+  it("creates custom lists and records source reports", async () => {
+    const created = await app.inject({ method: "POST", url: "/v1/lists", headers: { "x-user-id": user }, payload: { name: "Weekend queue" } });
+    expect(created.statusCode).toBe(201);
+    const listId = created.json().id as string;
+    const updated = await app.inject({ method: "PUT", url: `/v1/lists/${listId}/items/10000000-0000-4000-8000-000000000001`, headers: { "x-user-id": user }, payload: { included: true } });
+    expect(updated.statusCode).toBe(200);
+    const lists = await app.inject({ method: "GET", url: "/v1/lists", headers: { "x-user-id": user } });
+    expect(lists.json().items[0].workIds).toContain("10000000-0000-4000-8000-000000000001");
+    const report = await app.inject({ method: "POST", url: "/v1/source-reports", headers: { "x-user-id": user }, payload: { medium: "anime", sourceId: "fixture", sourceName: "Fixture", title: "Test title", detail: "No stream" } });
+    expect(report.statusCode).toBe(201);
+  });
   it("rejects development identity headers in production", async () => {
     const previous = process.env.NODE_ENV;
     process.env.NODE_ENV = "production";

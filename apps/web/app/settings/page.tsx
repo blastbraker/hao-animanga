@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { BookOpen, Check, Cloud, Download, Film, HardDrive, Link2, Plus, Power, RefreshCw, Search, Server, ShieldAlert, ShieldCheck, Trash2 } from "lucide-react";
-import { api, bridgeJson } from "../../lib/api";
+import { api, bridgeJson, type LibraryResponse } from "../../lib/api";
 
 const DISCLAIMER = "Third-party repositories and extensions are not created, reviewed, hosted, endorsed, supported, or controlled by HAO. Their developers and content providers are unaffiliated with HAO. Availability, safety, and legality are not guaranteed. You are responsible for using only content you are authorized to access and for complying with applicable laws and provider terms.";
 
@@ -376,6 +376,38 @@ export default function SettingsPage() {
     }
   }
 
+  async function exportAniListBackup() {
+    setBusyAction("anilist-export");
+    try {
+      const library = await api<LibraryResponse>("/library");
+      const entries = library.items.filter((entry) => entry.work.source.kind === "ANILIST").map((entry) => ({ anilistId: entry.work.source.externalId, title: entry.work.title, status: entry.status, favorite: entry.favorite, rating: entry.rating, notes: entry.notes, progress: entry.progress }));
+      const blob = new Blob([JSON.stringify({ format: "hao-anilist-library-v1", exportedAt: new Date().toISOString(), entries }, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = `hao-anilist-${new Date().toISOString().slice(0, 10)}.json`; link.click(); URL.revokeObjectURL(url);
+      setMessage(`Exported ${entries.length} AniList-linked titles.`);
+    } catch (error) { setMessage(error instanceof Error ? error.message : "AniList export failed."); } finally { setBusyAction(null); }
+  }
+
+  async function importAniListBackup(file: File | undefined) {
+    if (!file) return;
+    setBusyAction("anilist-import"); setMessage("Importing AniList-linked titles…");
+    try {
+      const payload = JSON.parse(await file.text()) as { entries?: unknown };
+      if (!Array.isArray(payload.entries)) throw new Error("Choose a HAO AniList backup JSON file.");
+      let imported = 0;
+      for (const raw of payload.entries.slice(0, 500)) {
+        if (!raw || typeof raw !== "object") continue;
+        const item = raw as Record<string, unknown>; const anilistId = String(item.anilistId ?? "");
+        if (!/^\d+$/.test(anilistId)) continue;
+        const result = await api<{ work: { id: string } }>(`/works/anilist/${encodeURIComponent(anilistId)}`);
+        await api("/library", { method: "PUT", body: JSON.stringify({ workId: result.work.id, status: ["PLANNING","WATCHING_READING","ON_HOLD","COMPLETED","DROPPED"].includes(String(item.status)) ? item.status : "PLANNING", favorite: item.favorite === true, rating: typeof item.rating === "number" ? item.rating : null, notes: typeof item.notes === "string" ? item.notes : "" }) });
+        const progress = item.progress as Record<string, unknown> | null;
+        if (progress && typeof progress.completedUnits === "number") await api("/progress", { method: "PUT", body: JSON.stringify({ workId: result.work.id, releaseItemId: null, completedUnits: progress.completedUnits, positionSeconds: typeof progress.positionSeconds === "number" ? progress.positionSeconds : null, positionPercent: typeof progress.positionPercent === "number" ? progress.positionPercent : null }) });
+        imported += 1;
+      }
+      setMessage(`Imported ${imported} AniList-linked titles into your HAO library.`);
+    } catch (error) { setMessage(error instanceof Error ? error.message : "AniList import failed."); } finally { setBusyAction(null); }
+  }
+
   return (
     <div className="page inner-page settings-page">
       <div className="page-intro">
@@ -391,6 +423,10 @@ export default function SettingsPage() {
           <Source icon={<BookOpen />} title="EPUB library" copy="Upload books to your private encrypted storage." action="Upload" />
           <Source icon={<Cloud />} title="AniList" copy="Catalog metadata and discovery." action="Active" active />
         </div>
+      </section>
+      <section className="settings-section admin-card anilist-sync-card">
+        <div><span className="eyebrow">ANILIST LIBRARY PORTABILITY</span><h2>Import or export your library</h2><p>Move AniList-linked titles, ratings, statuses, and progress without sharing an AniList password or token with HAO.</p></div>
+        <div className="anilist-sync-actions"><button className="button ghost" disabled={busyAction !== null} onClick={() => void exportAniListBackup()}><Download /> Export JSON</button><label className="button primary"><Cloud /> Import JSON<input type="file" accept="application/json,.json" disabled={busyAction !== null} onChange={(event) => { void importAniListBackup(event.target.files?.[0]); event.currentTarget.value = ""; }}/></label></div>
       </section>
 
       {activeBridge?.scope === "beta" ? (

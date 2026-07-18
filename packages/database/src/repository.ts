@@ -210,6 +210,29 @@ export class HaoRepository {
     return (await this.listLibrary(userId)).find((entry) => entry.work.id === input.workId) ?? null;
   }
 
+  async listCustomLists(userId: string): Promise<Array<{ id: string; name: string; description: string; workIds: string[] }>> {
+    const rows = await this.sql<{ id: string; name: string; description: string; work_ids: string[] | null }[]>`
+      select l.id,l.name,l.description,array_remove(array_agg(i.work_id order by i.position),null)::text[] work_ids
+      from custom_lists l left join custom_list_items i on i.list_id=l.id
+      where l.user_id=${userId} group by l.id order by l.created_at
+    `;
+    return rows.map((row) => ({ id: row.id, name: row.name, description: row.description, workIds: row.work_ids ?? [] }));
+  }
+
+  async createCustomList(userId: string, name: string): Promise<{ id: string; name: string; description: string; workIds: string[] }> {
+    const [row] = await this.sql<{ id: string; name: string; description: string }[]>`insert into custom_lists(user_id,name) values(${userId},${name}) returning id,name,description`;
+    if (!row) throw new Error("Custom list could not be created");
+    await this.audit(userId, "list.create", "custom_list", row.id, { name });
+    return { ...row, workIds: [] };
+  }
+
+  async setCustomListItem(userId: string, listId: string, workId: string, included: boolean): Promise<boolean> {
+    if (included) await this.sql`insert into custom_list_items(list_id,work_id,position) select l.id,${workId},coalesce((select max(position)+1 from custom_list_items where list_id=l.id),0) from custom_lists l where l.id=${listId} and l.user_id=${userId} on conflict do nothing`;
+    else await this.sql`delete from custom_list_items i using custom_lists l where i.list_id=l.id and l.id=${listId} and l.user_id=${userId} and i.work_id=${workId}`;
+    await this.audit(userId, included ? "list.item_add" : "list.item_remove", "custom_list", listId, { workId });
+    return true;
+  }
+
   async updateProgress(
     userId: string,
     input: {

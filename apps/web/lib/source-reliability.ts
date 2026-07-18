@@ -100,7 +100,7 @@ export function recordSourceResult(kind: SourceKind, sourceId: string, succeeded
   }
 }
 
-function readSourceReliability(): SourceReliabilityMap {
+export function readSourceReliability(): SourceReliabilityMap {
   if (typeof window === "undefined") return {};
   try {
     return parseSourceReliability(window.localStorage.getItem(SOURCE_RELIABILITY_STORAGE_KEY));
@@ -109,7 +109,7 @@ function readSourceReliability(): SourceReliabilityMap {
   }
 }
 
-function reliabilityScore(record?: SourceReliabilityRecord): number {
+export function reliabilityScore(record?: SourceReliabilityRecord): number {
   if (!record) return 0;
   const attempts = record.successes + record.failures;
   const successRate = attempts ? record.successes / attempts : 0;

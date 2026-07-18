@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type { Work } from "@hao/domain";
-import { BookOpen, ChevronLeft, ChevronRight, LoaderCircle, RefreshCw, Search, Server, TriangleAlert } from "lucide-react";
+import { BookMarked, BookOpen, ChevronLeft, ChevronRight, Columns2, Flag, LoaderCircle, RefreshCw, Search, Server, TriangleAlert } from "lucide-react";
 import { api, bridgeErrorMessage, bridgeJson, getActiveBridge, type LibraryResponse } from "../../lib/api";
 import {
   MangaChapter,
@@ -18,6 +18,7 @@ import {
 } from "../../lib/manga-response";
 import { findReadableMangaFallback, type ReadableMangaFallback } from "../../lib/manga-fallback";
 import { dedupeSourceResults, rankSourcesByReliability, recordSourceResult } from "../../lib/source-reliability";
+import { maybeNotifyNewReleases, parseReaderBookmarks, recordActivity, READER_BOOKMARKS_STORAGE_KEY, RELEASE_SNAPSHOTS_STORAGE_KEY, saveSourceReport, toggleReaderBookmark, updateReleaseSnapshot } from "../../lib/beta-features";
 type BrowseMode = "popular" | "latest";
 type ReadingMode = "webtoon" | "ltr" | "rtl";
 const ALL_SOURCES_ID = "all-installed-sources";
@@ -36,6 +37,8 @@ export default function ReaderPage() {
   const [visibleChapterCount, setVisibleChapterCount] = useState(50);
   const [pages, setPages] = useState<MangaChapterPages | null>(null);
   const [readingMode, setReadingMode] = useState<ReadingMode>("webtoon");
+  const [doublePage, setDoublePage] = useState(false);
+  const [bookmarked, setBookmarked] = useState(false);
   const [pageIndex, setPageIndex] = useState(0);
   const [busy, setBusy] = useState("Connecting to HAO Bridge…");
   const [error, setError] = useState("");
@@ -57,7 +60,16 @@ export default function ReaderPage() {
   useEffect(() => {
     const saved = window.localStorage.getItem("hao:manga-reading-mode");
     if (saved === "webtoon" || saved === "ltr" || saved === "rtl") setReadingMode(saved);
+    setDoublePage(window.localStorage.getItem("hao:manga-double-page") === "true");
   }, []);
+
+  useEffect(() => {
+    if (!selected || !chapters.length) return;
+    const key = `manga:${selected.sourceId}:${selected.id}`;
+    const snapshot = updateReleaseSnapshot(key, chapters.length, window.localStorage.getItem(RELEASE_SNAPSHOTS_STORAGE_KEY));
+    window.localStorage.setItem(RELEASE_SNAPSHOTS_STORAGE_KEY, JSON.stringify(snapshot.snapshots));
+    maybeNotifyNewReleases(selected.title, "chapter", snapshot.previous, chapters.length);
+  }, [chapters.length, selected?.id, selected?.sourceId, selected?.title]);
 
   useEffect(() => {
     setChapterQuery("");
@@ -84,6 +96,15 @@ export default function ReaderPage() {
     }, 600);
     return () => window.clearTimeout(timer);
   }, [currentChapter, pageIndex, pages, readingMode, selected]);
+
+  useEffect(() => {
+    if (!pages || !selected) return;
+    const id = `${selected.sourceId}:${selected.id}:${pages.chapterIndex}:${pageIndex}`;
+    setBookmarked(parseReaderBookmarks(window.localStorage.getItem(READER_BOOKMARKS_STORAGE_KEY)).some((item) => item.id === id));
+    const url = new URL(window.location.href);
+    url.searchParams.set("page", String(pageIndex));
+    window.history.replaceState(null, "", url);
+  }, [pageIndex, pages?.chapterIndex, selected?.id, selected?.sourceId]);
 
   async function bridgeRequest<T>(path: string, endpoint = bridge): Promise<T> {
     return bridgeJson<T>(endpoint, path);
@@ -135,6 +156,7 @@ export default function ReaderPage() {
   }
 
   async function syncChapterProgress(chapter: MangaChapter, positionPercent: number | null) {
+    if (!selected) return;
     try {
       const workId = await ensureLibraryWork();
       await api("/progress", {
@@ -151,6 +173,7 @@ export default function ReaderPage() {
     } catch {
       setSyncStatus("Progress saved on this page only · sync unavailable");
     }
+    recordActivity({ id: `manga:${selected.sourceId}:${selected.id}`, kind: "read", title: selected.title, detail: chapter.name, href: window.location.pathname + window.location.search, sourceName: selectedSource?.displayName ?? activeSource?.displayName ?? "Manga source", progressPercent: positionPercent });
   }
 
   async function findMangaFallback(title: string, currentSource: MangaSource, availableSources: MangaSource[], endpoint = bridge): Promise<ReadableMangaFallback | null> {
@@ -180,6 +203,7 @@ export default function ReaderPage() {
         const requestedSourceId = parameters.get("sourceId");
         const requestedMangaId = Number(parameters.get("mangaId"));
         const requestedChapterIndex = Number(parameters.get("chapterIndex"));
+        const requestedPage = Math.max(0, Number(parameters.get("page")) || 0);
         const requestedQuery = parameters.get("query")?.trim() ?? "";
         const requestedWorkId = parameters.get("workId");
         const requestedMode: BrowseMode = parameters.get("mode") === "latest" ? "latest" : "popular";
@@ -233,7 +257,7 @@ export default function ReaderPage() {
             if (!chapterPages) throw new Error("This source returned invalid page data for the selected chapter.");
             if (cancelled) return;
             setPages(chapterPages);
-            setPageIndex(0);
+            setPageIndex(Math.min(chapterPages.pageCount - 1, requestedPage));
           }
         }
         setBusy("");
@@ -369,6 +393,12 @@ export default function ReaderPage() {
       if (!chapterPages) throw new Error("This source returned invalid page data for the selected chapter.");
       setPages(chapterPages);
       setPageIndex(0);
+      const url = new URL(window.location.href);
+      url.searchParams.set("sourceId", selected.sourceId || sourceId);
+      url.searchParams.set("mangaId", String(selected.id));
+      url.searchParams.set("chapterIndex", String(chapter.index));
+      url.searchParams.delete("page");
+      window.history.replaceState(null, "", url);
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (cause) {
       setError(message(cause));
@@ -386,6 +416,29 @@ export default function ReaderPage() {
     setReadingMode(mode);
     setPageIndex(0);
     window.localStorage.setItem("hao:manga-reading-mode", mode);
+  }
+
+  function toggleDoublePage() {
+    setDoublePage((value) => { const next = !value; window.localStorage.setItem("hao:manga-double-page", String(next)); return next; });
+    setPageIndex(0);
+  }
+
+  function toggleBookmark() {
+    if (!selected || !pages) return;
+    const id = `${selected.sourceId}:${selected.id}:${pages.chapterIndex}:${pageIndex}`;
+    const url = new URL(window.location.href);
+    url.searchParams.set("page", String(pageIndex));
+    const current = parseReaderBookmarks(window.localStorage.getItem(READER_BOOKMARKS_STORAGE_KEY));
+    const next = toggleReaderBookmark(current, { id, title: selected.title, chapterName: pages.chapterName, page: pageIndex + 1, href: `${url.pathname}${url.search}`, createdAt: new Date().toISOString() });
+    window.localStorage.setItem(READER_BOOKMARKS_STORAGE_KEY, JSON.stringify(next));
+    setBookmarked(next.some((item) => item.id === id));
+  }
+
+  function reportReaderIssue() {
+    if (!selected) return;
+    saveSourceReport({ medium: "manga", sourceId: selected.sourceId || sourceId, sourceName: selectedSource?.displayName ?? activeSource?.displayName ?? "Manga source", title: selected.title, detail: error || `Problem with ${pages?.chapterName ?? "chapters"}`, pageUrl: window.location.href });
+    void api("/source-reports", { method: "POST", body: JSON.stringify({ medium: "manga", sourceId: selected.sourceId || sourceId, sourceName: selectedSource?.displayName ?? activeSource?.displayName ?? "Manga source", title: selected.title, detail: error || `Problem with ${pages?.chapterName ?? "chapters"}` }) }).catch(() => undefined);
+    setSyncStatus("Issue saved for the beta administrator");
   }
 
   function resetTitle() {
@@ -407,12 +460,15 @@ export default function ReaderPage() {
             <span>{pages.chapterName}{syncStatus ? ` · ${syncStatus}` : ""}</span>
           </div>
           <div className="reader-mode-controls">
+            <button aria-label="Report a source issue" onClick={reportReaderIssue}><Flag /></button>
+            <button className={bookmarked ? "active" : ""} aria-label={bookmarked ? "Remove bookmark" : "Bookmark this page"} onClick={toggleBookmark}><BookMarked /></button>
+            {readingMode !== "webtoon" && <button className={doublePage ? "active" : ""} aria-label="Toggle double-page spread" onClick={toggleDoublePage}><Columns2 /></button>}
             <select aria-label="Reading mode" value={readingMode} onChange={(event) => changeReadingMode(event.target.value as ReadingMode)}>
               <option value="webtoon">Webtoon</option>
               <option value="ltr">Left to right</option>
               <option value="rtl">Right to left</option>
             </select>
-            <span>{readingMode === "webtoon" ? `${pages.pageCount} pages` : `${pageIndex + 1} / ${pages.pageCount}`}</span>
+            <span>{readingMode === "webtoon" ? `${pages.pageCount} pages` : `${pageIndex + 1}${doublePage && pageIndex + 1 < pages.pageCount ? `–${pageIndex + 2}` : ""} / ${pages.pageCount}`}</span>
           </div>
         </header>
         {busy && <ReaderStatus text={busy} />} {error && <ReaderError text={error} onRetry={() => window.location.reload()} />}
@@ -421,7 +477,10 @@ export default function ReaderPage() {
             pages.pageUrls.map((url, index) => <img key={url} loading={index < 2 ? "eager" : "lazy"} src={`${bridge}${url}`} alt={`Page ${index + 1} of ${pages.pageCount}`} />)
           ) : (
             <>
-              <img key={pages.pageUrls[pageIndex]} src={`${bridge}${pages.pageUrls[pageIndex]}`} alt={`Page ${pageIndex + 1} of ${pages.pageCount}`} />
+              <div className={doublePage ? "reader-spread" : "reader-single-page"}>
+                <img key={pages.pageUrls[pageIndex]} src={`${bridge}${pages.pageUrls[pageIndex]}`} alt={`Page ${pageIndex + 1} of ${pages.pageCount}`} />
+                {doublePage && pages.pageUrls[pageIndex + 1] && <img key={pages.pageUrls[pageIndex + 1]} src={`${bridge}${pages.pageUrls[pageIndex + 1]}`} alt={`Page ${pageIndex + 2} of ${pages.pageCount}`} />}
+              </div>
               <div className="page-turn-zones" role="group" aria-label="Page turn controls">
                 <button
                   type="button"
@@ -429,7 +488,7 @@ export default function ReaderPage() {
                   aria-label="Previous page"
                   title="Previous page"
                   disabled={pageIndex === 0}
-                  onClick={() => setPageIndex((current) => Math.max(0, current - 1))}
+                  onClick={() => setPageIndex((current) => Math.max(0, current - (doublePage ? 2 : 1)))}
                 >
                   <span><ChevronLeft /> Previous</span>
                 </button>
@@ -439,7 +498,7 @@ export default function ReaderPage() {
                   aria-label="Next page"
                   title="Next page"
                   disabled={pageIndex >= pages.pageCount - 1}
-                  onClick={() => setPageIndex((current) => Math.min(pages.pageCount - 1, current + 1))}
+                  onClick={() => setPageIndex((current) => Math.min(pages.pageCount - 1, current + (doublePage ? 2 : 1)))}
                 >
                   <span>Next <ChevronRight /></span>
                 </button>
@@ -458,7 +517,7 @@ export default function ReaderPage() {
             </button>
           </footer>
         ) : (
-          <PagedNavigation mode={readingMode} pageIndex={pageIndex} pageCount={pages.pageCount} setPageIndex={setPageIndex} />
+          <PagedNavigation mode={readingMode} pageIndex={pageIndex} pageCount={pages.pageCount} step={doublePage ? 2 : 1} setPageIndex={setPageIndex} />
         )}
       </div>
     );
@@ -605,24 +664,24 @@ function message(cause: unknown) {
   return bridgeErrorMessage(cause, "The manga source could not complete this request.");
 }
 
-function PagedNavigation({ mode, pageIndex, pageCount, setPageIndex }: { mode: ReadingMode; pageIndex: number; pageCount: number; setPageIndex: (value: number) => void }) {
+function PagedNavigation({ mode, pageIndex, pageCount, step, setPageIndex }: { mode: ReadingMode; pageIndex: number; pageCount: number; step: number; setPageIndex: (value: number) => void }) {
   const previous =
     mode === "rtl" ? (
-      <button disabled={pageIndex === 0} onClick={() => setPageIndex(pageIndex - 1)}>
+      <button disabled={pageIndex === 0} onClick={() => setPageIndex(Math.max(0, pageIndex - step))}>
         Previous page <ChevronRight />
       </button>
     ) : (
-      <button disabled={pageIndex === 0} onClick={() => setPageIndex(pageIndex - 1)}>
+      <button disabled={pageIndex === 0} onClick={() => setPageIndex(Math.max(0, pageIndex - step))}>
         <ChevronLeft /> Previous page
       </button>
     );
   const next =
     mode === "rtl" ? (
-      <button disabled={pageIndex >= pageCount - 1} onClick={() => setPageIndex(pageIndex + 1)}>
+      <button disabled={pageIndex >= pageCount - 1} onClick={() => setPageIndex(Math.min(pageCount - 1, pageIndex + step))}>
         <ChevronLeft /> Next page
       </button>
     ) : (
-      <button disabled={pageIndex >= pageCount - 1} onClick={() => setPageIndex(pageIndex + 1)}>
+      <button disabled={pageIndex >= pageCount - 1} onClick={() => setPageIndex(Math.min(pageCount - 1, pageIndex + step))}>
         Next page <ChevronRight />
       </button>
     );

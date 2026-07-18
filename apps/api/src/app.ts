@@ -30,6 +30,7 @@ export function buildApp() {
   const invitations: Array<Record<string, unknown>> = [];
   const jellyfinConnections = new Map<string, JellyfinConnection>();
   const directMedia = new Map<string, Array<{ id: string; name: string; url: string; kind: "HLS" | "MP4" }>>();
+  const customLists = new Map<string, Array<{ id: string; name: string; description: string; workIds: string[] }>>();
   const pairingCodes = new Map<string, { userId: string; expiresAt: number }>();
   const bridgeDevices = new Map<
     string,
@@ -262,6 +263,40 @@ export function buildApp() {
     const entry = libraryStore.get(libraryKey);
     if (entry) libraryStore.set(libraryKey, { ...entry, updatedAt: progress.updatedAt });
     return progress;
+  });
+
+  app.get("/v1/lists", { preHandler: authenticate }, async (request) => ({ items: repository ? await repository.listCustomLists(request.user.id) : customLists.get(request.user.id) ?? [] }));
+
+  app.post("/v1/lists", { preHandler: authenticate }, async (request, reply) => {
+    const name = typeof (request.body as { name?: unknown } | null)?.name === "string" ? String((request.body as { name: string }).name).trim().slice(0, 80) : "";
+    if (!name) return reply.code(400).send({ code: "INVALID", message: "A list name is required", retryable: false });
+    try {
+      const item = repository ? await repository.createCustomList(request.user.id, name) : { id: randomUUID(), name, description: "", workIds: [] as string[] };
+      if (!repository) customLists.set(request.user.id, [...(customLists.get(request.user.id) ?? []), item]);
+      return reply.code(201).send(item);
+    } catch { return reply.code(409).send({ code: "CONFLICT", message: "A list with that name already exists", retryable: false }); }
+  });
+
+  app.put<{ Params: { id: string; workId: string } }>("/v1/lists/:id/items/:workId", { preHandler: authenticate }, async (request) => {
+    const included = (request.body as { included?: unknown } | null)?.included !== false;
+    if (repository) await repository.setCustomListItem(request.user.id, request.params.id, request.params.workId, included);
+    else customLists.set(request.user.id, (customLists.get(request.user.id) ?? []).map((list) => list.id === request.params.id ? { ...list, workIds: included ? [...new Set([...list.workIds, request.params.workId])] : list.workIds.filter((id) => id !== request.params.workId) } : list));
+    return { saved: true };
+  });
+
+  app.post("/v1/source-reports", { preHandler: authenticate }, async (request, reply) => {
+    const body = request.body as Record<string, unknown> | null;
+    const medium = body?.medium;
+    const sourceId = typeof body?.sourceId === "string" ? body.sourceId.trim().slice(0, 200) : "";
+    const sourceName = typeof body?.sourceName === "string" ? body.sourceName.trim().slice(0, 200) : "";
+    const title = typeof body?.title === "string" ? body.title.trim().slice(0, 300) : "";
+    const detail = typeof body?.detail === "string" ? body.detail.trim().slice(0, 1_000) : "";
+    if ((medium !== "anime" && medium !== "manga") || !sourceId || !sourceName || !title || !detail)
+      return reply.code(400).send({ code: "INVALID", message: "A complete anime or manga source report is required", retryable: false });
+    const metadata = { medium, sourceId, sourceName, title, detail };
+    if (repository) await repository.audit(request.user.id, "source.report", "extension_source", sourceId, metadata);
+    else audit.unshift({ actorId: request.user.id, action: "source.report", subjectType: "extension_source", subjectId: sourceId, metadata, at: new Date().toISOString() });
+    return reply.code(201).send({ saved: true });
   });
 
   app.post("/v1/epubs", { preHandler: authenticate }, async (request, reply) => {

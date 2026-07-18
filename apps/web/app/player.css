@@ -3,6 +3,12 @@
 .player-primary { min-width: 0; }
 .streaming-stage { position: relative; width: 100%; aspect-ratio: 16/9; max-height: 72vh; overflow: hidden; border: 1px solid rgba(255,255,255,.1); border-radius: 14px; background-color: #000; background-size: cover; background-position: center; box-shadow: 0 24px 80px rgba(0,0,0,.48); isolation: isolate; }
 .streaming-stage video { width: 100%; height: 100%; display: block; object-fit: contain; background: #000; cursor: pointer; }
+.streaming-stage video.subtitle-size-75::cue { font-size: 75%; }
+.streaming-stage video.subtitle-size-100::cue { font-size: 100%; }
+.streaming-stage video.subtitle-size-125::cue { font-size: 125%; }
+.streaming-stage video.subtitle-size-150::cue { font-size: 150%; }
+.streaming-stage video.subtitle-background-dark::cue { color: #fff; background: rgba(0,0,0,.82); }
+.streaming-stage video.subtitle-background-none::cue { color: #fff; background: transparent; text-shadow: 0 2px 5px #000,0 0 3px #000; }
 .streaming-stage:fullscreen { width: 100vw; height: 100vh; max-height: none; aspect-ratio: auto; border: 0; border-radius: 0; }
 .player-placeholder { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 14px; color: var(--muted); background: radial-gradient(circle,rgba(140,111,255,.12),transparent 34%),rgba(0,0,0,.7); }
 .player-placeholder svg { width: 52px; height: 52px; color: var(--violet); }
@@ -17,6 +23,9 @@
 .player-center-action svg { width: 28px; height: 28px; margin-left: 3px; }
 .player-buffering { position: absolute; z-index: 5; inset: 50% auto auto 50%; display: grid; justify-items: center; gap: 10px; transform: translate(-50%,-50%); color: #fff; font-size: 10px; }
 .player-buffering svg { width: 42px; height: 42px; color: var(--cyan); }
+.skip-segment-button { position: absolute; z-index: 7; right: 22px; bottom: 82px; display: flex; align-items: center; gap: 7px; padding: 10px 14px; border: 1px solid rgba(255,255,255,.26); border-radius: 7px; color: #fff; background: rgba(8,10,17,.88); font: 750 10px var(--font-display); cursor: pointer; }
+.skip-segment-button:hover { color: #07110f; border-color: var(--cyan); background: var(--cyan); }
+.skip-segment-button svg { width: 16px; }
 .custom-player-controls { position: absolute; z-index: 6; inset: auto 0 0; padding: 65px 20px 16px; background: linear-gradient(transparent,rgba(0,0,0,.92)); opacity: 1; transform: none; transition: opacity .22s ease,transform .22s ease; }
 .controls-hidden .custom-player-controls { opacity: 0; transform: translateY(8px); pointer-events: none; }
 .controls-hidden .player-title-overlay { opacity: 0; }
@@ -40,6 +49,11 @@
 .playback-settings-heading button { width: 30px; height: 30px; font-size: 20px; }
 .playback-settings label { display: grid; gap: 6px; color: var(--muted); font-size: 8px; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
 .playback-settings select { width: 100%; min-width: 0; padding: 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--text); background: var(--panel2); font-size: 10px; letter-spacing: 0; text-transform: none; }
+.skip-marker-settings { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding-top: 4px; }
+.skip-marker-settings span { grid-column: 1/-1; display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 9px; }
+.skip-marker-settings span svg { width: 14px; }
+.skip-marker-settings button { min-height: 32px; border: 1px solid var(--line); border-radius: 7px; color: #d7dae2; background: var(--panel2); font-size: 8px; cursor: pointer; }
+.skip-marker-settings button:last-child { grid-column: 1/-1; color: var(--muted); }
 .episode-rail { min-height: 0; max-height: min(72vh,720px); display: grid; grid-template-rows: auto 1fr; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: linear-gradient(155deg,rgba(21,25,39,.98),rgba(10,12,20,.98)); }
 .episode-rail-heading { min-height: 72px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; border-bottom: 1px solid var(--line); }
 .episode-rail-heading>div { display: flex; align-items: center; gap: 11px; }

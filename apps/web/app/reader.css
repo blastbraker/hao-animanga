@@ -40,11 +40,17 @@
 .live-reader .reader-toolbar > span { color: var(--muted); }
 .reader-mode-controls { display: flex !important; align-items: center; gap: 10px; }
 .reader-mode-controls select { background: var(--panel2); border: 1px solid var(--line); color: var(--text); border-radius: 9px; padding: 8px 10px; }
+.reader-mode-controls button { width: 34px; height: 34px; display: grid; place-items: center; padding: 0; border: 1px solid var(--line); border-radius: 9px; background: var(--panel2); color: var(--muted); cursor: pointer; }
+.reader-mode-controls button.active { color: var(--cyan); border-color: rgba(96,239,227,.35); background: rgba(96,239,227,.08); }
+.reader-mode-controls button svg { width: 16px; }
 .manga-pages { width: min(100%, 1100px); margin: 28px auto; display: grid; justify-items: center; }
 .manga-pages img { display: block; max-width: 100%; height: auto; background: #111; }
 .manga-pages.webtoon { gap: 0; }
 .manga-pages.paged { position: relative; min-height: calc(100vh - 245px); place-items: center; padding: 12px 24px; }
 .manga-pages.paged img { max-height: calc(100vh - 245px); object-fit: contain; }
+.reader-single-page,.reader-spread { display: flex; align-items: center; justify-content: center; min-width: 0; max-width: 100%; }
+.reader-spread { gap: 4px; }
+.reader-spread img { width: auto; max-width: 50%; }
 .page-turn-zones { position: absolute; inset: 0; pointer-events: none; }
 .page-turn-zone { position: absolute; inset-block: 0; width: 50%; border: 0; padding: 0 clamp(14px,4vw,48px); background: transparent; color: #fff; cursor: pointer; pointer-events: auto; opacity: 0; transition: opacity .18s ease, background .18s ease; }
 .page-turn-zone.previous { left: 0; display: flex; align-items: center; justify-content: flex-start; background: linear-gradient(90deg,rgba(5,8,16,.5),transparent 45%); }
