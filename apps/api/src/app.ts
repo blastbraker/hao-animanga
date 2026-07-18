@@ -14,7 +14,7 @@ import { inspectEpub } from "./epub.js";
 import { encryptCredential } from "./crypto.js";
 import { testJellyfin, type JellyfinConnection } from "./jellyfin.js";
 import { safeProviderFetch, validatePublicHttps } from "./security.js";
-import { buildInviteCallbackUrl, generateInviteLink, getWebOrigin, uploadEpub } from "./supabase.js";
+import { completePasswordSetup, createPasswordInvitation, generateTemporaryPassword, uploadEpub } from "./supabase.js";
 
 export function buildApp() {
   const app = Fastify({
@@ -83,6 +83,10 @@ export function buildApp() {
     user: request.user,
     inviteOnly: true
   }));
+  app.post("/v1/auth/password-ready", { preHandler: authenticate }, async (request) => {
+    await completePasswordSetup(request.user.id);
+    return { ready: true };
+  });
 
   app.get("/v1/discover", async () => {
     if (process.env.NODE_ENV === "test")
@@ -627,14 +631,14 @@ export function buildApp() {
     const token = randomBytes(24).toString("base64url");
     const expiresAt = new Date(Date.now() + 7 * 86_400_000);
     if (repository) {
-      const generated = await generateInviteLink(email);
+      const generated = await createPasswordInvitation(email);
       const invitation = await repository.createInvitation({
         email,
         invitedBy: request.user.id,
         tokenHash: createHash("sha256").update(token).digest("hex"),
         expiresAt
       });
-      return reply.code(201).send({ ...invitation, inviteUrl: generated.inviteUrl });
+      return reply.code(201).send({ ...invitation, temporaryPassword: generated.temporaryPassword });
     }
     const invitation = {
       id: randomUUID(),
@@ -646,7 +650,7 @@ export function buildApp() {
     invitations.push(invitation);
     return reply.code(201).send({
       ...invitation,
-      inviteUrl: buildInviteCallbackUrl(getWebOrigin(), token)
+      temporaryPassword: generateTemporaryPassword()
     });
   });
   app.post("/v1/admin/shared-bridge", { preHandler: requireAdmin }, async (request, reply) => {

@@ -15,6 +15,7 @@ export default function AuthCallbackPage() {
     const tokenHash = url.searchParams.get("token_hash");
     const otpType = supportedEmailOtpType(url.searchParams.get("type"));
     const authError = url.searchParams.get("error_description");
+    const flow = url.searchParams.get("flow");
     const next = safeNextDestination(url.searchParams.get("next"));
 
     if (!supabase || authError) {
@@ -36,6 +37,11 @@ export default function AuthCallbackPage() {
 
       if (result.error || !result.data.session) {
         setMessage(result.error?.message ?? "This sign-in link is invalid or expired.");
+        return;
+      }
+
+      if (otpType === "invite" || otpType === "recovery" || flow === "recovery") {
+        window.location.replace(`/auth/set-password?next=${encodeURIComponent(next)}`);
         return;
       }
 

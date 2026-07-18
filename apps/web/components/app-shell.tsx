@@ -31,6 +31,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       if (cancelled) return;
       setUser(nextUser); setAuthError("");
       if (!nextUser) { setRole(null); return; }
+      if (nextUser.app_metadata?.must_change_password === true) { setRole(null); return; }
       setRole(undefined);
       try {
         const session = await api<{ user: { role: "member" | "admin" } }>("/session");
@@ -66,10 +67,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       window.location.replace(`/login?next=${encodeURIComponent(`${path}${window.location.search}`)}`);
     }
   }, [path, supabase, user]);
+  useEffect(() => {
+    if (supabase && user?.app_metadata?.must_change_password === true && !path.startsWith("/auth/")) {
+      window.location.replace(`/auth/set-password?next=${encodeURIComponent(`${path}${window.location.search}`)}`);
+    }
+  }, [path, supabase, user]);
   if (path === "/login" || path.startsWith("/auth/")) return <>{children}</>;
   if (process.env.NODE_ENV === "production" && (!hasSupabaseBrowserConfig() || !API_URL)) return <DeploymentConfigurationError/>;
   if (supabase && (user === undefined || (user && role === undefined))) return <div className="login-page"><span>Loading HAO…</span></div>;
   if (supabase && !user) return <div className="login-page"><span>Redirecting to sign in…</span></div>;
+  if (supabase && user?.app_metadata?.must_change_password === true) return <div className="login-page"><span>Redirecting to password setup…</span></div>;
   if (authError) return <div className="login-page"><section className="login-card"><img className="brand-mark" src="/brand/hao-logo-64.png" alt="HAO"/><h1>Session unavailable</h1><p>{authError}</p><button className="button primary" onClick={()=>window.location.reload()}>Try again</button></section></div>;
   if (path.startsWith("/admin") && role !== "admin") return <div className="login-page"><section className="login-card"><img className="brand-mark" src="/brand/hao-logo-64.png" alt="HAO"/><h1>Administrator access required</h1><p>This account cannot open HAO’s operational console.</p><Link className="button primary" href="/">Return home</Link></section></div>;
   const label = user?.email?.split("@")[0] ?? "Ali";

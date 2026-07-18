@@ -17,7 +17,7 @@ type Overview = {
   providers: Array<{ name: string; health: string }>;
 };
 
-type CreatedInvitation = { email: string; inviteUrl: string };
+type CreatedInvitation = { email: string; temporaryPassword: string };
 type BridgeDevice = {
   id: string;
   name: string;
@@ -79,9 +79,9 @@ export default function AdminPage() {
   async function copyInvite() {
     if (!created) return;
     try {
-      await navigator.clipboard.writeText(created.inviteUrl);
+      await navigator.clipboard.writeText(created.temporaryPassword);
       setCopied(true);
-      setMessage("Invite link copied.");
+      setMessage("Temporary password copied.");
     } catch {
       setMessage("Copy was blocked by the browser. Select the link and copy it manually.");
     }
@@ -156,16 +156,16 @@ export default function AdminPage() {
           <form className="repo-form" onSubmit={invite}>
             <input aria-label="New member email" type="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="new-member@example.com" />
             <button className="button primary" disabled={busy}>
-              <Link2 /> {busy ? "Creating..." : "Create invite link"}
+              <Link2 /> {busy ? "Creating..." : "Create tester login"}
             </button>
           </form>
           {message && <p role="status">{message}</p>}
           {created && (
             <div className="invite-result">
-              <b>One-time link for {created.email}</b>
-              <p>This link signs in the recipient. Treat it like a password and send it only to that person.</p>
+              <b>Temporary password for {created.email}</b>
+              <p>Send this password privately. The tester must replace it the first time they sign in.</p>
               <div className="invite-copy-row">
-                <input aria-label={`Invitation link for ${created.email}`} readOnly value={created.inviteUrl} onFocus={(event) => event.currentTarget.select()} />
+                <input aria-label={`Temporary password for ${created.email}`} readOnly value={created.temporaryPassword} onFocus={(event) => event.currentTarget.select()} />
                 <button className="button ghost" type="button" onClick={copyInvite}>
                   {copied ? <Check /> : <Copy />} {copied ? "Copied" : "Copy"}
                 </button>

@@ -8,3 +8,6 @@
 .login-card label { font-size: 12px; color: #cdd0d9; }
 .login-card input { width: 100%; padding: 13px 14px; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; }
 .login-card .button { margin-top: 5px; }
+.login-link-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 8px; border: 0; color: var(--muted); background: transparent; cursor: pointer; font-size: 11px; }
+.login-link-button:hover { color: var(--cyan); }
+.login-link-button svg { width: 15px; }

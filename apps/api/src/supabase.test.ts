@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildInviteCallbackUrl } from "./supabase.js";
+import { buildInviteCallbackUrl, generateTemporaryPassword } from "./supabase.js";
 
 describe("invite callback URLs", () => {
   it("builds a cross-browser token-hash invitation URL", () => {
@@ -10,5 +10,13 @@ describe("invite callback URLs", () => {
     expect(result.searchParams.get("token_hash")).toBe("hash/with+symbols=");
     expect(result.searchParams.get("type")).toBe("invite");
     expect(result.hash).toBe("");
+  });
+  it("creates a strong temporary password", () => {
+    const password = generateTemporaryPassword();
+    expect(password.length).toBeGreaterThanOrEqual(20);
+    expect(password).toMatch(/[a-z]/);
+    expect(password).toMatch(/[A-Z]/);
+    expect(password).toMatch(/[0-9]/);
+    expect(password).toMatch(/[^a-zA-Z0-9]/);
   });
 });

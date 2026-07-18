@@ -65,6 +65,13 @@ describe("API", () => {
     const report = await app.inject({ method: "POST", url: "/v1/source-reports", headers: { "x-user-id": user }, payload: { medium: "anime", sourceId: "fixture", sourceName: "Fixture", title: "Test title", detail: "No stream" } });
     expect(report.statusCode).toBe(201);
   });
+  it("creates an email-and-password beta login", async () => {
+    const response = await app.inject({ method: "POST", url: "/v1/admin/invitations", headers: { "x-user-id": admin }, payload: { email: "password-tester@example.com" } });
+    expect(response.statusCode).toBe(201);
+    expect(response.json().email).toBe("password-tester@example.com");
+    expect(response.json().temporaryPassword).toMatch(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{20,}$/);
+    expect(response.json().inviteUrl).toBeUndefined();
+  });
   it("rejects development identity headers in production", async () => {
     const previous = process.env.NODE_ENV;
     process.env.NODE_ENV = "production";
