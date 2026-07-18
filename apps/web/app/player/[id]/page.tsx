@@ -215,7 +215,7 @@ export default function PlayerPage() {
       if (initialMode === "search" && requestedQuery && requestedAnimeId) {
         await loadAnimeWithSourceFallback(endpoint, nextSources, initialSource.id, requestedQuery, requestedAnimeId, requestedEpisodeId ?? undefined, alternateTitles);
       } else {
-        await loadCatalog(endpoint, initialSource.id, initialMode, requestedQuery, requestedAnimeId ?? undefined, requestedEpisodeId ?? undefined);
+        await loadCatalog(endpoint, initialSource.id, initialMode, requestedQuery, requestedAnimeId ?? undefined, requestedEpisodeId ?? undefined, nextSources);
       }
     } catch (cause) {
       setBusy("");
@@ -253,7 +253,7 @@ export default function PlayerPage() {
     return alternateTitles;
   }
 
-  async function loadCatalog(endpoint: string, nextSourceId: string, mode: "popular" | "latest" | "search", query: string, preferredAnimeId?: string, preferredEpisodeId?: string) {
+  async function loadCatalog(endpoint: string, nextSourceId: string, mode: "popular" | "latest" | "search", query: string, preferredAnimeId?: string, preferredEpisodeId?: string, availableSources: AnimeSourceSummary[] = sources) {
     setBusy(mode === "search" ? `Searching for “${query}”…` : mode === "latest" ? "Loading latest updates…" : "Loading popular anime…");
     setError("");
     setSourceFallbackStatus("");
@@ -280,7 +280,7 @@ export default function PlayerPage() {
               id: preferredAnimeId,
               title: query || "Selected anime",
               description: "Selected from a verified HAO title match.",
-              provider: sources.find((item) => item.id === nextSourceId)?.name ?? "Installed anime source",
+              provider: availableSources.find((item) => item.id === nextSourceId)?.name ?? "Installed anime source",
               attribution: "HAO Bridge"
             } satisfies AnimeCatalogItem)
           : null;
@@ -292,9 +292,9 @@ export default function PlayerPage() {
       const loaded = await loadAnime(endpoint, initialTitle.id, false, preferredEpisodeId);
       if (!loaded) {
         failedPlaybackSourcesRef.current.add(nextSourceId);
-        const remainingSources = sources.filter((source) => !failedPlaybackSourcesRef.current.has(source.id));
+        const remainingSources = availableSources.filter((source) => !failedPlaybackSourcesRef.current.has(source.id));
         if (!remainingSources.length) throw new Error(`No installed source returned a playable stream for “${initialTitle.title}”.`);
-        const failedSource = sources.find((source) => source.id === nextSourceId)?.name ?? "The selected source";
+        const failedSource = availableSources.find((source) => source.id === nextSourceId)?.name ?? "The selected source";
         await loadAnimeWithSourceFallback(endpoint, remainingSources, remainingSources[0]!.id, initialTitle.title, undefined, undefined, [], true);
         setSourceFallbackStatus(`Switched sources because ${failedSource} listed episodes but returned no playable streams.`);
       }
