@@ -10,6 +10,7 @@ import { rankSourcesByReliability, recordSourceResult } from "../../../lib/sourc
 import { nextPlaybackCandidate, prioritizePlaybackItems } from "../../../lib/playback-recovery";
 import { pickAudioVariant, streamAudioMode, type AudioMode } from "../../../lib/stream-audio";
 import { maybeNotifyNewReleases, recordActivity, RELEASE_SNAPSHOTS_STORAGE_KEY, saveSourceReport, updateReleaseSnapshot } from "../../../lib/beta-features";
+import { isPlayerFullscreen, togglePlayerFullscreen, type FullscreenVideo } from "../../../lib/player-fullscreen";
 
 type AnimeSourceSummary = {
   id: string;
@@ -138,10 +139,19 @@ export default function PlayerPage() {
   }, [muted, streamId, volume]);
 
   useEffect(() => {
-    const fullscreenChanged = () => setIsFullscreen(document.fullscreenElement === playerShellRef.current);
+    const video = videoRef.current as (HTMLVideoElement & FullscreenVideo) | null;
+    const fullscreenChanged = () => setIsFullscreen(isPlayerFullscreen(document, video));
     document.addEventListener("fullscreenchange", fullscreenChanged);
-    return () => document.removeEventListener("fullscreenchange", fullscreenChanged);
-  }, []);
+    document.addEventListener("webkitfullscreenchange", fullscreenChanged);
+    video?.addEventListener("webkitbeginfullscreen", fullscreenChanged);
+    video?.addEventListener("webkitendfullscreen", fullscreenChanged);
+    return () => {
+      document.removeEventListener("fullscreenchange", fullscreenChanged);
+      document.removeEventListener("webkitfullscreenchange", fullscreenChanged);
+      video?.removeEventListener("webkitbeginfullscreen", fullscreenChanged);
+      video?.removeEventListener("webkitendfullscreen", fullscreenChanged);
+    };
+  }, [streamId]);
 
   useEffect(() => {
     if (controlsTimerRef.current !== null) window.clearTimeout(controlsTimerRef.current);
@@ -860,10 +870,17 @@ export default function PlayerPage() {
 
   async function toggleFullscreen() {
     const shell = playerShellRef.current;
-    if (!shell) return;
-    if (document.fullscreenElement) await document.exitFullscreen();
-    else await shell.requestFullscreen();
-    revealControls();
+    const video = videoRef.current as (HTMLVideoElement & FullscreenVideo) | null;
+    if (!shell || !video) return;
+    try {
+      await togglePlayerFullscreen(document, shell, video, navigator);
+      setIsFullscreen(isPlayerFullscreen(document, video));
+      setError("");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Fullscreen could not be opened on this device.");
+    } finally {
+      revealControls();
+    }
   }
 
   function changeSubtitle(next: string) {

@@ -26,6 +26,7 @@ export const metadata: Metadata = {
   description: "Discover, watch, read, and remember everything in your anime and manga life.",
   manifest: "/manifest.webmanifest",
   icons: { icon: "/brand/hao-logo-64.png", apple: "/brand/hao-logo-192.png" },
+  appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "HAO" },
 };
 export const viewport: Viewport = { themeColor: "#080a12", colorScheme: "dark" };
 

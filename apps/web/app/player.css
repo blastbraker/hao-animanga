@@ -9,7 +9,7 @@
 .streaming-stage video.subtitle-size-150::cue { font-size: 150%; }
 .streaming-stage video.subtitle-background-dark::cue { color: #fff; background: rgba(0,0,0,.82); }
 .streaming-stage video.subtitle-background-none::cue { color: #fff; background: transparent; text-shadow: 0 2px 5px #000,0 0 3px #000; }
-.streaming-stage:fullscreen { width: 100vw; height: 100vh; max-height: none; aspect-ratio: auto; border: 0; border-radius: 0; }
+.streaming-stage:fullscreen,.streaming-stage:-webkit-full-screen { width: 100vw; height: 100vh; max-height: none; aspect-ratio: auto; border: 0; border-radius: 0; }
 .player-placeholder { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 14px; color: var(--muted); background: radial-gradient(circle,rgba(140,111,255,.12),transparent 34%),rgba(0,0,0,.7); }
 .player-placeholder svg { width: 52px; height: 52px; color: var(--violet); }
 .player-placeholder span { font-size: 12px; }
