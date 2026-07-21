@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import { Activity, Cable, Check, Copy, Link2, Server, ShieldCheck, Users } from "lucide-react";
+import { Activity, Cable, Check, Copy, Link2, MessageSquareWarning, Server, ShieldCheck, Users } from "lucide-react";
 import { api } from "../../lib/api";
 
 type Overview = {
@@ -15,7 +15,10 @@ type Overview = {
     accepted_at?: string | null;
   }>;
   providers: Array<{ name: string; health: string }>;
+  audit?: AuditEvent[];
 };
+
+type AuditEvent = { id?: string; actor_id?: string | null; actorId?: string | null; action: string; metadata?: Record<string, unknown>; created_at?: string; at?: string };
 
 type CreatedInvitation = { email: string; temporaryPassword: string };
 type BridgeDevice = {
@@ -105,6 +108,7 @@ export default function AdminPage() {
 
   const personalBridges = bridges.filter((bridge) => bridge.scope === "personal" && !bridge.revokedAt);
   const sharedBridge = bridges.find((bridge) => bridge.sharedBeta);
+  const feedback = (data?.audit ?? []).filter((item) => item.action === "feedback.submit" || item.action === "source.report");
 
   return (
     <div className="page inner-page">
@@ -144,6 +148,17 @@ export default function AdminPage() {
           )}
         </div>
         <small>Before enabling, set a 32+ character HAO_BRIDGE_ADMIN_TOKEN and expose the Bridge through an HTTPS endpoint with HAO_WEB_ORIGIN set to the production HAO URL.</small>
+      </section>
+      <section className="admin-card feedback-inbox">
+        <div className="section-head"><div><span className="eyebrow">TESTER FEEDBACK</span><h2>Feedback inbox</h2></div><MessageSquareWarning/></div>
+        {feedback.length ? <div className="feedback-inbox-list">{feedback.map((item, index) => {
+          const metadata = item.metadata ?? {};
+          const category = textValue(metadata.category) || (item.action === "source.report" ? "Source issue" : "Feedback");
+          const detail = textValue(metadata.message) || textValue(metadata.detail) || "No details supplied";
+          const context = textValue(metadata.pageUrl) || [textValue(metadata.title), textValue(metadata.sourceName)].filter(Boolean).join(" · ");
+          const createdAt = item.created_at ?? item.at;
+          return <article key={item.id ?? `${item.action}:${index}`}><span>{category}</span><div><b>{detail}</b>{context && <small>{context}</small>}</div><time>{createdAt ? new Date(createdAt).toLocaleString() : "Recently"}</time></article>;
+        })}</div> : <div className="table-empty">No tester feedback yet.</div>}
       </section>
       <div className="admin-grid">
         <section className="admin-card">
@@ -200,6 +215,10 @@ export default function AdminPage() {
       </div>
     </div>
   );
+}
+
+function textValue(value: unknown): string {
+  return typeof value === "string" ? value : "";
 }
 
 function Stat({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {

@@ -1,0 +1,4 @@
+.season-switcher { display: grid; grid-template-columns: auto minmax(220px,1fr); align-items: center; gap: 10px; max-width: 620px; margin-top: 16px; }
+.season-switcher > span { color: var(--cyan); font-size: 9px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.season-switcher select { min-width: 0; min-height: 42px; padding: 0 36px 0 12px; border: 1px solid rgba(96,239,227,.22); border-radius: 10px; color: var(--text); background: rgba(96,239,227,.06); cursor: pointer; }
+@media(max-width:760px){.season-switcher{grid-template-columns:1fr}.season-switcher select{width:100%}}

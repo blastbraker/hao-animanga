@@ -172,6 +172,17 @@ export function buildApp() {
     return { work, releases: [], sources: [work.source], related: [] };
   });
 
+  app.get<{ Params: { id: string } }>("/v1/works/:id/seasons", async (request, reply) => {
+    const work = (await repository?.getWork(request.params.id)) ?? workStore.get(request.params.id);
+    if (!work) return reply.code(404).send({ code: "NOT_FOUND", message: "Title not found", retryable: false });
+    if (work.kind !== "ANIME" || work.source.kind !== "ANILIST") return { items: [] };
+    const result = await catalog.getAnimeSeasons(work.source.externalId);
+    if (!result.ok) return reply.code(result.error.code === "INVALID" ? 400 : 503).send({ ...result.error });
+    const items = repository ? await Promise.all(result.data.map((item) => repository.upsertWork(item))) : result.data;
+    for (const item of items) workStore.set(item.id, item);
+    return { items };
+  });
+
   app.post("/v1/works/import-extension", { preHandler: authenticate }, async (request, reply) => {
     const parsed = ImportExtensionWorkSchema.safeParse(request.body);
     if (!parsed.success)
@@ -301,6 +312,20 @@ export function buildApp() {
     if (repository) await repository.audit(request.user.id, "source.report", "extension_source", sourceId, metadata);
     else audit.unshift({ actorId: request.user.id, action: "source.report", subjectType: "extension_source", subjectId: sourceId, metadata, at: new Date().toISOString() });
     return reply.code(201).send({ saved: true });
+  });
+
+  app.post("/v1/feedback", { preHandler: authenticate }, async (request, reply) => {
+    const body = request.body as Record<string, unknown> | null;
+    const category = typeof body?.category === "string" ? body.category.trim().toLowerCase() : "";
+    const message = typeof body?.message === "string" ? body.message.trim().slice(0, 2_000) : "";
+    const pageUrl = typeof body?.pageUrl === "string" ? body.pageUrl.trim().slice(0, 500) : "";
+    if (!new Set(["bug", "idea", "content", "account", "other"]).has(category) || message.length < 5)
+      return reply.code(400).send({ code: "INVALID", message: "Choose a feedback type and enter at least five characters", retryable: false });
+    const id = randomUUID();
+    const metadata = { category, message, pageUrl };
+    if (repository) await repository.audit(request.user.id, "feedback.submit", "feedback", id, metadata);
+    else audit.unshift({ actorId: request.user.id, action: "feedback.submit", subjectType: "feedback", subjectId: id, metadata, at: new Date().toISOString() });
+    return reply.code(201).send({ id, saved: true });
   });
 
   app.post("/v1/epubs", { preHandler: authenticate }, async (request, reply) => {
@@ -705,7 +730,7 @@ export function buildApp() {
             activeBridges: bridges.length,
             pendingJobs: 0,
             invitations,
-            audit: audit.slice(-20).reverse()
+            audit: audit.slice(0, 100)
           }),
       bridges,
       providers: [

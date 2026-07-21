@@ -64,6 +64,8 @@ describe("API", () => {
     expect(lists.json().items[0].workIds).toContain("10000000-0000-4000-8000-000000000001");
     const report = await app.inject({ method: "POST", url: "/v1/source-reports", headers: { "x-user-id": user }, payload: { medium: "anime", sourceId: "fixture", sourceName: "Fixture", title: "Test title", detail: "No stream" } });
     expect(report.statusCode).toBe(201);
+    const feedback = await app.inject({ method: "POST", url: "/v1/feedback", headers: { "x-user-id": user }, payload: { category: "bug", message: "The season switcher did not load", pageUrl: "/title/test" } });
+    expect(feedback.statusCode).toBe(201);
   });
   it("creates an email-and-password beta login", async () => {
     const response = await app.inject({ method: "POST", url: "/v1/admin/invitations", headers: { "x-user-id": admin }, payload: { email: "password-tester@example.com" } });

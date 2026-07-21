@@ -9,6 +9,7 @@ import { getSupabaseBrowser, hasSupabaseBrowserConfig } from "../lib/supabase";
 import { OPEN_BETA_ONBOARDING_EVENT } from "../lib/onboarding";
 import { BetaOnboarding } from "./beta-onboarding";
 import { GlobalSearch } from "./global-search";
+import { FeedbackDialog } from "./feedback-dialog";
 
 const nav = [
   { href: "/", label: "Home", icon: Home },
@@ -99,6 +100,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <main>{children}</main>
     <nav className="mobile-nav" aria-label="Mobile navigation">{nav.map(({ href, label: itemLabel, icon: Icon }) => <Link key={href} href={href} className={path === href ? "active" : ""}><Icon size={20}/><span>{itemLabel}</span></Link>)}</nav>
     <BetaOnboarding autoOpen={role === "member"} />
+    <FeedbackDialog />
   </div>;
 }
 

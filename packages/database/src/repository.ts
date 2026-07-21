@@ -494,7 +494,7 @@ export class HaoRepository {
         (select count(*)::int from epub_assets where processing_status='pending') pending_jobs
     `;
     const invitations = await this.sql`select id,email,expires_at,accepted_at,created_at from invitations order by created_at desc limit 50`;
-    const audit = await this.sql`select id,action,subject_type,subject_id,metadata,created_at from audit_events order by created_at desc limit 50`;
+    const audit = await this.sql`select id,actor_id,action,subject_type,subject_id,metadata,created_at from audit_events order by created_at desc limit 100`;
     return {
       users: counts[0]?.users ?? 0,
       activeBridges: counts[0]?.active_bridges ?? 0,

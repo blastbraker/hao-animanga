@@ -8,6 +8,7 @@ import { api, bridgeErrorMessage, bridgeJson, getActiveBridge, type LibraryRespo
 import { confidentSourceMatch } from "../../../lib/source-match";
 import { rankSourcesByReliability, recordSourceResult } from "../../../lib/source-reliability";
 import { episodeDisplayName, episodeNumberLabel } from "../../../lib/episode-title";
+import { seasonHref, seasonOptionLabel } from "../../../lib/anime-seasons";
 
 type AnimeSource = {
   id: string;
@@ -82,6 +83,7 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
   const [activeAnimeSourceId, setActiveAnimeSourceId] = useState("");
   const [activeMangaSourceId, setActiveMangaSourceId] = useState("");
   const [resumeEpisodeNumber, setResumeEpisodeNumber] = useState<number | null>(null);
+  const [seasonItems, setSeasonItems] = useState<Work[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -121,6 +123,15 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
         setSaved(Boolean(entry));
       })
       .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [work]);
+
+  useEffect(() => {
+    if (!work || work.kind !== "ANIME" || work.source.kind !== "ANILIST") { setSeasonItems([]); return; }
+    let cancelled = false;
+    void api<{ items: Work[] }>(`/works/${work.id}/seasons`)
+      .then((result) => { if (!cancelled) setSeasonItems(result.items); })
+      .catch(() => { if (!cancelled) setSeasonItems([]); });
     return () => { cancelled = true; };
   }, [work]);
 
@@ -276,6 +287,10 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
             </button>
             {work.kind === "ANIME" && <a className="button ghost imdb-button" href={imdbSearchHref(work)} target="_blank" rel="noreferrer"><ExternalLink /> IMDb rating & watchlist</a>}
           </div>
+          {seasonItems.length > 1 && <label className="season-switcher"><span>Season</span><select aria-label={`Season for ${work.title}`} value={work.id} onChange={(event) => {
+            const selected = seasonItems.find((item) => item.id === event.target.value);
+            if (selected) window.location.assign(seasonHref(selected));
+          }}>{seasonItems.map((item, index) => <option key={item.id} value={item.id}>{seasonOptionLabel(item, index)}</option>)}</select></label>}
           <div className="personal-rating">
             <span><Star size={15} /> Your HAO rating</span>
             <select aria-label="Your rating" value={libraryEntry?.rating ?? ""} disabled={ratingBusy} onChange={(event) => void rate(event.target.value ? Number(event.target.value) : null)}>

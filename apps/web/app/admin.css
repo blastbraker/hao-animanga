@@ -76,6 +76,14 @@
   grid-column: 1 / -1;
 }
 
+.feedback-inbox { margin-top: 16px; }
+.feedback-inbox-list { display: grid; }
+.feedback-inbox-list article { display: grid; grid-template-columns: 100px minmax(0,1fr) auto; gap: 14px; align-items: start; padding: 14px 2px; border-top: 1px solid var(--line); }
+.feedback-inbox-list article > span { width: fit-content; padding: 5px 8px; border-radius: 999px; color: var(--cyan); background: rgba(96,239,227,.08); font-size: 8px; font-weight: 750; text-transform: uppercase; }
+.feedback-inbox-list article > div { min-width: 0; display: grid; gap: 5px; }
+.feedback-inbox-list b { font-size: 12px; line-height: 1.5; }
+.feedback-inbox-list small,.feedback-inbox-list time { color: var(--muted); font-size: 9px; overflow-wrap: anywhere; }
+
 @media (max-width: 760px) {
   .invite-copy-row {
     grid-template-columns: 1fr;
@@ -92,4 +100,5 @@
   .shared-bridge-controls .button {
     width: 100%;
   }
+  .feedback-inbox-list article { grid-template-columns: 1fr; gap: 7px; }
 }

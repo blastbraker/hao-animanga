@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { Work } from "@hao/domain";
 import { Captions, CheckCircle2, ChevronDown, ChevronRight, Film, Flag, ListVideo, LoaderCircle, Maximize2, Pause, Play, RefreshCw, RotateCcw, RotateCw, Search, Server, Settings2, SkipBack, SkipForward, TriangleAlert, Volume2, VolumeX } from "lucide-react";
 import Hls from "hls.js";
 import { api, bridgeErrorMessage, bridgeJson, getActiveBridge, type LibraryResponse } from "../../../lib/api";
@@ -12,6 +13,7 @@ import { pickAudioVariant, streamAudioMode, type AudioMode } from "../../../lib/
 import { maybeNotifyNewReleases, recordActivity, RELEASE_SNAPSHOTS_STORAGE_KEY, saveSourceReport, updateReleaseSnapshot } from "../../../lib/beta-features";
 import { isPlayerFullscreen, togglePlayerFullscreen, type FullscreenVideo } from "../../../lib/player-fullscreen";
 import { episodeDisplayLabel, episodeDisplayName, episodeNumberLabel } from "../../../lib/episode-title";
+import { seasonHref, seasonOptionLabel } from "../../../lib/anime-seasons";
 
 type AnimeSourceSummary = {
   id: string;
@@ -63,6 +65,8 @@ export default function PlayerPage() {
   const [bridgeScope, setBridgeScope] = useState<"personal" | "beta">("personal");
   const [workId, setWorkId] = useState("");
   const [workCoverUrl, setWorkCoverUrl] = useState<string | null>(null);
+  const [canonicalWork, setCanonicalWork] = useState<Work | null>(null);
+  const [seasonItems, setSeasonItems] = useState<Work[]>([]);
   const [sources, setSources] = useState<AnimeSourceSummary[]>([]);
   const [sourceId, setSourceId] = useState("");
   const [browseMode, setBrowseMode] = useState<"popular" | "latest" | "search">("popular");
@@ -257,8 +261,14 @@ export default function PlayerPage() {
   async function hydrateCanonicalPlayback(canonicalWorkId: string): Promise<string[]> {
     remoteProgressRef.current = null;
     setWorkCoverUrl(null);
-    const [workResult, libraryResult] = await Promise.allSettled([api<{ work: { coverUrl: string | null; alternateTitles: string[] } }>(`/works/${canonicalWorkId}`), api<LibraryResponse>("/library")]);
-    if (workResult.status === "fulfilled") setWorkCoverUrl(workResult.value.work.coverUrl);
+    const [workResult, libraryResult] = await Promise.allSettled([api<{ work: Work }>(`/works/${canonicalWorkId}`), api<LibraryResponse>("/library")]);
+    if (workResult.status === "fulfilled") {
+      setWorkCoverUrl(workResult.value.work.coverUrl);
+      setCanonicalWork(workResult.value.work);
+      if (workResult.value.work.kind === "ANIME" && workResult.value.work.source.kind === "ANILIST") {
+        void api<{ items: Work[] }>(`/works/${canonicalWorkId}/seasons`).then((result) => setSeasonItems(result.items)).catch(() => setSeasonItems([]));
+      }
+    }
     const alternateTitles = workResult.status === "fulfilled" ? workResult.value.work.alternateTitles : [];
     if (libraryResult.status !== "fulfilled") return alternateTitles;
     const libraryEntry = libraryResult.value.items.find((item) => item.work.id === canonicalWorkId);
@@ -813,6 +823,8 @@ export default function PlayerPage() {
   function clearCanonicalWork() {
     setWorkId("");
     setWorkCoverUrl(null);
+    setCanonicalWork(null);
+    setSeasonItems([]);
     remoteProgressRef.current = null;
     const url = new URL(window.location.href);
     url.searchParams.delete("workId");
@@ -1130,6 +1142,10 @@ export default function PlayerPage() {
           <h1>{anime?.title ?? "Anime player"}</h1>
           <p>{episode ? episodeDisplayLabel(episode) : (anime?.description ?? "Connect an authorized anime source.")}</p>
           {anime?.attribution && <small>{anime.attribution}</small>}
+          {canonicalWork && seasonItems.length > 1 && <label className="season-switcher player-season-switcher"><span>Season</span><select aria-label={`Season for ${canonicalWork.title}`} value={canonicalWork.id} onChange={(event) => {
+            const selected = seasonItems.find((item) => item.id === event.target.value);
+            if (selected) window.location.assign(seasonHref(selected));
+          }}>{seasonItems.map((item, index) => <option key={item.id} value={item.id}>{seasonOptionLabel(item, index)}</option>)}</select></label>}
           {progressStatus && (
             <span className="progress-save-status">
               <CheckCircle2 />

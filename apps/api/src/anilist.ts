@@ -51,6 +51,18 @@ const WORK_QUERY = `query Work($id: Int!) {
   Media(id: $id) { ${MEDIA_FIELDS} }
 }`;
 
+const SEASONS_QUERY = `query Seasons($id: Int!) {
+  Media(id: $id) {
+    ${MEDIA_FIELDS}
+    relations {
+      edges {
+        relationType(version: 2)
+        node { ${MEDIA_FIELDS} }
+      }
+    }
+  }
+}`;
+
 function kindFor(media: AniListMedia): MediaKind {
   if (media.type === "ANIME") return "ANIME";
   if (media.format === "NOVEL") return "LIGHT_NOVEL";
@@ -173,6 +185,37 @@ export class AniListProvider implements CatalogProvider {
       return { ok: true, data: mapWork(body.data.Media) };
     } catch (error) {
       return { ok: false, error: { code: "UNAVAILABLE", message: error instanceof Error ? error.message : "AniList work request failed", retryable: true } };
+    }
+  }
+
+  async getAnimeSeasons(externalId: string, signal?: AbortSignal): Promise<ProviderResult<Work[]>> {
+    const id = Number(externalId);
+    if (!Number.isSafeInteger(id) || id <= 0) return { ok: false, error: { code: "INVALID", message: "AniList ID is invalid", retryable: false } };
+    try {
+      const init: RequestInit = {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({ query: SEASONS_QUERY, variables: { id } }),
+      };
+      if (signal) init.signal = signal;
+      const response = await fetch(this.endpoint, init);
+      if (response.status === 429) return { ok: false, error: { code: "RATE_LIMITED", message: "AniList rate limit reached", retryable: true } };
+      if (!response.ok) return { ok: false, error: { code: "UNAVAILABLE", message: `AniList returned ${response.status}`, retryable: response.status >= 500 } };
+      const body = await response.json() as {
+        data?: { Media?: AniListMedia & { relations?: { edges?: Array<{ relationType: string; node: AniListMedia }> } } };
+        errors?: Array<{ message: string }>;
+      };
+      const media = body.data?.Media;
+      if (!media) return { ok: false, error: { code: "UNAVAILABLE", message: body.errors?.[0]?.message ?? "Anime seasons unavailable", retryable: true } };
+      const related = (media.relations?.edges ?? [])
+        .filter((edge) => (edge.relationType === "PREQUEL" || edge.relationType === "SEQUEL") && edge.node.type === "ANIME" && ["TV", "TV_SHORT", "ONA"].includes(edge.node.format ?? ""))
+        .map((edge) => edge.node);
+      const items = [...new Map([media, ...related].map((item) => [item.id, mapWork(item)])).values()]
+        .filter((item) => item.kind === "ANIME")
+        .sort((left, right) => (left.year ?? 9999) - (right.year ?? 9999) || left.title.localeCompare(right.title));
+      return { ok: true, data: items };
+    } catch (error) {
+      return { ok: false, error: { code: "UNAVAILABLE", message: error instanceof Error ? error.message : "AniList seasons request failed", retryable: true } };
     }
   }
 }

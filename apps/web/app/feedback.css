@@ -1,0 +1,19 @@
+.feedback-launcher { position: fixed; right: 24px; bottom: 22px; z-index: 45; display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 14px; border: 1px solid rgba(96,239,227,.28); border-radius: 999px; color: var(--cyan); background: rgba(13,17,27,.94); box-shadow: 0 12px 35px rgba(0,0,0,.35); cursor: pointer; backdrop-filter: blur(16px); }
+.feedback-launcher svg { width: 17px; }
+.feedback-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 20px; background: rgba(2,4,9,.76); backdrop-filter: blur(8px); }
+.feedback-dialog { width: min(520px,100%); max-height: calc(100vh - 40px); overflow: auto; padding: 25px; border: 1px solid var(--line); border-radius: 19px; background: linear-gradient(150deg,#151a29,#0d101a); box-shadow: 0 28px 90px rgba(0,0,0,.6); }
+.feedback-dialog header { display: flex; justify-content: space-between; gap: 20px; }
+.feedback-dialog h2 { margin: 0; font: 750 28px var(--font-display); }
+.feedback-dialog header > button { width: 36px; height: 36px; display: grid; place-items: center; flex: none; border: 1px solid var(--line); border-radius: 10px; color: var(--muted); background: transparent; cursor: pointer; }
+.feedback-dialog form { display: grid; gap: 15px; margin-top: 24px; }
+.feedback-dialog label { display: grid; gap: 7px; color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .05em; }
+.feedback-dialog select,.feedback-dialog textarea { width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px; outline: none; color: var(--text); background: #090c14; resize: vertical; }
+.feedback-dialog textarea:focus,.feedback-dialog select:focus { border-color: rgba(96,239,227,.5); box-shadow: 0 0 0 3px rgba(96,239,227,.07); }
+.feedback-dialog form > small { color: var(--muted); font-size: 9px; line-height: 1.6; }
+.feedback-dialog form > .button { justify-self: end; }
+.feedback-error { margin: 0; color: #ffc1b9; font-size: 11px; }
+.feedback-success { display: grid; justify-items: center; padding: 34px 10px 10px; text-align: center; }
+.feedback-success > svg { width: 48px; height: 48px; color: #67d8a0; }
+.feedback-success h3 { margin: 16px 0 5px; font: 700 21px var(--font-display); }
+.feedback-success p { max-width: 380px; margin: 0 0 22px; color: var(--muted); font-size: 11px; line-height: 1.7; }
+@media(max-width:760px){.feedback-launcher{right:14px;bottom:76px;width:42px;height:42px;justify-content:center;padding:0}.feedback-launcher span{display:none}.feedback-dialog{padding:20px}.feedback-dialog form>.button{width:100%}}
