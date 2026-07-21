@@ -1100,8 +1100,8 @@ export default function PlayerPage() {
             <div className="player-control-row">
               <div className="player-control-group">
                 <button aria-label={isPlaying ? "Pause" : "Play"} title={isPlaying ? "Pause (Space)" : "Play (Space)"} onClick={() => void togglePlayback()}>{isPlaying ? <Pause fill="currentColor" /> : <Play fill="currentColor" />}</button>
-                <button aria-label="Back 10 seconds" title="Back 10 seconds (J)" onClick={() => seekBy(-10)}><RotateCcw /></button>
-                <button aria-label="Forward 10 seconds" title="Forward 10 seconds (L)" onClick={() => seekBy(10)}><RotateCw /></button>
+                <button className="player-seek-back" aria-label="Back 10 seconds" title="Back 10 seconds (J)" onClick={() => seekBy(-10)}><RotateCcw /></button>
+                <button className="player-seek-forward" aria-label="Forward 10 seconds" title="Forward 10 seconds (L)" onClick={() => seekBy(10)}><RotateCw /></button>
                 <button aria-label={muted ? "Unmute" : "Mute"} title="Mute (M)" onClick={toggleMute}>{muted || volume === 0 ? <VolumeX /> : <Volume2 />}</button>
                 <input className="player-volume" aria-label="Volume" type="range" min="0" max="1" step="0.05" value={muted ? 0 : volume} onChange={(event) => changeVolume(Number(event.target.value))} />
                 <span className="player-time">{formatTime(currentTime)} / {formatTime(duration)}</span>

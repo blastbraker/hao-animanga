@@ -1,7 +1,7 @@
-.anime-player-page { min-height: 100vh; display: flex; flex-direction: column; padding: 92px clamp(18px,3vw,48px) 70px; background: radial-gradient(circle at 50% 0,rgba(47,78,117,.2),transparent 32%),#070910; }
+.anime-player-page { min-height: 100vh; display: flex; flex-direction: column; padding: 92px clamp(18px,3vw,48px) 70px; background: radial-gradient(circle at 50% 0,rgba(47,78,117,.2),transparent 32%),#070910; container-name: anime-player; container-type: inline-size; }
 .player-watch-layout { order: 1; width: min(1500px,100%); margin: 0 auto; display: grid; grid-template-columns: minmax(0,1fr) 400px; gap: 16px; align-items: stretch; }
 .player-primary { min-width: 0; display: grid; align-content: start; gap: 8px; }
-.streaming-stage { position: relative; width: 100%; aspect-ratio: 16/9; max-height: 72vh; overflow: hidden; border: 1px solid rgba(255,255,255,.1); border-radius: 14px; background-color: #000; background-size: cover; background-position: center; box-shadow: 0 24px 80px rgba(0,0,0,.48); isolation: isolate; }
+.streaming-stage { position: relative; width: 100%; aspect-ratio: 16/9; max-height: 72vh; overflow: hidden; border: 1px solid rgba(255,255,255,.1); border-radius: 14px; background-color: #000; background-size: cover; background-position: center; box-shadow: 0 24px 80px rgba(0,0,0,.48); isolation: isolate; container-name: video-stage; container-type: inline-size; }
 .streaming-stage video { width: 100%; height: 100%; display: block; object-fit: contain; background: #000; cursor: pointer; }
 .streaming-stage video.subtitle-size-75::cue { font-size: 75%; }
 .streaming-stage video.subtitle-size-100::cue { font-size: 100%; }
@@ -30,8 +30,9 @@
 .player-progress::-webkit-slider-thumb { width: 14px; height: 14px; border: 3px solid #fff; border-radius: 50%; appearance: none; background: var(--cyan); box-shadow: 0 0 0 4px rgba(96,239,227,.15); }
 .player-progress::-moz-range-thumb { width: 10px; height: 10px; border: 3px solid #fff; border-radius: 50%; background: var(--cyan); }
 .player-control-row,.player-control-group { display: flex; align-items: center; }
-.player-control-row { justify-content: space-between; gap: 14px; }
-.player-control-group { gap: 5px; }
+.player-control-row { min-width: 0; justify-content: space-between; gap: 14px; }
+.player-control-group { min-width: 0; gap: 5px; }
+.player-control-row>.player-control-group:last-child { flex: none; margin-left: auto; }
 .player-control-group button,.playback-settings-heading button { width: 38px; height: 38px; display: grid; place-items: center; border: 0; border-radius: 7px; color: #fff; background: transparent; cursor: pointer; }
 .player-control-group button:hover,.player-control-group button.active { color: var(--cyan); background: rgba(255,255,255,.11); }
 .player-control-group .audio-version-toggle { width: auto; min-width: 42px; padding: 0 9px; border: 1px solid rgba(96,239,227,.34); color: var(--cyan); background: rgba(96,239,227,.08); font: 800 9px var(--font-display); letter-spacing: .08em; }
@@ -42,7 +43,7 @@
 .player-control-group button svg { width: 20px; height: 20px; }
 .player-volume { width: 78px; accent-color: var(--cyan); }
 .player-time { min-width: 92px; margin-left: 5px; color: #e3e5ea; font-size: 10px; font-variant-numeric: tabular-nums; }
-.playback-settings { position: absolute; z-index: 8; right: 18px; bottom: 72px; width: min(310px,calc(100% - 36px)); display: grid; gap: 14px; padding: 17px; border: 1px solid rgba(255,255,255,.14); border-radius: 12px; background: rgba(12,15,24,.97); box-shadow: 0 18px 55px rgba(0,0,0,.6); backdrop-filter: blur(18px); }
+.playback-settings { position: absolute; z-index: 8; right: 18px; bottom: 72px; width: min(310px,calc(100% - 36px)); max-height: calc(100% - 88px); display: grid; gap: 14px; overflow-y: auto; overscroll-behavior: contain; padding: 17px; border: 1px solid rgba(255,255,255,.14); border-radius: 12px; background: rgba(12,15,24,.97); box-shadow: 0 18px 55px rgba(0,0,0,.6); backdrop-filter: blur(18px); scrollbar-width: thin; }
 .playback-settings-heading { display: flex; align-items: center; justify-content: space-between; }
 .playback-settings-heading b { font: 680 14px var(--font-display); }
 .playback-settings-heading button { width: 30px; height: 30px; font-size: 20px; }
@@ -193,6 +194,27 @@
 .shortcut-dialog dl>div { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px; border-radius: 8px; background: rgba(255,255,255,.035); }
 .shortcut-dialog dt { color: var(--cyan); font: 750 9px var(--font-display); }
 .shortcut-dialog dd { margin: 0; color: var(--muted); font-size: 9px; text-align: right; }
+@container video-stage (max-width:720px) {
+  .custom-player-controls { padding-inline: 12px; }
+  .player-control-row { gap: 7px; }
+  .player-control-group { gap: 1px; }
+  .player-control-group button { width: 34px; height: 34px; }
+  .player-control-group button svg { width: 18px; height: 18px; }
+  .player-control-group .audio-version-toggle { width: auto; min-width: 38px; padding-inline: 6px; }
+  .player-control-group .playback-rate-toggle { width: auto; min-width: 38px; padding-inline: 6px; }
+  .player-volume { display: none; }
+  .player-time { min-width: 78px; margin-left: 2px; font-size: 8px; }
+}
+@container video-stage (max-width:500px) {
+  .custom-player-controls { padding-inline: 8px; }
+  .player-seek-back,.player-seek-forward { display: none !important; }
+  .player-control-row { gap: 3px; }
+  .player-time { min-width: 70px; }
+}
+@container video-stage (max-width:390px) {
+  .player-control-group .audio-version-toggle { display: none; }
+  .player-time { min-width: 62px; font-size: 7px; }
+}
 @media(max-width:1180px) {
   .player-watch-layout { grid-template-columns: minmax(0,1fr) 340px; }
   .episode-list.preview-cards>button { grid-template-columns: 122px minmax(0,1fr); }
@@ -221,7 +243,7 @@
   .player-control-group .audio-version-toggle { width: auto; min-width: 39px; padding-inline: 7px; }
   .player-control-group .playback-rate-toggle { width: auto; min-width: 38px; padding-inline: 6px; }
   .player-control-group button svg { width: 18px; }
-  .player-control-group button:nth-child(3),.player-volume { display: none; }
+  .player-volume { display: none; }
   .player-time { min-width: 78px; font-size: 8px; }
   .episode-rail { max-height: min(58vh,500px); }
   .episode-list.preview-cards>button { grid-template-columns: 128px minmax(0,1fr); min-height: 96px; }
@@ -249,6 +271,10 @@
 }
 @media(max-width:420px) {
   .player-time { display: none; }
+}
+@container anime-player (max-width:950px) {
+  .player-watch-layout { grid-template-columns: 1fr; gap: 12px; }
+  .episode-rail { max-height: min(62vh,560px); }
 }
 @media(prefers-reduced-motion:reduce) {
   .player-title-overlay,.custom-player-controls,.source-workbench summary>svg,.player-center-action { transition: none; }
