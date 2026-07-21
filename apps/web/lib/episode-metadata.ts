@@ -4,6 +4,9 @@ export type EpisodeGuideMetadata = {
   filler: boolean;
   recap: boolean;
   airedAt: string | null;
+  summary: string | null;
+  thumbnailUrl: string | null;
+  metadataUrl: string | null;
 };
 
 export type EnrichedEpisode<T> = T & {
@@ -11,6 +14,9 @@ export type EnrichedEpisode<T> = T & {
   filler?: boolean;
   recap?: boolean;
   airedAt?: string | null;
+  summary?: string | null;
+  thumbnailUrl?: string | null;
+  metadataUrl?: string | null;
 };
 
 export function enrichEpisodes<T extends { id: string; number: number; title: string }>(episodes: T[], guide: EpisodeGuideMetadata[]): Array<EnrichedEpisode<T>> {
@@ -29,6 +35,9 @@ export function enrichEpisodes<T extends { id: string; number: number; title: st
       ...(annotations.filler || metadata?.filler ? { filler: true } : {}),
       ...(annotations.recap || metadata?.recap ? { recap: true } : {}),
       ...(metadata?.airedAt ? { airedAt: metadata.airedAt } : {}),
+      ...(metadata?.summary ? { summary: metadata.summary } : {}),
+      ...(metadata?.thumbnailUrl ? { thumbnailUrl: metadata.thumbnailUrl } : {}),
+      ...(metadata?.metadataUrl ? { metadataUrl: metadata.metadataUrl } : {}),
     });
   }
   return episodes.map((episode) => enriched.get(episode.id) ?? episode);

@@ -193,7 +193,17 @@ export function buildApp() {
     const maxEpisode = Number.isFinite(requestedMaximum) ? requestedMaximum : 100;
     const result = await episodeGuides.get(work.source.externalId, maxEpisode);
     if (!result.ok) return reply.code(result.error.code === "INVALID" ? 400 : 503).send({ ...result.error });
-    return { items: result.data, source: "myanimelist-via-jikan", cached: result.cached === true };
+    return { items: result.data, source: "myanimelist-via-jikan+tvmaze", cached: result.cached === true };
+  });
+
+  app.get<{ Querystring: { title?: string; year?: string; maxEpisode?: string } }>("/v1/episode-guide/previews", async (request, reply) => {
+    const requestedMaximum = Number(request.query.maxEpisode ?? 100);
+    const maxEpisode = Number.isFinite(requestedMaximum) ? requestedMaximum : 100;
+    const requestedYear = request.query.year ? Number(request.query.year) : null;
+    const year = requestedYear && Number.isInteger(requestedYear) ? requestedYear : null;
+    const result = await episodeGuides.getPreviews(request.query.title ?? "", maxEpisode, year);
+    if (!result.ok) return reply.code(result.error.code === "INVALID" ? 400 : 503).send({ ...result.error });
+    return { items: result.data, source: "tvmaze", cached: result.cached === true };
   });
 
   app.get<{ Params: { id: string } }>("/v1/works/:id/anime-details", async (request, reply) => {

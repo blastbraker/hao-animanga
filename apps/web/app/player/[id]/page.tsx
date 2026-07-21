@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { Work } from "@hao/domain";
-import { ArrowDownUp, Captions, CheckCircle2, ChevronDown, ChevronRight, ExternalLink, Film, Flag, Keyboard, Lightbulb, ListPlus, ListVideo, LoaderCircle, LocateFixed, Maximize2, Pause, Play, RefreshCw, RotateCcw, RotateCw, Search, Server, Settings2, Share2, SkipBack, SkipForward, Star, TriangleAlert, Volume2, VolumeX, X } from "lucide-react";
+import { ArrowDownUp, Captions, CheckCircle2, ChevronDown, ChevronRight, ExternalLink, Eye, EyeOff, Film, Flag, ImageIcon, Keyboard, Lightbulb, ListPlus, ListVideo, LoaderCircle, LocateFixed, Maximize2, Pause, Play, RefreshCw, RotateCcw, RotateCw, Search, Server, Settings2, Share2, SkipBack, SkipForward, Star, TriangleAlert, Volume2, VolumeX, X } from "lucide-react";
 import Hls from "hls.js";
 import { api, bridgeErrorMessage, bridgeJson, getActiveBridge, type LibraryResponse } from "../../../lib/api";
 import { completedEpisodeUnits, continueWatchingId, CONTINUE_WATCHING_STORAGE_KEY, DISMISSED_CONTINUE_STORAGE_KEY, parseContinueWatching, parseDismissedWorkIds, parsePlaybackPosition, playbackPercent, playbackStorageKey, resumablePosition, updateContinueWatching, type ContinueWatchingEntry } from "../../../lib/playback-progress";
@@ -41,6 +41,9 @@ type AnimeEpisode = {
   filler?: boolean;
   recap?: boolean;
   airedAt?: string | null;
+  summary?: string | null;
+  thumbnailUrl?: string | null;
+  metadataUrl?: string | null;
 };
 type AnimeServer = { id: string; name: string };
 type AnimeSubtitle = { label: string; language?: string; url: string };
@@ -106,6 +109,8 @@ export default function PlayerPage() {
   const [autoplayNext, setAutoplayNext] = useState(true);
   const [episodeFilter, setEpisodeFilter] = useState("");
   const [episodeOrder, setEpisodeOrder] = useState<EpisodeOrder>("asc");
+  const [episodePreviews, setEpisodePreviews] = useState(true);
+  const [episodeSummaries, setEpisodeSummaries] = useState(true);
   const [lightsOff, setLightsOff] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [progressStatus, setProgressStatus] = useState("");
@@ -149,6 +154,8 @@ export default function PlayerPage() {
   useEffect(() => {
     setAutoplayNext(readPreference("hao:anime:autoplay-next") !== "false");
     setEpisodeOrder(readPreference("hao:anime:episode-order") === "desc" ? "desc" : "asc");
+    setEpisodePreviews(readPreference("hao:anime:episode-previews") !== "false");
+    setEpisodeSummaries(readPreference("hao:anime:episode-summaries") !== "false");
     const savedVolume = Number(readPreference("hao:anime:volume"));
     if (Number.isFinite(savedVolume) && savedVolume >= 0 && savedVolume <= 1) setVolume(savedVolume);
     setMuted(readPreference("hao:anime:muted") === "true");
@@ -170,13 +177,19 @@ export default function PlayerPage() {
   }, [anime?.id, anime?.title, episodes.length, sourceId]);
 
   useEffect(() => {
-    if (!workId || canonicalWork?.source.kind !== "ANILIST" || !maximumEpisode) { setEpisodeGuide([]); return; }
+    if (!maximumEpisode) { setEpisodeGuide([]); return; }
+    const path = workId && canonicalWork?.source.kind === "ANILIST"
+      ? `/works/${workId}/episode-guide?maxEpisode=${maximumEpisode}`
+      : anime?.title
+        ? `/episode-guide/previews?title=${encodeURIComponent(anime.title)}&maxEpisode=${maximumEpisode}`
+        : "";
+    if (!path) { setEpisodeGuide([]); return; }
     let cancelled = false;
-    void api<{ items: EpisodeGuideMetadata[] }>(`/works/${workId}/episode-guide?maxEpisode=${maximumEpisode}`)
+    void api<{ items: EpisodeGuideMetadata[] }>(path)
       .then((result) => { if (!cancelled) setEpisodeGuide(result.items); })
       .catch(() => { if (!cancelled) setEpisodeGuide([]); });
     return () => { cancelled = true; };
-  }, [canonicalWork?.source.kind, maximumEpisode, workId]);
+  }, [anime?.title, canonicalWork?.source.kind, maximumEpisode, workId]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -1110,9 +1123,11 @@ export default function PlayerPage() {
         <div className="episode-tools">
           <label><Search /><input aria-label="Filter episodes" value={episodeFilter} onChange={(event) => setEpisodeFilter(event.target.value)} placeholder="Filter episodes…" /></label>
           <button aria-label={`Sort episodes ${episodeOrder === "asc" ? "newest first" : "oldest first"}`} title={episodeOrder === "asc" ? "Newest first" : "Oldest first"} onClick={toggleEpisodeOrder}><ArrowDownUp /><span>{episodeOrder === "asc" ? "1–9" : "9–1"}</span></button>
+          <button className={episodeSummaries ? "active" : ""} aria-label={episodeSummaries ? "Hide episode summaries" : "Show episode summaries"} aria-pressed={episodeSummaries} title={episodeSummaries ? "Hide summaries" : "Show summaries"} onClick={() => setEpisodeSummaries((value) => { writePreference("hao:anime:episode-summaries", String(!value)); return !value; })}>{episodeSummaries ? <Eye /> : <EyeOff />}</button>
+          <button className={episodePreviews ? "active" : ""} aria-label={episodePreviews ? "Use compact episode list" : "Show episode previews"} aria-pressed={episodePreviews} title={episodePreviews ? "Compact list" : "Preview cards"} onClick={() => setEpisodePreviews((value) => { writePreference("hao:anime:episode-previews", String(!value)); return !value; })}><ImageIcon /></button>
           <button aria-label="Jump to current episode" title="Jump to current episode" disabled={!episode} onClick={revealCurrentEpisode}><LocateFixed /></button>
         </div>
-        <div className="episode-list" ref={episodeListRef}>
+        <div className={`episode-list ${episodePreviews ? "preview-cards" : "compact-cards"}`} ref={episodeListRef}>
           {visibleEpisodes.map((item, index) => {
             const group = episodeGroupLabel(item, maximumEpisode);
             const previousGroup = index > 0 ? episodeGroupLabel(visibleEpisodes[index - 1]!, maximumEpisode) : null;
@@ -1120,14 +1135,33 @@ export default function PlayerPage() {
             return <Fragment key={item.id}>
             {showGroup && <div className={`episode-arc-heading ${group.kind}`}><span>{group.kind === "arc" ? "STORY ARC" : "EPISODE RANGE"}</span><b>{group.label}</b></div>}
             <button className={[item.id === episodeId ? "active" : "", item.filler ? "filler" : "", item.recap ? "recap" : ""].filter(Boolean).join(" ")} aria-current={item.id === episodeId ? "true" : undefined} title={item.filler ? "This episode is marked as filler" : item.recap ? "This episode is marked as a recap" : undefined} onClick={() => void changeEpisode(item.id, true)} disabled={Boolean(busy)}>
-              <span className="episode-number">{episodeNumberLabel(item.number).padStart(2, "0")}</span>
-              <span><b>{episodeDisplayName(item)}</b><small>Episode {episodeNumberLabel(item.number)}{item.filler && <em>FILLER</em>}{item.recap && <em className="recap">RECAP</em>}</small></span>
-              {item.id === episodeId ? <Play fill="currentColor" /> : item.id === nextEpisode?.id ? <span className="up-next-label">UP NEXT</span> : <ChevronRight />}
+              {episodePreviews ? <>
+                <span className="episode-preview-media">
+                  {item.thumbnailUrl
+                    ? <img src={item.thumbnailUrl} alt="" loading="lazy" referrerPolicy="no-referrer" />
+                    : <span className="episode-preview-placeholder" style={anime?.thumbnailUrl || workCoverUrl ? { backgroundImage: `linear-gradient(rgba(8,10,17,.5),rgba(8,10,17,.9)),url(${anime?.thumbnailUrl ?? workCoverUrl})` } : undefined}><Film /></span>}
+                  <span className="episode-preview-number">EP {episodeNumberLabel(item.number)}</span>
+                  {item.id === episodeId && <span className="episode-preview-playing"><Play fill="currentColor" /> PLAYING</span>}
+                </span>
+                <span className="episode-preview-copy">
+                  <b>{episodeDisplayName(item)}</b>
+                  {episodeSummaries && <span className="episode-preview-summary">{item.summary ?? "No episode synopsis is available yet."}</span>}
+                  <span className="episode-preview-meta">
+                    <span>{activeAudioMode && <em className="audio-badge">{activeAudioMode.toUpperCase()}</em>}{item.filler && <em>FILLER</em>}{item.recap && <em className="recap">RECAP</em>}{item.id === episodeId && Boolean(stream?.subtitles.length) && <em className="caption-badge"><Captions /> CC</em>}</span>
+                    <time dateTime={item.airedAt ?? undefined}>{formatEpisodeDate(item.airedAt)}</time>
+                  </span>
+                </span>
+              </> : <>
+                <span className="episode-number">{episodeNumberLabel(item.number).padStart(2, "0")}</span>
+                <span><b>{episodeDisplayName(item)}</b><small>Episode {episodeNumberLabel(item.number)}{item.filler && <em>FILLER</em>}{item.recap && <em className="recap">RECAP</em>}</small></span>
+                {item.id === episodeId ? <Play fill="currentColor" /> : item.id === nextEpisode?.id ? <span className="up-next-label">UP NEXT</span> : <ChevronRight />}
+              </>}
             </button>
             </Fragment>;
           })}
           {!busy && !episodes.length && <p>No episodes are available from this source.</p>}
           {!busy && Boolean(episodes.length) && !visibleEpisodes.length && <p>No episodes match “{episodeFilter.trim()}”.</p>}
+          {episodePreviews && episodeGuide.some((item) => item.metadataUrl) && <div className="episode-preview-credit">Episode previews by <a href="https://www.tvmaze.com" target="_blank" rel="noreferrer">TVmaze <ExternalLink /></a></div>}
         </div>
       </aside>
       </div>
@@ -1337,6 +1371,13 @@ function formatTime(seconds: number): string {
   const rounded = Math.max(0, Math.floor(seconds));
   const minutes = Math.floor(rounded / 60);
   return `${minutes}:${String(rounded % 60).padStart(2, "0")}`;
+}
+
+function formatEpisodeDate(value: string | null | undefined): string {
+  if (!value) return "Date TBA";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Date TBA";
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "2-digit", year: "numeric", timeZone: "UTC" }).format(date);
 }
 
 function formatMetadataLabel(value: string | null | undefined): string {

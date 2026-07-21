@@ -3,8 +3,8 @@ import { enrichEpisodes, episodeGroupLabel } from "./episode-metadata";
 
 describe("episode metadata", () => {
   it("uses verified guide titles and filler flags for generic source episodes", () => {
-    const result = enrichEpisodes([{ id: "two", number: 2, title: "Episode 2 (sub)" }], [{ number: 2, title: "A Detour", filler: true, recap: false, airedAt: null }]);
-    expect(result[0]).toMatchObject({ title: "A Detour", filler: true });
+    const result = enrichEpisodes([{ id: "two", number: 2, title: "Episode 2 (sub)" }], [{ number: 2, title: "A Detour", filler: true, recap: false, airedAt: null, summary: "A short detour.", thumbnailUrl: "https://images.test/2.jpg", metadataUrl: "https://www.tvmaze.com/episodes/2" }]);
+    expect(result[0]).toMatchObject({ title: "A Detour", filler: true, summary: "A short detour.", thumbnailUrl: "https://images.test/2.jpg" });
   });
 
   it("carries explicit source arc annotations and strips markers", () => {
