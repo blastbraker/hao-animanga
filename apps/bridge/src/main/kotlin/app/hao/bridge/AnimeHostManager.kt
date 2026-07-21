@@ -60,6 +60,7 @@ class AnimeHostManager(
     fun servers(episodeId: String): List<AnimeServer> = withHost { client.servers(episodeId) }
     fun streams(episodeId: String, serverId: String): List<AnimeStream> = withHost { client.streams(episodeId, serverId) }
     fun media(streamId: String, range: String?): AnimeMediaResponse = withHost { client.media(streamId, range) }
+    fun subtitle(streamId: String): AnimeMediaResponse = withHost { client.subtitle(streamId) }
 
     fun close() {
         synchronized(lifecycleLock) {

@@ -133,7 +133,7 @@ class AniyomiFixtureRuntime(private val extensionRoot: Path, private val dataRoo
                     if (mediaUrl.contains(".m3u8", true)) "HLS" else "MP4",
                     playable.quality,
                     playable.audioTracks.firstOrNull()?.lang,
-                    subtitles.map { AnimeSubtitle(it.lang, it.lang, it.url) },
+                    subtitles.map { track -> registerSubtitle(track.url, track.lang, playable.headers?.toMultimap() ?: emptyMap()) },
                 )
             }.getOrElse { error ->
                 System.err.println("Aniyomi discarded an unsafe stream: ${error.message ?: error.javaClass.simpleName}")
@@ -172,6 +172,25 @@ class AniyomiFixtureRuntime(private val extensionRoot: Path, private val dataRoo
             response.header("accept-ranges") ?: "bytes",
             body.byteStream(),
         )
+    }
+
+    fun subtitle(streamId: String): AnimeMediaResponse {
+        val subtitle = streams[streamId] ?: loadStream(streamId) ?: throw IllegalArgumentException("Aniyomi subtitle was not found")
+        val uri = URI(subtitle.url)
+        AnimeNetworkPolicy.allowRemoteHttps(uri.toString())
+        val request = okhttp3.Request.Builder().url(uri.toString()).header("User-Agent", "HAO-Bridge/0.1").get()
+        subtitle.headers.forEach { (name, values) ->
+            if (!name.equals("Host", true) && !name.equals("Content-Length", true) && !name.equals("Range", true)) values.forEach { request.header(name, it) }
+        }
+        val response = mediaClient.newCall(request.build()).execute()
+        require(response.isSuccessful) { response.close(); "Aniyomi subtitle returned HTTP ${response.code}" }
+        val declaredLength = response.body.contentLength()
+        require(declaredLength <= MAX_SUBTITLE_BYTES) { response.close(); "Aniyomi subtitle exceeded the size limit" }
+        val bytes = response.body.byteStream().use { it.readNBytes(MAX_SUBTITLE_BYTES + 1) }
+        response.close()
+        require(bytes.size <= MAX_SUBTITLE_BYTES) { "Aniyomi subtitle exceeded the size limit" }
+        val webVtt = SubtitleConverter.toWebVtt(bytes.toString(Charsets.UTF_8)).toByteArray(Charsets.UTF_8)
+        return AnimeMediaResponse(200, "text/vtt; charset=utf-8", webVtt.size.toString(), null, "none", ByteArrayInputStream(webVtt))
     }
 
     @Synchronized private fun loadSources(): List<AnimeSource> {
@@ -262,9 +281,19 @@ class AniyomiFixtureRuntime(private val extensionRoot: Path, private val dataRoo
         return "/v1/anime/streams/$id/media"
     }
 
+    private fun registerSubtitle(url: String, language: String, headers: Map<String, List<String>>): AnimeSubtitle {
+        AnimeNetworkPolicy.allowRemoteHttps(url)
+        val id = stableId("stream", "subtitle", url)
+        val handle = StreamHandle(url, headers)
+        streams[id] = handle
+        persistStream(id, handle)
+        return AnimeSubtitle(language.ifBlank { "Subtitles" }, language.takeIf(String::isNotBlank), "/v1/anime/streams/$id/subtitles")
+    }
+
     companion object {
         const val ID_PREFIX = "aniyomi-"
         const val FIXTURE_PACKAGE = "app.hao.fixture.anime"
         private val HLS_URI = Regex("URI=\\\"([^\\\"]+)\\\"")
+        private const val MAX_SUBTITLE_BYTES = 5 * 1024 * 1024
     }
 }

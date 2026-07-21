@@ -99,6 +99,7 @@ export default function PlayerPage() {
   const nextEpisode = episodeIndex >= 0 && episodeIndex < episodes.length - 1 ? episodes[episodeIndex + 1] : undefined;
   const stream = useMemo(() => streams.find((item) => item.id === streamId), [streamId, streams]);
   const streamUrl = stream ? (stream.url.startsWith("/") ? `${bridge}${stream.url}` : stream.url) : "";
+  const subtitleUrls = useMemo(() => stream?.subtitles.map((subtitle) => subtitle.url.startsWith("/") ? `${bridge}${subtitle.url}` : subtitle.url) ?? [], [bridge, stream]);
   const activeAudioMode = stream ? streamAudioMode(stream) : null;
   const availableAudioModes = useMemo(() => new Set(streams.map(streamAudioMode).filter((mode): mode is AudioMode => mode !== null)), [streams]);
   const audioSwitchTarget: AudioMode | null = activeAudioMode === "dub"
@@ -884,10 +885,16 @@ export default function PlayerPage() {
   }
 
   function changeSubtitle(next: string) {
+    setSubtitleMode(next);
+    applySubtitleMode(next);
+  }
+
+  function applySubtitleMode(next: string) {
     const video = videoRef.current;
     if (!video) return;
-    for (let index = 0; index < video.textTracks.length; index += 1) video.textTracks[index]!.mode = next === String(index) ? "showing" : "disabled";
-    setSubtitleMode(next);
+    for (let index = 0; index < video.textTracks.length; index += 1) video.textTracks[index]!.mode = "disabled";
+    const selected = video.querySelectorAll("track")[Number(next)]?.track;
+    if (next !== "off" && selected) selected.mode = "showing";
   }
 
   function reportPlayerIssue() {
@@ -917,6 +924,7 @@ export default function PlayerPage() {
             ref={videoRef}
             className={`subtitle-size-${subtitleSize} subtitle-background-${subtitleBackground}`}
             key={`${episodeId}:${stream.id}`}
+            crossOrigin="anonymous"
             playsInline
             preload="metadata"
             poster={posterUrl}
@@ -944,7 +952,7 @@ export default function PlayerPage() {
             }}
             onError={() => void recoverFromPlaybackFailure()}
           >
-            {stream.subtitles.map((subtitle) => <track key={subtitle.url} kind="subtitles" label={subtitle.label} srcLang={subtitle.language} src={subtitle.url} />)}
+            {stream.subtitles.map((subtitle, index) => <track key={subtitle.url} kind="subtitles" label={subtitle.label} srcLang={subtitle.language} src={subtitleUrls[index]} default={subtitleMode === String(index)} onLoad={() => applySubtitleMode(subtitleMode)} onError={() => setError(`The ${subtitle.label} subtitle track could not be loaded. Try another server.`)} />)}
           </video>
         ) : (
           <div className="player-placeholder">{busy ? <LoaderCircle className="spin" /> : <Film />}<span>{busy || "Choose an episode and stream."}</span></div>

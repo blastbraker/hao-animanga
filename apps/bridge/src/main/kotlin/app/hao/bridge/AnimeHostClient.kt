@@ -50,6 +50,22 @@ class AnimeHostClient(port: Int, private val token: String) {
         )
     }
 
+    fun subtitle(streamId: String): AnimeMediaResponse {
+        val response = http.send(request("streams/${segment(streamId)}/subtitles").timeout(Duration.ofSeconds(30)).GET().build(), HttpResponse.BodyHandlers.ofInputStream())
+        if (response.statusCode() !in 200..299) {
+            response.body().close()
+            throw AnimeHostRequestException(response.statusCode())
+        }
+        return AnimeMediaResponse(
+            response.statusCode(),
+            response.headers().firstValue("content-type").orElse("text/vtt; charset=utf-8"),
+            response.headers().firstValue("content-length").orElse(null),
+            null,
+            "none",
+            response.body(),
+        )
+    }
+
     private inline fun <reified T> decode(value: String): T = json.decodeFromString(value)
 
     private fun getText(path: String): String {

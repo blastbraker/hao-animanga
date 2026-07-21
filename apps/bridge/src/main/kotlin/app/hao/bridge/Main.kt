@@ -109,6 +109,13 @@ fun main() {
         response.contentRange?.let { ctx.header("Content-Range", it) }
         ctx.result(response.body)
     }
+    app.get("/v1/anime/streams/{streamId}/subtitles") { ctx ->
+        requirePaired(ctx, pairing)
+        val response = animeHost.subtitle(ctx.pathParam("streamId"))
+        ctx.status(response.status).header("Content-Type", response.contentType).header("Cache-Control", "private, max-age=3600")
+        response.contentLength?.let { ctx.header("Content-Length", it) }
+        ctx.result(response.body)
+    }
     app.get("/v1/manga/sources") { ctx -> requirePaired(ctx, pairing); ctx.json(suwayomi.sources()) }
     app.get("/v1/manga/search") { ctx ->
         requirePaired(ctx, pairing)

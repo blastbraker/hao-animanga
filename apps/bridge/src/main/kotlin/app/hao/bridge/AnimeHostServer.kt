@@ -62,6 +62,12 @@ object AnimeHostServer {
             response.contentRange?.let { ctx.header("Content-Range", it) }
             ctx.result(response.body)
         }
+        app.get("/v1/streams/{streamId}/subtitles") { ctx ->
+            val response = aniyomiFixture.subtitle(ctx.pathParam("streamId"))
+            ctx.status(response.status).header("Content-Type", response.contentType).header("Cache-Control", "private, max-age=3600")
+            response.contentLength?.let { ctx.header("Content-Length", it) }
+            ctx.result(response.body)
+        }
         return app
     }
 
