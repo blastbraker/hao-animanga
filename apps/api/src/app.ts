@@ -196,6 +196,15 @@ export function buildApp() {
     return { items: result.data, source: "myanimelist-via-jikan", cached: result.cached === true };
   });
 
+  app.get<{ Params: { id: string } }>("/v1/works/:id/anime-details", async (request, reply) => {
+    const work = (await repository?.getWork(request.params.id)) ?? workStore.get(request.params.id);
+    if (!work) return reply.code(404).send({ code: "NOT_FOUND", message: "Title not found", retryable: false });
+    if (work.kind !== "ANIME" || work.source.kind !== "ANILIST") return reply.code(400).send({ code: "INVALID", message: "AniList anime metadata is unavailable for this title", retryable: false });
+    const result = await catalog.getAnimeDetails(work.source.externalId);
+    if (!result.ok) return reply.code(result.error.code === "INVALID" ? 400 : 503).send({ ...result.error });
+    return { details: result.data };
+  });
+
   app.post("/v1/works/import-extension", { preHandler: authenticate }, async (request, reply) => {
     const parsed = ImportExtensionWorkSchema.safeParse(request.body);
     if (!parsed.success)

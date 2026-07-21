@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { Work } from "@hao/domain";
-import { ArrowDownUp, Captions, CheckCircle2, ChevronDown, ChevronRight, Film, Flag, Keyboard, Lightbulb, ListVideo, LoaderCircle, LocateFixed, Maximize2, Pause, Play, RefreshCw, RotateCcw, RotateCw, Search, Server, Settings2, Share2, SkipBack, SkipForward, TriangleAlert, Volume2, VolumeX, X } from "lucide-react";
+import { ArrowDownUp, Captions, CheckCircle2, ChevronDown, ChevronRight, ExternalLink, Film, Flag, Keyboard, Lightbulb, ListPlus, ListVideo, LoaderCircle, LocateFixed, Maximize2, Pause, Play, RefreshCw, RotateCcw, RotateCw, Search, Server, Settings2, Share2, SkipBack, SkipForward, Star, TriangleAlert, Volume2, VolumeX, X } from "lucide-react";
 import Hls from "hls.js";
 import { api, bridgeErrorMessage, bridgeJson, getActiveBridge, type LibraryResponse } from "../../../lib/api";
 import { completedEpisodeUnits, continueWatchingId, CONTINUE_WATCHING_STORAGE_KEY, DISMISSED_CONTINUE_STORAGE_KEY, parseContinueWatching, parseDismissedWorkIds, parsePlaybackPosition, playbackPercent, playbackStorageKey, resumablePosition, updateContinueWatching, type ContinueWatchingEntry } from "../../../lib/playback-progress";
@@ -53,6 +53,21 @@ type AnimeStream = {
   audio?: string;
   subtitles: AnimeSubtitle[];
 };
+type AnimeDetails = {
+  format: string | null;
+  episodes: number | null;
+  durationMinutes: number | null;
+  season: string | null;
+  startDate: { year: number | null; month: number | null; day: number | null };
+  endDate: { year: number | null; month: number | null; day: number | null };
+  country: string | null;
+  adult: boolean;
+  studios: string[];
+  officialSiteUrl: string | null;
+  trailerUrl: string | null;
+  anilistUrl: string;
+  malUrl: string | null;
+};
 
 export default function PlayerPage() {
   const playerShellRef = useRef<HTMLDivElement>(null);
@@ -73,6 +88,7 @@ export default function PlayerPage() {
   const [workId, setWorkId] = useState("");
   const [workCoverUrl, setWorkCoverUrl] = useState<string | null>(null);
   const [canonicalWork, setCanonicalWork] = useState<Work | null>(null);
+  const [animeDetails, setAnimeDetails] = useState<AnimeDetails | null>(null);
   const [seasonItems, setSeasonItems] = useState<Work[]>([]);
   const [sources, setSources] = useState<AnimeSourceSummary[]>([]);
   const [sourceId, setSourceId] = useState("");
@@ -300,12 +316,14 @@ export default function PlayerPage() {
   async function hydrateCanonicalPlayback(canonicalWorkId: string): Promise<string[]> {
     remoteProgressRef.current = null;
     setWorkCoverUrl(null);
+    setAnimeDetails(null);
     const [workResult, libraryResult] = await Promise.allSettled([api<{ work: Work }>(`/works/${canonicalWorkId}`), api<LibraryResponse>("/library")]);
     if (workResult.status === "fulfilled") {
       setWorkCoverUrl(workResult.value.work.coverUrl);
       setCanonicalWork(workResult.value.work);
       if (workResult.value.work.kind === "ANIME" && workResult.value.work.source.kind === "ANILIST") {
         void api<{ items: Work[] }>(`/works/${canonicalWorkId}/seasons`).then((result) => setSeasonItems(result.items)).catch(() => setSeasonItems([]));
+        void api<{ details: AnimeDetails }>(`/works/${canonicalWorkId}/anime-details`).then((result) => setAnimeDetails(result.details)).catch(() => setAnimeDetails(null));
       }
     }
     const alternateTitles = workResult.status === "fulfilled" ? workResult.value.work.alternateTitles : [];
@@ -876,6 +894,7 @@ export default function PlayerPage() {
     setWorkId("");
     setWorkCoverUrl(null);
     setCanonicalWork(null);
+    setAnimeDetails(null);
     setSeasonItems([]);
     setEpisodeGuide([]);
     remoteProgressRef.current = null;
@@ -1245,6 +1264,37 @@ export default function PlayerPage() {
         </div>
       </div>
       </section>
+      {canonicalWork && <section className="anime-metadata-card" aria-label={`${canonicalWork.title} information`}>
+        <div className="anime-metadata-poster">
+          {canonicalWork.coverUrl ? <img src={canonicalWork.coverUrl} alt={`${canonicalWork.title} cover`} /> : <div className="anime-metadata-cover-placeholder"><Film /></div>}
+          <div className="anime-metadata-actions">
+            {animeDetails?.trailerUrl && <a className="metadata-trailer" href={animeDetails.trailerUrl} target="_blank" rel="noreferrer"><Play /> Trailer</a>}
+            <a href={seasonHref(canonicalWork)}><ListPlus /> Library & details</a>
+          </div>
+          <div className="anime-metadata-links">
+            {animeDetails?.anilistUrl && <a href={animeDetails.anilistUrl} target="_blank" rel="noreferrer" aria-label="Open on AniList">AL</a>}
+            {animeDetails?.malUrl && <a href={animeDetails.malUrl} target="_blank" rel="noreferrer" aria-label="Open on MyAnimeList">MAL</a>}
+          </div>
+        </div>
+        <div className="anime-metadata-content">
+          <header><div><span className="eyebrow">ANIME INFORMATION</span><h2>{canonicalWork.title}</h2>{canonicalWork.alternateTitles[0] && <p>{canonicalWork.alternateTitles[0]}</p>}</div>{canonicalWork.averageScore !== null && <span className="anime-metadata-score"><Star fill="currentColor" /> {canonicalWork.averageScore}/100</span>}</header>
+          {canonicalWork.genres.length > 0 && <div className="anime-metadata-genres">{canonicalWork.genres.map((genre) => <span key={genre}>{genre}</span>)}</div>}
+          {canonicalWork.synopsis && <p className="anime-metadata-synopsis">{canonicalWork.synopsis}</p>}
+          <dl className="anime-metadata-stats">
+            <div><dt>Format</dt><dd>{formatMetadataLabel(animeDetails?.format) || "Anime"}</dd></div>
+            <div><dt>Start date</dt><dd>{formatAnimeDate(animeDetails?.startDate)}</dd></div>
+            <div><dt>Status</dt><dd>{formatMetadataLabel(canonicalWork.status) || "Unknown"}</dd></div>
+            <div><dt>End date</dt><dd>{formatAnimeDate(animeDetails?.endDate)}</dd></div>
+            <div><dt>Episodes</dt><dd>{(animeDetails?.episodes ?? episodes.length) || "—"}</dd></div>
+            <div><dt>Country</dt><dd>{animeDetails?.country ?? "—"}</dd></div>
+            <div><dt>Duration</dt><dd>{animeDetails?.durationMinutes ? `${animeDetails.durationMinutes} min` : "—"}</dd></div>
+            <div><dt>Adult</dt><dd>{animeDetails ? (animeDetails.adult ? "Yes" : "No") : "—"}</dd></div>
+            <div><dt>Season</dt><dd>{formatMetadataLabel(animeDetails?.season) || "—"}{canonicalWork.year ? ` ${canonicalWork.year}` : ""}</dd></div>
+            <div><dt>Studios</dt><dd>{animeDetails?.studios.join(", ") || "—"}</dd></div>
+            {animeDetails?.officialSiteUrl && <div className="anime-metadata-official"><dt>Official site</dt><dd><a href={animeDetails.officialSiteUrl} target="_blank" rel="noreferrer">Visit site <ExternalLink /></a></dd></div>}
+          </dl>
+        </div>
+      </section>}
       <div className="player-shortcuts" aria-label="Keyboard shortcuts"><span>Space Play/Pause</span><span>J/L ±10 seconds</span><span>M Mute</span><span>F Fullscreen</span></div>
       {shortcutsOpen && <div className="shortcut-dialog-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setShortcutsOpen(false)}>
         <section className="shortcut-dialog" role="dialog" aria-modal="true" aria-labelledby="shortcut-title">
@@ -1287,6 +1337,17 @@ function formatTime(seconds: number): string {
   const rounded = Math.max(0, Math.floor(seconds));
   const minutes = Math.floor(rounded / 60);
   return `${minutes}:${String(rounded % 60).padStart(2, "0")}`;
+}
+
+function formatMetadataLabel(value: string | null | undefined): string {
+  if (!value) return "";
+  return value.toLocaleLowerCase().split("_").map((part) => `${part.charAt(0).toLocaleUpperCase()}${part.slice(1)}`).join(" ");
+}
+
+function formatAnimeDate(value: AnimeDetails["startDate"] | undefined): string {
+  if (!value?.year) return "—";
+  const date = new Date(Date.UTC(value.year, Math.max(0, (value.month ?? 1) - 1), value.day ?? 1));
+  return new Intl.DateTimeFormat(undefined, { year: "numeric", ...(value.month ? { month: "short" as const } : {}), ...(value.day ? { day: "numeric" as const } : {}) }).format(date);
 }
 
 function message(cause: unknown) {

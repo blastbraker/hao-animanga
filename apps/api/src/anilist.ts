@@ -20,6 +20,22 @@ interface AniListMedia {
   countryOfOrigin: string | null;
 }
 
+export type AnimeDetails = {
+  format: string | null;
+  episodes: number | null;
+  durationMinutes: number | null;
+  season: string | null;
+  startDate: { year: number | null; month: number | null; day: number | null };
+  endDate: { year: number | null; month: number | null; day: number | null };
+  country: string | null;
+  adult: boolean;
+  studios: string[];
+  officialSiteUrl: string | null;
+  trailerUrl: string | null;
+  anilistUrl: string;
+  malUrl: string | null;
+};
+
 const SEARCH_QUERY = `query Search($page: Int, $perPage: Int, $search: String, $type: MediaType, $genre: String, $year: Int, $status: MediaStatus, $isAdult: Boolean) {
   Page(page: $page, perPage: $perPage) {
     pageInfo { hasNextPage }
@@ -60,6 +76,17 @@ const SEASONS_QUERY = `query Seasons($id: Int!) {
         node { ${MEDIA_FIELDS} }
       }
     }
+  }
+}`;
+
+const ANIME_DETAILS_QUERY = `query AnimeDetails($id: Int!) {
+  Media(id: $id, type: ANIME) {
+    id idMal format episodes duration season countryOfOrigin isAdult siteUrl
+    startDate { year month day }
+    endDate { year month day }
+    studios(isMain: true) { nodes { name } }
+    externalLinks { site url type }
+    trailer { id site }
   }
 }`;
 
@@ -240,4 +267,56 @@ export class AniListProvider implements CatalogProvider {
       return { ok: false, error: { code: "UNAVAILABLE", message: error instanceof Error ? error.message : "AniList seasons request failed", retryable: true } };
     }
   }
+
+  async getAnimeDetails(externalId: string, signal?: AbortSignal): Promise<ProviderResult<AnimeDetails>> {
+    const id = Number(externalId);
+    if (!Number.isSafeInteger(id) || id <= 0) return { ok: false, error: { code: "INVALID", message: "AniList ID is invalid", retryable: false } };
+    try {
+      const init: RequestInit = {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({ query: ANIME_DETAILS_QUERY, variables: { id } }),
+      };
+      if (signal) init.signal = signal;
+      const response = await fetch(this.endpoint, init);
+      if (response.status === 429) return { ok: false, error: { code: "RATE_LIMITED", message: "AniList rate limit reached", retryable: true } };
+      if (!response.ok) return { ok: false, error: { code: "UNAVAILABLE", message: `AniList returned ${response.status}`, retryable: response.status >= 500 } };
+      const body = await response.json() as { data?: { Media?: {
+        id: number; idMal: number | null; format: string | null; episodes: number | null; duration: number | null; season: string | null;
+        countryOfOrigin: string | null; isAdult: boolean; siteUrl: string | null;
+        startDate: AnimeDetails["startDate"]; endDate: AnimeDetails["endDate"];
+        studios?: { nodes?: Array<{ name: string }> }; externalLinks?: Array<{ site: string; url: string; type: string }>;
+        trailer?: { id: string; site: string } | null;
+      } }; errors?: Array<{ message: string }> };
+      const media = body.data?.Media;
+      if (!media) return { ok: false, error: { code: "UNAVAILABLE", message: body.errors?.[0]?.message ?? "Anime details unavailable", retryable: true } };
+      const officialSite = media.externalLinks?.find((link) => link.site.toLocaleLowerCase() === "official site")
+        ?? media.externalLinks?.find((link) => link.type === "INFO" && !/anilist|myanimelist/i.test(link.site));
+      return { ok: true, data: {
+        format: media.format,
+        episodes: media.episodes,
+        durationMinutes: media.duration,
+        season: media.season,
+        startDate: media.startDate,
+        endDate: media.endDate,
+        country: media.countryOfOrigin,
+        adult: media.isAdult,
+        studios: [...new Set((media.studios?.nodes ?? []).map((studio) => studio.name).filter(Boolean))],
+        officialSiteUrl: officialSite?.url ?? null,
+        trailerUrl: mapTrailerUrl(media.trailer),
+        anilistUrl: media.siteUrl ?? `https://anilist.co/anime/${media.id}`,
+        malUrl: media.idMal ? `https://myanimelist.net/anime/${media.idMal}` : null,
+      } };
+    } catch (error) {
+      return { ok: false, error: { code: "UNAVAILABLE", message: error instanceof Error ? error.message : "AniList details request failed", retryable: true } };
+    }
+  }
+}
+
+function mapTrailerUrl(trailer: { id: string; site: string } | null | undefined): string | null {
+  if (!trailer?.id) return null;
+  const site = trailer.site.toLocaleLowerCase();
+  if (site === "youtube") return `https://www.youtube.com/watch?v=${encodeURIComponent(trailer.id)}`;
+  if (site === "dailymotion") return `https://www.dailymotion.com/video/${encodeURIComponent(trailer.id)}`;
+  return null;
 }

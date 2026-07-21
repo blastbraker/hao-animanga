@@ -26,3 +26,17 @@ describe("AniList anime seasons", () => {
     if (result.ok) expect(result.data.map((item) => item.title)).toEqual(["Example", "Example Season 2", "Example Season 3", "Example Season 4"]);
   });
 });
+
+describe("AniList anime details", () => {
+  it("maps player metadata and official links", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ data: { Media: {
+      id: 207809, idMal: 63489, format: "TV", episodes: 24, duration: 23, season: "SUMMER", countryOfOrigin: "JP", isAdult: false,
+      siteUrl: "https://anilist.co/anime/207809", startDate: { year: 2026, month: 7, day: 8 }, endDate: { year: null, month: null, day: null },
+      studios: { nodes: [{ name: "Tatsunoko Production" }] }, externalLinks: [{ site: "Official Site", url: "https://example.test/anime", type: "INFO" }],
+      trailer: { id: "abc123", site: "youtube" },
+    } } }), { status: 200 })));
+    const result = await new AniListProvider("https://example.test/graphql").getAnimeDetails("207809");
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.data).toMatchObject({ format: "TV", episodes: 24, durationMinutes: 23, studios: ["Tatsunoko Production"], officialSiteUrl: "https://example.test/anime", trailerUrl: "https://www.youtube.com/watch?v=abc123", malUrl: "https://myanimelist.net/anime/63489" });
+  });
+});
