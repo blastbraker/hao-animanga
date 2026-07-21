@@ -11,6 +11,7 @@ import { nextPlaybackCandidate, prioritizePlaybackItems } from "../../../lib/pla
 import { pickAudioVariant, streamAudioMode, type AudioMode } from "../../../lib/stream-audio";
 import { maybeNotifyNewReleases, recordActivity, RELEASE_SNAPSHOTS_STORAGE_KEY, saveSourceReport, updateReleaseSnapshot } from "../../../lib/beta-features";
 import { isPlayerFullscreen, togglePlayerFullscreen, type FullscreenVideo } from "../../../lib/player-fullscreen";
+import { episodeDisplayLabel, episodeDisplayName, episodeNumberLabel } from "../../../lib/episode-title";
 
 type AnimeSourceSummary = {
   id: string;
@@ -674,7 +675,7 @@ export default function PlayerPage() {
     };
     writePreference(playbackStorageKey(sourceId, animeId, episode.id), JSON.stringify(saved));
     saveContinueEntry(episode, positionSeconds, video.duration, completed);
-    recordActivity({ id: `anime:${sourceId}:${animeId}`, kind: "watch", title: anime?.title ?? "Selected anime", detail: `Episode ${episode.number} · ${episode.title}`, href: window.location.pathname + window.location.search, sourceName: sources.find((item) => item.id === sourceId)?.name ?? anime?.provider ?? "Anime source", progressPercent: playbackPercent(positionSeconds, video.duration) });
+    recordActivity({ id: `anime:${sourceId}:${animeId}`, kind: "watch", title: anime?.title ?? "Selected anime", detail: episodeDisplayLabel(episode), href: window.location.pathname + window.location.search, sourceName: sources.find((item) => item.id === sourceId)?.name ?? anime?.provider ?? "Anime source", progressPercent: playbackPercent(positionSeconds, video.duration) });
     setProgressStatus(workId ? "Saving progress…" : "Resume saved on this device");
     if (!workId) return;
     try {
@@ -703,10 +704,10 @@ export default function PlayerPage() {
       sourceName: sources.find((item) => item.id === sourceId)?.name ?? anime?.provider ?? "Installed anime source",
       animeId,
       animeTitle: anime?.title ?? "Selected anime",
-      thumbnailUrl: workCoverUrl ?? anime?.thumbnailUrl ?? null,
+      thumbnailUrl: workCoverUrl ?? (anime ? `${bridge}/v1/anime/${encodeURIComponent(anime.id)}/thumbnail` : null),
       episodeId: targetEpisode.id,
       episodeNumber: targetEpisode.number,
-      episodeTitle: targetEpisode.title,
+      episodeTitle: episodeDisplayName(targetEpisode),
       positionSeconds,
       durationSeconds,
       updatedAt: new Date().toISOString()
@@ -905,7 +906,7 @@ export default function PlayerPage() {
 
   const playedPercent = duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0;
   const activeSourceName = sources.find((item) => item.id === sourceId)?.name ?? anime?.provider ?? "HAO source";
-  const posterUrl = workCoverUrl ?? anime?.thumbnailUrl ?? undefined;
+  const posterUrl = workCoverUrl ?? (anime ? `${bridge}/v1/anime/${encodeURIComponent(anime.id)}/thumbnail` : undefined);
 
   return (
     <div className="player-page anime-player-page">
@@ -958,7 +959,7 @@ export default function PlayerPage() {
           <div className="player-placeholder">{busy ? <LoaderCircle className="spin" /> : <Film />}<span>{busy || "Choose an episode and stream."}</span></div>
         )}
 
-        {stream && <div className="player-title-overlay"><div><b>{anime?.title ?? "Anime"}</b><span>{episode ? `Episode ${episode.number} · ${episode.title}` : "Select an episode"}</span></div><span className="player-quality-badge">{stream.quality ?? "AUTO"}</span></div>}
+        {stream && <div className="player-title-overlay"><div><b>{anime?.title ?? "Anime"}</b><span>{episode ? episodeDisplayLabel(episode) : "Select an episode"}</span></div><span className="player-quality-badge">{stream.quality ?? "AUTO"}</span></div>}
         {stream && !isPlaying && !isBuffering && <button className="player-center-action" aria-label="Play" onClick={() => void togglePlayback()}><Play fill="currentColor" /></button>}
         {stream && isBuffering && <div className="player-buffering" role="status"><LoaderCircle className="spin" /><span>Buffering</span></div>}
 
@@ -1002,8 +1003,8 @@ export default function PlayerPage() {
         <div className="episode-list">
           {episodes.map((item) => (
             <button key={item.id} className={item.id === episodeId ? "active" : ""} aria-current={item.id === episodeId ? "true" : undefined} onClick={() => void changeEpisode(item.id, true)} disabled={Boolean(busy)}>
-              <span className="episode-number">{String(item.number).padStart(2, "0")}</span>
-              <span><b>Episode {item.number}</b><small>{item.title}</small></span>
+              <span className="episode-number">{episodeNumberLabel(item.number).padStart(2, "0")}</span>
+              <span><b>{episodeDisplayName(item)}</b><small>Episode {episodeNumberLabel(item.number)}</small></span>
               {item.id === episodeId ? <Play fill="currentColor" /> : item.id === nextEpisode?.id ? <span className="up-next-label">UP NEXT</span> : <ChevronRight />}
             </button>
           ))}
@@ -1127,7 +1128,7 @@ export default function PlayerPage() {
             <Server /> NOW PLAYING · {bridgeScope === "beta" ? "MANAGED BETA BRIDGE" : (anime?.provider ?? "LOCAL RUNTIME")}
           </span>
           <h1>{anime?.title ?? "Anime player"}</h1>
-          <p>{episode ? `Episode ${episode.number} · ${episode.title}` : (anime?.description ?? "Connect an authorized anime source.")}</p>
+          <p>{episode ? episodeDisplayLabel(episode) : (anime?.description ?? "Connect an authorized anime source.")}</p>
           {anime?.attribution && <small>{anime.attribution}</small>}
           {progressStatus && (
             <span className="progress-save-status">

@@ -44,6 +44,10 @@ object AnimeHostServer {
             val id = ctx.pathParam("animeId")
             ctx.json(if (id.startsWith(AniyomiFixtureRuntime.ID_PREFIX)) aniyomiFixture.episodes(id) else fixture.episodes(id))
         }
+        app.get("/v1/anime/{animeId}/thumbnail") { ctx ->
+            val response = aniyomiFixture.thumbnail(ctx.pathParam("animeId"))
+            ctx.contentType(response.contentType).header("Cache-Control", "private, max-age=86400").result(response.body)
+        }
         app.get("/v1/episodes/{episodeId}/servers") { ctx ->
             val id = ctx.pathParam("episodeId")
             ctx.json(if (id.startsWith(AniyomiFixtureRuntime.ID_PREFIX)) aniyomiFixture.servers(id) else fixture.servers(id))

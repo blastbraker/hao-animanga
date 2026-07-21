@@ -416,7 +416,7 @@ export default function HomePage() {
               browseHref="/player/anime"
             >
               {animeItems.map((item) => (
-                <AnimeRepositoryCard key={item.id} item={item} sourceId={animeSourceId} mode={animeMode} />
+                <AnimeRepositoryCard key={item.id} item={item} endpoint={bridge} sourceId={animeSourceId} mode={animeMode} />
               ))}
             </RepositorySection>
 
@@ -568,13 +568,14 @@ function RepositorySection({ kind, title, description, icon, sources, sourceId, 
   );
 }
 
-function AnimeRepositoryCard({ item, sourceId, mode }: { item: AnimeItem; sourceId: string; mode: BrowseMode }) {
+function AnimeRepositoryCard({ item, endpoint, sourceId, mode }: { item: AnimeItem; endpoint: string; sourceId: string; mode: BrowseMode }) {
+  const [imageFailed, setImageFailed] = useState(false);
   const href = `/player/anime?${new URLSearchParams({ sourceId, animeId: item.id, mode }).toString()}`;
   return (
     <Link className="repository-card" href={href}>
       <div className="repository-poster anime-poster">
-        {item.thumbnailUrl ? (
-          <img src={item.thumbnailUrl} alt="" loading="lazy" />
+        {item.thumbnailUrl && !imageFailed ? (
+          <img src={`${endpoint}/v1/anime/${encodeURIComponent(item.id)}/thumbnail`} alt="" loading="lazy" onError={() => setImageFailed(true)} />
         ) : (
           <span className="poster-monogram">
             <Clapperboard />

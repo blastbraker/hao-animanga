@@ -99,6 +99,11 @@ fun main() {
     }
     app.get("/v1/anime/extensions/probe") { ctx -> requireManagement(ctx, pairing, adminToken); ctx.json(animeHost.probes()) }
     app.get("/v1/anime/{animeId}/episodes") { ctx -> requirePaired(ctx, pairing); ctx.json(animeHost.episodes(ctx.pathParam("animeId"))) }
+    app.get("/v1/anime/{animeId}/thumbnail") { ctx ->
+        requirePaired(ctx, pairing)
+        val response = animeHost.thumbnail(ctx.pathParam("animeId"))
+        ctx.contentType(response.contentType).header("Cache-Control", "private, max-age=86400").result(response.body)
+    }
     app.get("/v1/anime/episodes/{episodeId}/servers") { ctx -> requirePaired(ctx, pairing); ctx.json(animeHost.servers(ctx.pathParam("episodeId"))) }
     app.get("/v1/anime/episodes/{episodeId}/streams") { ctx -> requirePaired(ctx, pairing); ctx.json(animeHost.streams(ctx.pathParam("episodeId"), ctx.queryParam("serverId") ?: "")) }
     app.get("/v1/anime/streams/{streamId}/media") { ctx ->

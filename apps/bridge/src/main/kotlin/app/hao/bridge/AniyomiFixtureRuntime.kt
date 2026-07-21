@@ -193,6 +193,34 @@ class AniyomiFixtureRuntime(private val extensionRoot: Path, private val dataRoo
         return AnimeMediaResponse(200, "text/vtt; charset=utf-8", webVtt.size.toString(), null, "none", ByteArrayInputStream(webVtt))
     }
 
+    fun thumbnail(animeId: String): BinaryResponse {
+        val handle = anime[animeId] ?: restoreAnime(animeId) ?: throw IllegalArgumentException("Aniyomi anime title was not found")
+        val rawUrl = handle.anime.thumbnail_url?.trim().orEmpty()
+        require(rawUrl.isNotBlank()) { "Aniyomi anime artwork was not found" }
+        val source = handle.source as? eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
+        val resolvedUrl = when {
+            rawUrl.startsWith("//") -> "https:$rawUrl"
+            runCatching { URI(rawUrl).isAbsolute }.getOrDefault(false) -> rawUrl
+            source != null -> URI(source.baseUrl.trimEnd('/') + "/").resolve(rawUrl).toString()
+            else -> throw IllegalArgumentException("Aniyomi anime artwork URL was invalid")
+        }
+        AnimeNetworkPolicy.allowRemoteHttps(resolvedUrl)
+        val request = okhttp3.Request.Builder().url(resolvedUrl).header("User-Agent", "HAO-Bridge/0.1").get()
+        source?.headers?.toMultimap()?.forEach { (name, values) ->
+            if (!name.equals("Host", true) && !name.equals("Content-Length", true) && !name.equals("Range", true)) values.forEach { request.header(name, it) }
+        }
+        val response = mediaClient.newCall(request.build()).execute()
+        require(response.isSuccessful) { response.close(); "Aniyomi artwork returned HTTP ${response.code}" }
+        val contentType = response.header("content-type") ?: "application/octet-stream"
+        require(contentType.startsWith("image/", true)) { response.close(); "Aniyomi artwork returned an unsupported format" }
+        val declaredLength = response.body.contentLength()
+        require(declaredLength <= MAX_ARTWORK_BYTES) { response.close(); "Aniyomi artwork exceeded the size limit" }
+        val bytes = response.body.byteStream().use { it.readNBytes(MAX_ARTWORK_BYTES + 1) }
+        response.close()
+        require(bytes.size <= MAX_ARTWORK_BYTES) { "Aniyomi artwork exceeded the size limit" }
+        return BinaryResponse(contentType, ByteArrayInputStream(bytes))
+    }
+
     @Synchronized private fun loadSources(): List<AnimeSource> {
         sources?.let { return it }
         val compatiblePackages = probes.probeInstalled().filter { it.compatible && it.runtimeCompatible }
@@ -295,5 +323,6 @@ class AniyomiFixtureRuntime(private val extensionRoot: Path, private val dataRoo
         const val FIXTURE_PACKAGE = "app.hao.fixture.anime"
         private val HLS_URI = Regex("URI=\\\"([^\\\"]+)\\\"")
         private const val MAX_SUBTITLE_BYTES = 5 * 1024 * 1024
+        private const val MAX_ARTWORK_BYTES = 10 * 1024 * 1024
     }
 }

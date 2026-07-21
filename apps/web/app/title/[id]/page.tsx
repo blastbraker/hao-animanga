@@ -2,11 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import type { LibraryEntry, Work } from "@hao/domain";
+import type { LibraryEntry, LibraryStatus, Work } from "@hao/domain";
 import { BookOpen, BookmarkPlus, CircleAlert, Clapperboard, ExternalLink, Heart, LoaderCircle, Play, RefreshCw, Server, Star } from "lucide-react";
 import { api, bridgeErrorMessage, bridgeJson, getActiveBridge, type LibraryResponse } from "../../../lib/api";
 import { confidentSourceMatch } from "../../../lib/source-match";
 import { rankSourcesByReliability, recordSourceResult } from "../../../lib/source-reliability";
+import { episodeDisplayName, episodeNumberLabel } from "../../../lib/episode-title";
 
 type AnimeSource = {
   id: string;
@@ -69,6 +70,7 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
   const [saved, setSaved] = useState(false);
   const [libraryEntry, setLibraryEntry] = useState<LibraryEntry | null>(null);
   const [ratingBusy, setRatingBusy] = useState(false);
+  const [libraryBusy, setLibraryBusy] = useState(false);
   const [error, setError] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
   const [bridge, setBridge] = useState("");
@@ -188,37 +190,35 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
   if (!work) return <div className="page inner-page empty-state">Opening title…</div>;
 
   async function save() {
-    const entry = await api<LibraryEntry>("/library", {
-      method: "PUT",
-      body: JSON.stringify({
-        workId: work!.id,
-        status: "WATCHING_READING",
-        favorite: libraryEntry?.favorite ?? true,
-        rating: libraryEntry?.rating ?? null,
-        notes: libraryEntry?.notes ?? ""
-      })
-    });
-    setLibraryEntry(entry);
-    setSaved(true);
+    await updateLibrary({ status: libraryEntry?.status ?? "PLANNING" });
   }
 
   async function rate(value: number | null) {
     setRatingBusy(true);
     try {
+      await updateLibrary({ rating: value });
+    } finally {
+      setRatingBusy(false);
+    }
+  }
+
+  async function updateLibrary(patch: Partial<Pick<LibraryEntry, "status" | "favorite" | "rating">>) {
+    setLibraryBusy(true);
+    try {
       const entry = await api<LibraryEntry>("/library", {
         method: "PUT",
         body: JSON.stringify({
           workId: work!.id,
-          status: libraryEntry?.status ?? "PLANNING",
-          favorite: libraryEntry?.favorite ?? false,
-          rating: value,
+          status: patch.status ?? libraryEntry?.status ?? "PLANNING",
+          favorite: patch.favorite ?? libraryEntry?.favorite ?? false,
+          rating: patch.rating !== undefined ? patch.rating : libraryEntry?.rating ?? null,
           notes: libraryEntry?.notes ?? ""
         })
       });
       setLibraryEntry(entry);
       setSaved(true);
     } finally {
-      setRatingBusy(false);
+      setLibraryBusy(false);
     }
   }
 
@@ -267,9 +267,12 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
                 {work.kind === "ANIME" ? <Play /> : <BookOpen />}Not in installed sources
               </button>
             )}
-            <button className="button ghost" onClick={() => void save()}>
-              {saved ? <Heart fill="currentColor" /> : <BookmarkPlus />}
-              {saved ? "Saved" : "Add to library"}
+            {!saved && <button className="button ghost" disabled={libraryBusy} onClick={() => void save()}><BookmarkPlus />Add to library</button>}
+            {saved && <select className="title-library-status" aria-label="Library status" value={libraryEntry?.status ?? "PLANNING"} disabled={libraryBusy} onChange={(event) => void updateLibrary({ status: event.target.value as LibraryStatus })}>
+              <option value="PLANNING">Planning</option><option value="WATCHING_READING">In progress</option><option value="ON_HOLD">On hold</option><option value="COMPLETED">Completed</option><option value="DROPPED">Dropped</option>
+            </select>}
+            <button className={`button ghost favorite-button ${libraryEntry?.favorite ? "active" : ""}`} disabled={libraryBusy} onClick={() => void updateLibrary({ favorite: !libraryEntry?.favorite })}>
+              <Heart fill={libraryEntry?.favorite ? "currentColor" : "none"} />{libraryEntry?.favorite ? "Favorited" : "Favorite"}
             </button>
             {work.kind === "ANIME" && <a className="button ghost imdb-button" href={imdbSearchHref(work)} target="_blank" rel="noreferrer"><ExternalLink /> IMDb rating & watchlist</a>}
           </div>
@@ -531,10 +534,10 @@ function AnimeSourcePanel({ availability, workTitle, workId }: { availability: A
       <div className="release-list">
         {availability.episodes.map((episode) => (
           <Link key={episode.id} href={animePlayerHref(availability.source.id, availability.item.id, workTitle, episode.id, workId)}>
-            <span className="release-number">{episode.number}</span>
+            <span className="release-number">{episodeNumberLabel(episode.number)}</span>
             <span>
-              <b>{episode.title}</b>
-              <small>Episode {episode.number}</small>
+              <b>{episodeDisplayName(episode)}</b>
+              <small>Episode {episodeNumberLabel(episode.number)}</small>
             </span>
             <Play />
           </Link>

@@ -57,6 +57,7 @@ class AnimeHostManager(
         withHost { client.catalog(sourceId, mode, query, page) }
     fun probes(): List<AniyomiApkProbeResult> = withHost { client.probes() }
     fun episodes(animeId: String): List<AnimeEpisode> = withHost { client.episodes(animeId) }
+    fun thumbnail(animeId: String): BinaryResponse = withHost { client.thumbnail(animeId) }
     fun servers(episodeId: String): List<AnimeServer> = withHost { client.servers(episodeId) }
     fun streams(episodeId: String, serverId: String): List<AnimeStream> = withHost { client.streams(episodeId, serverId) }
     fun media(streamId: String, range: String?): AnimeMediaResponse = withHost { client.media(streamId, range) }

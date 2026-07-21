@@ -29,6 +29,7 @@ class AnimeHostClient(port: Int, private val token: String) {
     }
     fun probes(): List<AniyomiApkProbeResult> = decode(getText("extensions/probe"))
     fun episodes(animeId: String): List<AnimeEpisode> = decode(getText("anime/${segment(animeId)}/episodes"))
+    fun thumbnail(animeId: String): BinaryResponse = getBinary("anime/${segment(animeId)}/thumbnail")
     fun servers(episodeId: String): List<AnimeServer> = decode(getText("episodes/${segment(episodeId)}/servers"))
     fun streams(episodeId: String, serverId: String): List<AnimeStream> = decode(getText("episodes/${segment(episodeId)}/streams?serverId=${segment(serverId)}"))
 
@@ -72,6 +73,15 @@ class AnimeHostClient(port: Int, private val token: String) {
         val response = http.send(request(path).timeout(Duration.ofSeconds(45)).GET().build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
         if (response.statusCode() !in 200..299) throw AnimeHostRequestException(response.statusCode())
         return response.body()
+    }
+
+    private fun getBinary(path: String): BinaryResponse {
+        val response = http.send(request(path).timeout(Duration.ofSeconds(30)).GET().build(), HttpResponse.BodyHandlers.ofInputStream())
+        if (response.statusCode() !in 200..299) {
+            response.body().close()
+            throw AnimeHostRequestException(response.statusCode())
+        }
+        return BinaryResponse(response.headers().firstValue("content-type").orElse("application/octet-stream"), response.body())
     }
 
     private fun request(path: String) = HttpRequest.newBuilder(baseUri.resolve(path)).header("Authorization", "Bearer $token")
