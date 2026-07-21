@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { Work } from "@hao/domain";
 import { ArrowDownUp, Captions, CheckCircle2, ChevronDown, ChevronRight, Film, Flag, Keyboard, Lightbulb, ListVideo, LoaderCircle, LocateFixed, Maximize2, Pause, Play, RefreshCw, RotateCcw, RotateCw, Search, Server, Settings2, Share2, SkipBack, SkipForward, TriangleAlert, Volume2, VolumeX, X } from "lucide-react";
 import Hls from "hls.js";
@@ -15,6 +15,7 @@ import { isPlayerFullscreen, togglePlayerFullscreen, type FullscreenVideo } from
 import { episodeDisplayLabel, episodeDisplayName, episodeNumberLabel } from "../../../lib/episode-title";
 import { seasonHref, seasonOptionLabel } from "../../../lib/anime-seasons";
 import { browseEpisodes, type EpisodeOrder } from "../../../lib/episode-browser";
+import { enrichEpisodes, episodeGroupLabel, type EpisodeGuideMetadata } from "../../../lib/episode-metadata";
 
 type AnimeSourceSummary = {
   id: string;
@@ -36,6 +37,10 @@ type AnimeEpisode = {
   animeId: string;
   number: number;
   title: string;
+  arc?: string;
+  filler?: boolean;
+  recap?: boolean;
+  airedAt?: string | null;
 };
 type AnimeServer = { id: string; name: string };
 type AnimeSubtitle = { label: string; language?: string; url: string };
@@ -76,6 +81,7 @@ export default function PlayerPage() {
   const [catalog, setCatalog] = useState<AnimeCatalogItem[]>([]);
   const [animeId, setAnimeId] = useState("");
   const [episodes, setEpisodes] = useState<AnimeEpisode[]>([]);
+  const [episodeGuide, setEpisodeGuide] = useState<EpisodeGuideMetadata[]>([]);
   const [episodeId, setEpisodeId] = useState("");
   const [servers, setServers] = useState<AnimeServer[]>([]);
   const [serverId, setServerId] = useState("");
@@ -104,11 +110,13 @@ export default function PlayerPage() {
   const [error, setError] = useState("");
 
   const anime = useMemo(() => catalog.find((item) => item.id === animeId), [animeId, catalog]);
-  const episode = useMemo(() => episodes.find((item) => item.id === episodeId), [episodeId, episodes]);
-  const episodeIndex = useMemo(() => episodes.findIndex((item) => item.id === episodeId), [episodeId, episodes]);
-  const previousEpisode = episodeIndex > 0 ? episodes[episodeIndex - 1] : undefined;
-  const nextEpisode = episodeIndex >= 0 && episodeIndex < episodes.length - 1 ? episodes[episodeIndex + 1] : undefined;
-  const visibleEpisodes = useMemo(() => browseEpisodes(episodes, episodeFilter, episodeOrder), [episodeFilter, episodeOrder, episodes]);
+  const displayEpisodes = useMemo(() => enrichEpisodes(episodes, episodeGuide), [episodeGuide, episodes]);
+  const episode = useMemo(() => displayEpisodes.find((item) => item.id === episodeId), [displayEpisodes, episodeId]);
+  const episodeIndex = useMemo(() => displayEpisodes.findIndex((item) => item.id === episodeId), [displayEpisodes, episodeId]);
+  const previousEpisode = episodeIndex > 0 ? displayEpisodes[episodeIndex - 1] : undefined;
+  const nextEpisode = episodeIndex >= 0 && episodeIndex < displayEpisodes.length - 1 ? displayEpisodes[episodeIndex + 1] : undefined;
+  const visibleEpisodes = useMemo(() => browseEpisodes(displayEpisodes, episodeFilter, episodeOrder), [displayEpisodes, episodeFilter, episodeOrder]);
+  const maximumEpisode = useMemo(() => Math.ceil(Math.max(0, ...episodes.map((item) => item.number))), [episodes]);
   const stream = useMemo(() => streams.find((item) => item.id === streamId), [streamId, streams]);
   const streamUrl = stream ? (stream.url.startsWith("/") ? `${bridge}${stream.url}` : stream.url) : "";
   const subtitleUrls = useMemo(() => stream?.subtitles.map((subtitle) => subtitle.url.startsWith("/") ? `${bridge}${subtitle.url}` : subtitle.url) ?? [], [bridge, stream]);
@@ -144,6 +152,15 @@ export default function PlayerPage() {
     writePreference(RELEASE_SNAPSHOTS_STORAGE_KEY, JSON.stringify(snapshot.snapshots));
     maybeNotifyNewReleases(anime.title, "episode", snapshot.previous, episodes.length);
   }, [anime?.id, anime?.title, episodes.length, sourceId]);
+
+  useEffect(() => {
+    if (!workId || canonicalWork?.source.kind !== "ANILIST" || !maximumEpisode) { setEpisodeGuide([]); return; }
+    let cancelled = false;
+    void api<{ items: EpisodeGuideMetadata[] }>(`/works/${workId}/episode-guide?maxEpisode=${maximumEpisode}`)
+      .then((result) => { if (!cancelled) setEpisodeGuide(result.items); })
+      .catch(() => { if (!cancelled) setEpisodeGuide([]); });
+    return () => { cancelled = true; };
+  }, [canonicalWork?.source.kind, maximumEpisode, workId]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -860,6 +877,7 @@ export default function PlayerPage() {
     setWorkCoverUrl(null);
     setCanonicalWork(null);
     setSeasonItems([]);
+    setEpisodeGuide([]);
     remoteProgressRef.current = null;
     const url = new URL(window.location.href);
     url.searchParams.delete("workId");
@@ -1069,20 +1087,26 @@ export default function PlayerPage() {
       </div>
       </section>
       <aside className="episode-rail" aria-label="Episodes">
-        <div className="episode-rail-heading"><div><ListVideo /><span><b>Episodes</b><small>{episodes.length ? `${episodes.length} available` : "Loading episodes"}</small></span></div><span>{episodeIndex >= 0 ? `${episodeIndex + 1}/${episodes.length}` : "—"}</span></div>
+        <div className="episode-rail-heading"><div><ListVideo /><span><b>Episodes</b><small>{episodes.length ? `${episodes.length} available${episodeGuide.length ? " · filler guide loaded" : ""}` : "Loading episodes"}</small></span></div><span>{episodeIndex >= 0 ? `${episodeIndex + 1}/${episodes.length}` : "—"}</span></div>
         <div className="episode-tools">
           <label><Search /><input aria-label="Filter episodes" value={episodeFilter} onChange={(event) => setEpisodeFilter(event.target.value)} placeholder="Filter episodes…" /></label>
           <button aria-label={`Sort episodes ${episodeOrder === "asc" ? "newest first" : "oldest first"}`} title={episodeOrder === "asc" ? "Newest first" : "Oldest first"} onClick={toggleEpisodeOrder}><ArrowDownUp /><span>{episodeOrder === "asc" ? "1–9" : "9–1"}</span></button>
           <button aria-label="Jump to current episode" title="Jump to current episode" disabled={!episode} onClick={revealCurrentEpisode}><LocateFixed /></button>
         </div>
         <div className="episode-list" ref={episodeListRef}>
-          {visibleEpisodes.map((item) => (
-            <button key={item.id} className={item.id === episodeId ? "active" : ""} aria-current={item.id === episodeId ? "true" : undefined} onClick={() => void changeEpisode(item.id, true)} disabled={Boolean(busy)}>
+          {visibleEpisodes.map((item, index) => {
+            const group = episodeGroupLabel(item, maximumEpisode);
+            const previousGroup = index > 0 ? episodeGroupLabel(visibleEpisodes[index - 1]!, maximumEpisode) : null;
+            const showGroup = group && group.label !== previousGroup?.label;
+            return <Fragment key={item.id}>
+            {showGroup && <div className={`episode-arc-heading ${group.kind}`}><span>{group.kind === "arc" ? "STORY ARC" : "EPISODE RANGE"}</span><b>{group.label}</b></div>}
+            <button className={[item.id === episodeId ? "active" : "", item.filler ? "filler" : "", item.recap ? "recap" : ""].filter(Boolean).join(" ")} aria-current={item.id === episodeId ? "true" : undefined} title={item.filler ? "This episode is marked as filler" : item.recap ? "This episode is marked as a recap" : undefined} onClick={() => void changeEpisode(item.id, true)} disabled={Boolean(busy)}>
               <span className="episode-number">{episodeNumberLabel(item.number).padStart(2, "0")}</span>
-              <span><b>{episodeDisplayName(item)}</b><small>Episode {episodeNumberLabel(item.number)}</small></span>
+              <span><b>{episodeDisplayName(item)}</b><small>Episode {episodeNumberLabel(item.number)}{item.filler && <em>FILLER</em>}{item.recap && <em className="recap">RECAP</em>}</small></span>
               {item.id === episodeId ? <Play fill="currentColor" /> : item.id === nextEpisode?.id ? <span className="up-next-label">UP NEXT</span> : <ChevronRight />}
             </button>
-          ))}
+            </Fragment>;
+          })}
           {!busy && !episodes.length && <p>No episodes are available from this source.</p>}
           {!busy && Boolean(episodes.length) && !visibleEpisodes.length && <p>No episodes match “{episodeFilter.trim()}”.</p>}
         </div>

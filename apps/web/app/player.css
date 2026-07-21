@@ -76,6 +76,18 @@
 .episode-list>button.active>svg { color: var(--cyan); }
 .episode-number { width: 36px; height: 40px; display: grid; place-items: center; border-radius: 7px; color: var(--muted); background: rgba(255,255,255,.045); font: 750 11px var(--font-display); }
 .episode-list>button.active .episode-number { color: #07110f; background: var(--cyan); }
+.episode-arc-heading { display: grid; gap: 3px; margin: 10px 4px 5px; padding: 9px 10px; border-left: 2px solid var(--violet); color: var(--muted); background: linear-gradient(90deg,rgba(140,111,255,.09),transparent); }
+.episode-arc-heading span { color: #aa9aff; font-size: 6px; font-weight: 850; letter-spacing: .14em; }
+.episode-arc-heading b { overflow: hidden; color: #d9d4f6; font: 700 10px var(--font-display); text-overflow: ellipsis; white-space: nowrap; }
+.episode-arc-heading.range { border-left-color: rgba(255,255,255,.18); background: linear-gradient(90deg,rgba(255,255,255,.035),transparent); }
+.episode-arc-heading.range span,.episode-arc-heading.range b { color: var(--muted); }
+.episode-list>button.filler { border-color: rgba(246,198,102,.28); background: rgba(246,198,102,.07); }
+.episode-list>button.filler:hover { background: rgba(246,198,102,.12); }
+.episode-list>button.filler .episode-number,
+.episode-list>button.filler.active .episode-number { color: #171104; background: #f6c666; }
+.episode-list>button.filler>svg { color: #f6c666; }
+.episode-list>button small em { display: inline-flex; margin-left: 6px; padding: 2px 4px; border-radius: 4px; color: #241b05; background: #f6c666; font-size: 6px; font-style: normal; font-weight: 900; letter-spacing: .08em; }
+.episode-list>button small em.recap { color: #dfd7ff; background: rgba(140,111,255,.24); }
 .up-next-label { color: var(--cyan); font-size: 6px; font-weight: 850; letter-spacing: .08em; }
 .episode-list>p { padding: 28px 16px; color: var(--muted); text-align: center; font-size: 10px; }
 .player-status { width: min(1500px,100%); min-height: 62px; margin: 12px auto 0; display: flex; align-items: center; justify-content: center; gap: 10px; padding: 12px 18px; border-radius: 10px; color: var(--muted); background: rgba(255,255,255,.025); }

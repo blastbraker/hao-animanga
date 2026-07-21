@@ -8,6 +8,7 @@ import { createDatabase, HaoRepository } from "@hao/database";
 import { ImportExtensionWorkSchema, SearchQuerySchema, UpdateProgressSchema, UpsertLibraryEntrySchema } from "@hao/domain";
 import type { SearchFilters } from "@hao/providers";
 import { AniListProvider } from "./anilist.js";
+import { EpisodeGuideProvider } from "./episode-guide.js";
 import { authenticate, requireAdmin } from "./auth.js";
 import { demoWorks, keyFor, libraryStore, progressStore, workStore } from "./data.js";
 import { inspectEpub } from "./epub.js";
@@ -23,6 +24,7 @@ export function buildApp() {
     bodyLimit: 2 * 1024 * 1024
   });
   const catalog = new AniListProvider();
+  const episodeGuides = new EpisodeGuideProvider();
   const database = createDatabase();
   const repository = database ? new HaoRepository(database) : null;
   app.decorate("haoRepository", repository);
@@ -181,6 +183,17 @@ export function buildApp() {
     const items = repository ? await Promise.all(result.data.map((item) => repository.upsertWork(item))) : result.data;
     for (const item of items) workStore.set(item.id, item);
     return { items };
+  });
+
+  app.get<{ Params: { id: string }; Querystring: { maxEpisode?: string } }>("/v1/works/:id/episode-guide", async (request, reply) => {
+    const work = (await repository?.getWork(request.params.id)) ?? workStore.get(request.params.id);
+    if (!work) return reply.code(404).send({ code: "NOT_FOUND", message: "Title not found", retryable: false });
+    if (work.kind !== "ANIME" || work.source.kind !== "ANILIST") return { items: [], source: "unavailable" };
+    const requestedMaximum = Number(request.query.maxEpisode ?? 100);
+    const maxEpisode = Number.isFinite(requestedMaximum) ? requestedMaximum : 100;
+    const result = await episodeGuides.get(work.source.externalId, maxEpisode);
+    if (!result.ok) return reply.code(result.error.code === "INVALID" ? 400 : 503).send({ ...result.error });
+    return { items: result.data, source: "myanimelist-via-jikan", cached: result.cached === true };
   });
 
   app.post("/v1/works/import-extension", { preHandler: authenticate }, async (request, reply) => {

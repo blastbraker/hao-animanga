@@ -192,25 +192,47 @@ export class AniListProvider implements CatalogProvider {
     const id = Number(externalId);
     if (!Number.isSafeInteger(id) || id <= 0) return { ok: false, error: { code: "INVALID", message: "AniList ID is invalid", retryable: false } };
     try {
-      const init: RequestInit = {
-        method: "POST",
-        headers: { "content-type": "application/json", accept: "application/json" },
-        body: JSON.stringify({ query: SEASONS_QUERY, variables: { id } }),
-      };
-      if (signal) init.signal = signal;
-      const response = await fetch(this.endpoint, init);
-      if (response.status === 429) return { ok: false, error: { code: "RATE_LIMITED", message: "AniList rate limit reached", retryable: true } };
-      if (!response.ok) return { ok: false, error: { code: "UNAVAILABLE", message: `AniList returned ${response.status}`, retryable: response.status >= 500 } };
-      const body = await response.json() as {
-        data?: { Media?: AniListMedia & { relations?: { edges?: Array<{ relationType: string; node: AniListMedia }> } } };
-        errors?: Array<{ message: string }>;
-      };
-      const media = body.data?.Media;
-      if (!media) return { ok: false, error: { code: "UNAVAILABLE", message: body.errors?.[0]?.message ?? "Anime seasons unavailable", retryable: true } };
-      const related = (media.relations?.edges ?? [])
-        .filter((edge) => (edge.relationType === "PREQUEL" || edge.relationType === "SEQUEL") && edge.node.type === "ANIME" && ["TV", "TV_SHORT", "ONA"].includes(edge.node.format ?? ""))
-        .map((edge) => edge.node);
-      const items = [...new Map([media, ...related].map((item) => [item.id, mapWork(item)])).values()]
+      type SeasonMedia = AniListMedia & { relations?: { edges?: Array<{ relationType: string; node: AniListMedia }> } };
+      const pending = [id];
+      const visited = new Set<number>();
+      const discovered = new Map<number, AniListMedia>();
+      let firstFailure: { code: "UNAVAILABLE" | "RATE_LIMITED"; message: string; retryable: boolean } | null = null;
+      while (pending.length && visited.size < 20) {
+        const nextId = pending.shift()!;
+        if (visited.has(nextId)) continue;
+        visited.add(nextId);
+        const init: RequestInit = {
+          method: "POST",
+          headers: { "content-type": "application/json", accept: "application/json" },
+          body: JSON.stringify({ query: SEASONS_QUERY, variables: { id: nextId } }),
+        };
+        if (signal) init.signal = signal;
+        const response = await fetch(this.endpoint, init);
+        if (response.status === 429) {
+          firstFailure ??= { code: "RATE_LIMITED", message: "AniList rate limit reached", retryable: true };
+          continue;
+        }
+        if (!response.ok) {
+          firstFailure ??= { code: "UNAVAILABLE", message: `AniList returned ${response.status}`, retryable: response.status >= 500 };
+          continue;
+        }
+        const body = await response.json() as { data?: { Media?: SeasonMedia }; errors?: Array<{ message: string }> };
+        const media = body.data?.Media;
+        if (!media) {
+          firstFailure ??= { code: "UNAVAILABLE", message: body.errors?.[0]?.message ?? "Anime seasons unavailable", retryable: true };
+          continue;
+        }
+        discovered.set(media.id, media);
+        for (const edge of media.relations?.edges ?? []) {
+          const node = edge.node;
+          if ((edge.relationType === "PREQUEL" || edge.relationType === "SEQUEL") && node.type === "ANIME" && ["TV", "TV_SHORT", "ONA"].includes(node.format ?? "")) {
+            discovered.set(node.id, node);
+            if (!visited.has(node.id)) pending.push(node.id);
+          }
+        }
+      }
+      if (!discovered.size && firstFailure) return { ok: false, error: firstFailure };
+      const items = [...discovered.values()].map(mapWork)
         .filter((item) => item.kind === "ANIME")
         .sort((left, right) => (left.year ?? 9999) - (right.year ?? 9999) || left.title.localeCompare(right.title));
       return { ok: true, data: items };
