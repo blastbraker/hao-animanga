@@ -16,6 +16,7 @@ import { episodeDisplayLabel, episodeDisplayName, episodeNumberLabel } from "../
 import { seasonHref, seasonOptionLabel } from "../../../lib/anime-seasons";
 import { browseEpisodes, type EpisodeOrder } from "../../../lib/episode-browser";
 import { enrichEpisodes, episodeGroupLabel, type EpisodeGuideMetadata } from "../../../lib/episode-metadata";
+import { nextPlaybackSpeed, normalizePlaybackSpeed, PLAYBACK_SPEEDS } from "../../../lib/playback-speed";
 
 type AnimeSourceSummary = {
   id: string;
@@ -121,6 +122,7 @@ export default function PlayerPage() {
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -159,6 +161,7 @@ export default function PlayerPage() {
     const savedVolume = Number(readPreference("hao:anime:volume"));
     if (Number.isFinite(savedVolume) && savedVolume >= 0 && savedVolume <= 1) setVolume(savedVolume);
     setMuted(readPreference("hao:anime:muted") === "true");
+    setPlaybackSpeed(normalizePlaybackSpeed(readPreference("hao:anime:playback-speed")));
     setSubtitleSize(readPreference("hao:anime:subtitle-size") || "100");
     setSubtitleBackground(readPreference("hao:anime:subtitle-background") || "dark");
     void connect();
@@ -197,6 +200,11 @@ export default function PlayerPage() {
     video.volume = volume;
     video.muted = muted;
   }, [muted, streamId, volume]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video) video.playbackRate = playbackSpeed;
+  }, [playbackSpeed, streamId]);
 
   useEffect(() => {
     const video = videoRef.current as (HTMLVideoElement & FullscreenVideo) | null;
@@ -803,6 +811,7 @@ export default function PlayerPage() {
   function handleLoadedMetadata() {
     const video = videoRef.current;
     if (!video || !episode) return;
+    video.playbackRate = playbackSpeed;
     setError("");
     setDuration(Number.isFinite(video.duration) ? video.duration : 0);
     setCurrentTime(video.currentTime);
@@ -967,6 +976,15 @@ export default function PlayerPage() {
     writePreference("hao:anime:muted", String(nextVolume === 0));
   }
 
+  function changePlaybackSpeed(nextSpeed: number) {
+    const speed = normalizePlaybackSpeed(nextSpeed);
+    setPlaybackSpeed(speed);
+    if (videoRef.current) videoRef.current.playbackRate = speed;
+    writePreference("hao:anime:playback-speed", String(speed));
+    setProgressStatus(`Playback speed · ${formatPlaybackSpeed(speed)}`);
+    revealControls();
+  }
+
   async function toggleFullscreen() {
     const shell = playerShellRef.current;
     const video = videoRef.current as (HTMLVideoElement & FullscreenVideo) | null;
@@ -1091,6 +1109,7 @@ export default function PlayerPage() {
               <div className="player-control-group">
                 {nextEpisode && <button aria-label="Next episode" title="Next episode" onClick={() => void changeEpisode(nextEpisode.id, true)}><SkipForward /></button>}
                 {audioSwitchTarget && <button className="audio-version-toggle" aria-label={`Switch to ${audioSwitchTarget === "dub" ? "dubbed" : "subtitled"} audio`} title={`Switch to ${audioSwitchTarget === "dub" ? "Dub" : "Sub"}`} onClick={() => void switchAudioVersion(audioSwitchTarget)}><span>{audioSwitchTarget.toUpperCase()}</span></button>}
+                <button className="playback-rate-toggle" aria-label={`Playback speed ${formatPlaybackSpeed(playbackSpeed)}. Select next speed`} title="Change playback speed" onClick={() => changePlaybackSpeed(nextPlaybackSpeed(playbackSpeed))}><span>{formatPlaybackSpeed(playbackSpeed)}</span></button>
                 <button className={subtitleMode !== "off" ? "active" : ""} aria-label="Subtitles" title="Subtitles" disabled={!stream.subtitles.length} onClick={() => changeSubtitle(subtitleMode === "off" ? "0" : "off")}><Captions /></button>
                 <button className={settingsOpen ? "active" : ""} aria-label="Playback settings" title="Playback settings" onClick={() => { setSettingsOpen((value) => !value); setControlsVisible(true); }}><Settings2 /></button>
                 <button aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"} title="Fullscreen (F)" onClick={() => void toggleFullscreen()}><Maximize2 /></button>
@@ -1104,6 +1123,7 @@ export default function PlayerPage() {
             <div className="playback-settings-heading"><b>Playback settings</b><button aria-label="Close playback settings" onClick={() => setSettingsOpen(false)}>×</button></div>
             <label>Server<select aria-label="Stream server" value={serverId} onChange={(event) => void changeServer(event.target.value)} disabled={Boolean(busy) || !servers.length}>{servers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
             <label>Quality & audio<select aria-label="Stream quality" value={streamId} onChange={(event) => void changeStream(event.target.value)} disabled={Boolean(busy) || !streams.length}>{streams.map((item) => <option key={item.id} value={item.id}>{item.quality ?? "Auto"} · {item.audio ?? "Default audio"}</option>)}</select></label>
+            <label>Playback speed<select aria-label="Playback speed" value={String(playbackSpeed)} onChange={(event) => changePlaybackSpeed(Number(event.target.value))}>{PLAYBACK_SPEEDS.map((speed) => <option key={speed} value={String(speed)}>{formatPlaybackSpeed(speed)}{speed === 1 ? " · Normal" : ""}</option>)}</select></label>
             <label>Subtitles<select aria-label="Subtitle track" value={subtitleMode} onChange={(event) => changeSubtitle(event.target.value)}><option value="off">Off</option>{stream.subtitles.map((subtitle, index) => <option key={subtitle.url} value={String(index)}>{subtitle.label}</option>)}</select></label>
             <label>Subtitle size<select aria-label="Subtitle size" value={subtitleSize} onChange={(event) => { setSubtitleSize(event.target.value); writePreference("hao:anime:subtitle-size", event.target.value); }}><option value="75">Small</option><option value="100">Medium</option><option value="125">Large</option><option value="150">Extra large</option></select></label>
             <label>Subtitle background<select aria-label="Subtitle background" value={subtitleBackground} onChange={(event) => { setSubtitleBackground(event.target.value); writePreference("hao:anime:subtitle-background", event.target.value); }}><option value="dark">Dark</option><option value="none">None</option></select></label>
@@ -1371,6 +1391,10 @@ function formatTime(seconds: number): string {
   const rounded = Math.max(0, Math.floor(seconds));
   const minutes = Math.floor(rounded / 60);
   return `${minutes}:${String(rounded % 60).padStart(2, "0")}`;
+}
+
+function formatPlaybackSpeed(speed: number): string {
+  return `${Number(speed.toFixed(2))}×`;
 }
 
 function formatEpisodeDate(value: string | null | undefined): string {
