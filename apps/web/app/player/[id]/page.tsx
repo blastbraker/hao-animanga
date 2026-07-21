@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Work } from "@hao/domain";
-import { Captions, CheckCircle2, ChevronDown, ChevronRight, Film, Flag, ListVideo, LoaderCircle, Maximize2, Pause, Play, RefreshCw, RotateCcw, RotateCw, Search, Server, Settings2, SkipBack, SkipForward, TriangleAlert, Volume2, VolumeX } from "lucide-react";
+import { ArrowDownUp, Captions, CheckCircle2, ChevronDown, ChevronRight, Film, Flag, Keyboard, Lightbulb, ListVideo, LoaderCircle, LocateFixed, Maximize2, Pause, Play, RefreshCw, RotateCcw, RotateCw, Search, Server, Settings2, Share2, SkipBack, SkipForward, TriangleAlert, Volume2, VolumeX, X } from "lucide-react";
 import Hls from "hls.js";
 import { api, bridgeErrorMessage, bridgeJson, getActiveBridge, type LibraryResponse } from "../../../lib/api";
 import { completedEpisodeUnits, continueWatchingId, CONTINUE_WATCHING_STORAGE_KEY, DISMISSED_CONTINUE_STORAGE_KEY, parseContinueWatching, parseDismissedWorkIds, parsePlaybackPosition, playbackPercent, playbackStorageKey, resumablePosition, updateContinueWatching, type ContinueWatchingEntry } from "../../../lib/playback-progress";
@@ -14,6 +14,7 @@ import { maybeNotifyNewReleases, recordActivity, RELEASE_SNAPSHOTS_STORAGE_KEY, 
 import { isPlayerFullscreen, togglePlayerFullscreen, type FullscreenVideo } from "../../../lib/player-fullscreen";
 import { episodeDisplayLabel, episodeDisplayName, episodeNumberLabel } from "../../../lib/episode-title";
 import { seasonHref, seasonOptionLabel } from "../../../lib/anime-seasons";
+import { browseEpisodes, type EpisodeOrder } from "../../../lib/episode-browser";
 
 type AnimeSourceSummary = {
   id: string;
@@ -51,6 +52,7 @@ type AnimeStream = {
 export default function PlayerPage() {
   const playerShellRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const episodeListRef = useRef<HTMLDivElement>(null);
   const controlsTimerRef = useRef<number | null>(null);
   const autoplayRequestedRef = useRef(false);
   const lastSavedAtRef = useRef(0);
@@ -80,6 +82,10 @@ export default function PlayerPage() {
   const [streams, setStreams] = useState<AnimeStream[]>([]);
   const [streamId, setStreamId] = useState("");
   const [autoplayNext, setAutoplayNext] = useState(true);
+  const [episodeFilter, setEpisodeFilter] = useState("");
+  const [episodeOrder, setEpisodeOrder] = useState<EpisodeOrder>("asc");
+  const [lightsOff, setLightsOff] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [progressStatus, setProgressStatus] = useState("");
   const [sourceFallbackStatus, setSourceFallbackStatus] = useState("");
   const [isPlaying, setIsPlaying] = useState(false);
@@ -102,6 +108,7 @@ export default function PlayerPage() {
   const episodeIndex = useMemo(() => episodes.findIndex((item) => item.id === episodeId), [episodeId, episodes]);
   const previousEpisode = episodeIndex > 0 ? episodes[episodeIndex - 1] : undefined;
   const nextEpisode = episodeIndex >= 0 && episodeIndex < episodes.length - 1 ? episodes[episodeIndex + 1] : undefined;
+  const visibleEpisodes = useMemo(() => browseEpisodes(episodes, episodeFilter, episodeOrder), [episodeFilter, episodeOrder, episodes]);
   const stream = useMemo(() => streams.find((item) => item.id === streamId), [streamId, streams]);
   const streamUrl = stream ? (stream.url.startsWith("/") ? `${bridge}${stream.url}` : stream.url) : "";
   const subtitleUrls = useMemo(() => stream?.subtitles.map((subtitle) => subtitle.url.startsWith("/") ? `${bridge}${subtitle.url}` : subtitle.url) ?? [], [bridge, stream]);
@@ -117,6 +124,7 @@ export default function PlayerPage() {
 
   useEffect(() => {
     setAutoplayNext(readPreference("hao:anime:autoplay-next") !== "false");
+    setEpisodeOrder(readPreference("hao:anime:episode-order") === "desc" ? "desc" : "asc");
     const savedVolume = Number(readPreference("hao:anime:volume"));
     if (Number.isFinite(savedVolume) && savedVolume >= 0 && savedVolume <= 1) setVolume(savedVolume);
     setMuted(readPreference("hao:anime:muted") === "true");
@@ -161,7 +169,7 @@ export default function PlayerPage() {
 
   useEffect(() => {
     if (controlsTimerRef.current !== null) window.clearTimeout(controlsTimerRef.current);
-    if (!isPlaying || settingsOpen) {
+    if (!isPlaying || settingsOpen || shortcutsOpen) {
       setControlsVisible(true);
       return;
     }
@@ -169,11 +177,16 @@ export default function PlayerPage() {
     return () => {
       if (controlsTimerRef.current !== null) window.clearTimeout(controlsTimerRef.current);
     };
-  }, [isPlaying, settingsOpen]);
+  }, [isPlaying, settingsOpen, shortcutsOpen]);
 
   useEffect(() => {
     function keyboardControls(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
+      if (event.key === "Escape" && (shortcutsOpen || lightsOff)) {
+        setShortcutsOpen(false);
+        setLightsOff(false);
+        return;
+      }
       if (target && ["INPUT", "SELECT", "TEXTAREA", "BUTTON"].includes(target.tagName)) return;
       if (!stream) return;
       const key = event.key.toLowerCase();
@@ -192,11 +205,20 @@ export default function PlayerPage() {
       } else if (key === "f") {
         event.preventDefault();
         void toggleFullscreen();
+      } else if (key === "n" && nextEpisode) {
+        event.preventDefault();
+        void changeEpisode(nextEpisode.id, true);
+      } else if (key === "p" && previousEpisode) {
+        event.preventDefault();
+        void changeEpisode(previousEpisode.id, true);
+      } else if (key === "?") {
+        event.preventDefault();
+        setShortcutsOpen((value) => !value);
       }
     }
     window.addEventListener("keydown", keyboardControls);
     return () => window.removeEventListener("keydown", keyboardControls);
-  }, [isPlaying, muted, stream]);
+  }, [isPlaying, lightsOff, muted, nextEpisode, previousEpisode, shortcutsOpen, stream]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -804,6 +826,19 @@ export default function PlayerPage() {
     writePreference("hao:anime:autoplay-next", String(value));
   }
 
+  function toggleEpisodeOrder() {
+    const nextOrder: EpisodeOrder = episodeOrder === "asc" ? "desc" : "asc";
+    setEpisodeOrder(nextOrder);
+    writePreference("hao:anime:episode-order", nextOrder);
+  }
+
+  function revealCurrentEpisode() {
+    setEpisodeFilter("");
+    window.requestAnimationFrame(() => {
+      episodeListRef.current?.querySelector<HTMLElement>('[aria-current="true"]')?.scrollIntoView({ block: "center" });
+    });
+  }
+
   function replaceEpisodeInUrl(nextEpisodeId: string) {
     const url = new URL(window.location.href);
     url.searchParams.set("episodeId", nextEpisodeId);
@@ -916,12 +951,28 @@ export default function PlayerPage() {
     setProgressStatus("Issue saved for the beta administrator");
   }
 
+  async function shareEpisode() {
+    const title = episode ? `${anime?.title ?? "Anime"} · ${episodeDisplayLabel(episode)}` : (anime?.title ?? "HAO anime");
+    try {
+      if (navigator.share) {
+        await navigator.share({ title, text: `Watch ${title} on HAO`, url: window.location.href });
+        setProgressStatus("Share sheet opened");
+      } else {
+        await navigator.clipboard.writeText(window.location.href);
+        setProgressStatus("Episode link copied");
+      }
+    } catch (cause) {
+      if (cause instanceof DOMException && cause.name === "AbortError") return;
+      setProgressStatus("This browser could not share the episode link");
+    }
+  }
+
   const playedPercent = duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0;
   const activeSourceName = sources.find((item) => item.id === sourceId)?.name ?? anime?.provider ?? "HAO source";
   const posterUrl = workCoverUrl ?? (anime ? `${bridge}/v1/anime/${encodeURIComponent(anime.id)}/thumbnail` : undefined);
 
   return (
-    <div className="player-page anime-player-page">
+    <div className={`player-page anime-player-page ${lightsOff ? "lights-off" : ""}`}>
       <div className="player-watch-layout">
       <section className="player-primary" aria-label="Video player">
       <div
@@ -1009,11 +1060,23 @@ export default function PlayerPage() {
           </div>
         )}
       </div>
+      <div className="watch-utility-bar" aria-label="Watch options">
+        <button className={autoplayNext ? "active" : ""} aria-pressed={autoplayNext} onClick={() => toggleAutoplay(!autoplayNext)}><SkipForward /><span>Auto next</span></button>
+        <button className={lightsOff ? "active" : ""} aria-pressed={lightsOff} onClick={() => setLightsOff((value) => !value)}><Lightbulb /><span>{lightsOff ? "Lights on" : "Lights off"}</span></button>
+        <button aria-haspopup="dialog" onClick={() => setShortcutsOpen(true)}><Keyboard /><span>Shortcuts</span></button>
+        <button onClick={() => void shareEpisode()}><Share2 /><span>Share</span></button>
+        <button onClick={reportPlayerIssue}><Flag /><span>Report</span></button>
+      </div>
       </section>
       <aside className="episode-rail" aria-label="Episodes">
         <div className="episode-rail-heading"><div><ListVideo /><span><b>Episodes</b><small>{episodes.length ? `${episodes.length} available` : "Loading episodes"}</small></span></div><span>{episodeIndex >= 0 ? `${episodeIndex + 1}/${episodes.length}` : "—"}</span></div>
-        <div className="episode-list">
-          {episodes.map((item) => (
+        <div className="episode-tools">
+          <label><Search /><input aria-label="Filter episodes" value={episodeFilter} onChange={(event) => setEpisodeFilter(event.target.value)} placeholder="Filter episodes…" /></label>
+          <button aria-label={`Sort episodes ${episodeOrder === "asc" ? "newest first" : "oldest first"}`} title={episodeOrder === "asc" ? "Newest first" : "Oldest first"} onClick={toggleEpisodeOrder}><ArrowDownUp /><span>{episodeOrder === "asc" ? "1–9" : "9–1"}</span></button>
+          <button aria-label="Jump to current episode" title="Jump to current episode" disabled={!episode} onClick={revealCurrentEpisode}><LocateFixed /></button>
+        </div>
+        <div className="episode-list" ref={episodeListRef}>
+          {visibleEpisodes.map((item) => (
             <button key={item.id} className={item.id === episodeId ? "active" : ""} aria-current={item.id === episodeId ? "true" : undefined} onClick={() => void changeEpisode(item.id, true)} disabled={Boolean(busy)}>
               <span className="episode-number">{episodeNumberLabel(item.number).padStart(2, "0")}</span>
               <span><b>{episodeDisplayName(item)}</b><small>Episode {episodeNumberLabel(item.number)}</small></span>
@@ -1021,6 +1084,7 @@ export default function PlayerPage() {
             </button>
           ))}
           {!busy && !episodes.length && <p>No episodes are available from this source.</p>}
+          {!busy && Boolean(episodes.length) && !visibleEpisodes.length && <p>No episodes match “{episodeFilter.trim()}”.</p>}
         </div>
       </aside>
       </div>
@@ -1110,10 +1174,6 @@ export default function PlayerPage() {
           Previous
         </button>
         <span>{episodeIndex >= 0 ? `${episodeIndex + 1} of ${episodes.length}` : "No episode selected"}</span>
-        <label className="autoplay-toggle">
-          <input type="checkbox" checked={autoplayNext} onChange={(event) => toggleAutoplay(event.target.checked)} />
-          <span>Autoplay next</span>
-        </label>
         <button className="button ghost compact" disabled={Boolean(busy) || !nextEpisode} onClick={() => nextEpisode && void changeEpisode(nextEpisode.id, true)}>
           Next
           <SkipForward />
@@ -1162,6 +1222,12 @@ export default function PlayerPage() {
       </div>
       </section>
       <div className="player-shortcuts" aria-label="Keyboard shortcuts"><span>Space Play/Pause</span><span>J/L ±10 seconds</span><span>M Mute</span><span>F Fullscreen</span></div>
+      {shortcutsOpen && <div className="shortcut-dialog-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setShortcutsOpen(false)}>
+        <section className="shortcut-dialog" role="dialog" aria-modal="true" aria-labelledby="shortcut-title">
+          <header><div><span className="eyebrow">PLAYER CONTROLS</span><h2 id="shortcut-title">Keyboard shortcuts</h2></div><button aria-label="Close shortcuts" onClick={() => setShortcutsOpen(false)}><X /></button></header>
+          <dl><div><dt>Space / K</dt><dd>Play or pause</dd></div><div><dt>J / ←</dt><dd>Back 10 seconds</dd></div><div><dt>L / →</dt><dd>Forward 10 seconds</dd></div><div><dt>M</dt><dd>Mute or unmute</dd></div><div><dt>F</dt><dd>Enter fullscreen</dd></div><div><dt>N</dt><dd>Next episode</dd></div><div><dt>P</dt><dd>Previous episode</dd></div><div><dt>Esc</dt><dd>Close panels or lights-off mode</dd></div></dl>
+        </section>
+      </div>}
     </div>
   );
 }
