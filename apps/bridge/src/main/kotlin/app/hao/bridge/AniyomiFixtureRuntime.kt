@@ -12,6 +12,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import java.net.URI
 import java.io.ByteArrayInputStream
+import java.io.SequenceInputStream
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.ConcurrentHashMap
@@ -139,7 +140,7 @@ class AniyomiFixtureRuntime(private val extensionRoot: Path, private val dataRoo
                 System.err.println("Aniyomi discarded an unsafe stream: ${error.message ?: error.javaClass.simpleName}")
                 null
             }
-        }
+        }.distinctBy { it.id }
     }
 
     fun media(streamId: String, range: String?): AnimeMediaResponse {
@@ -163,6 +164,28 @@ class AniyomiFixtureRuntime(private val extensionRoot: Path, private val dataRoo
             response.close()
             val rewritten = rewriteHlsManifest(uri, manifest, video.headers).toByteArray()
             return AnimeMediaResponse(200, "application/vnd.apple.mpegurl", rewritten.size.toString(), null, "none", ByteArrayInputStream(rewritten))
+        }
+        if (range == null && contentType.startsWith("image/png", true)) {
+            val input = body.byteStream()
+            val prefix = input.readNBytes(4_096)
+            val transportStreamOffset = mpegTransportStreamOffset(prefix)
+            if (transportStreamOffset != null) {
+                val unwrapped = SequenceInputStream(
+                    ByteArrayInputStream(prefix, transportStreamOffset, prefix.size - transportStreamOffset),
+                    input,
+                )
+                val contentLength = response.header("content-length")?.toLongOrNull()
+                    ?.minus(transportStreamOffset)?.takeIf { it >= 0 }?.toString()
+                return AnimeMediaResponse(200, "video/mp2t", contentLength, null, "none", unwrapped)
+            }
+            return AnimeMediaResponse(
+                response.code,
+                contentType,
+                response.header("content-length"),
+                response.header("content-range"),
+                response.header("accept-ranges") ?: "bytes",
+                SequenceInputStream(ByteArrayInputStream(prefix), input),
+            )
         }
         return AnimeMediaResponse(
             response.code,
@@ -325,4 +348,13 @@ class AniyomiFixtureRuntime(private val extensionRoot: Path, private val dataRoo
         private const val MAX_SUBTITLE_BYTES = 5 * 1024 * 1024
         private const val MAX_ARTWORK_BYTES = 10 * 1024 * 1024
     }
+}
+
+internal fun mpegTransportStreamOffset(prefix: ByteArray): Int? {
+    if (prefix.size < 4 || prefix[0].toInt() and 0xff != 0x89 || prefix[1] != 0x50.toByte()
+        || prefix[2] != 0x4e.toByte() || prefix[3] != 0x47.toByte()) return null
+    for (offset in 0 until prefix.size - 376) {
+        if (prefix[offset] == 0x47.toByte() && prefix[offset + 188] == 0x47.toByte() && prefix[offset + 376] == 0x47.toByte()) return offset
+    }
+    return null
 }
