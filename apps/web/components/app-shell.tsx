@@ -3,11 +3,12 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { User } from "@supabase/supabase-js";
-import { Activity, BookOpen, Compass, Home, Library, Search, Settings, ShieldCheck } from "lucide-react";
+import { Activity, BookOpen, Compass, Home, Library, Settings, ShieldCheck } from "lucide-react";
 import { API_URL, api } from "../lib/api";
 import { getSupabaseBrowser, hasSupabaseBrowserConfig } from "../lib/supabase";
 import { OPEN_BETA_ONBOARDING_EVENT } from "../lib/onboarding";
 import { BetaOnboarding } from "./beta-onboarding";
+import { GlobalSearch } from "./global-search";
 
 const nav = [
   { href: "/", label: "Home", icon: Home },
@@ -92,7 +93,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     </aside>
     <header className="topbar">
       <Link href="/" className="mobile-brand"><img className="brand-mark" src="/brand/hao-logo-64.png" alt=""/> HAO</Link>
-      <Link href="/discover" className="search-pill"><Search size={18}/><span>Search your archive...</span><kbd>Ctrl K</kbd></Link>
+      <GlobalSearch />
       <button className="beta-pill" onClick={() => window.dispatchEvent(new Event(OPEN_BETA_ONBOARDING_EVENT))}>BETA GUIDE</button>
     </header>
     <main>{children}</main>

@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import type { MediaKind, Work } from "@hao/domain";
 import { Filter, Search, SlidersHorizontal, X } from "lucide-react";
 import { api } from "../../lib/api";
@@ -11,6 +12,12 @@ type Maturity = "GENERAL" | "ADULT";
 const GENRES = ["Action", "Drama", "Fantasy", "Romance"] as const;
 
 export default function DiscoverPage() {
+  return <Suspense fallback={<DiscoverLoading />}><DiscoverPageContent /></Suspense>;
+}
+
+function DiscoverPageContent() {
+  const searchParameters = useSearchParams();
+  const routeQuery = searchParameters.get("q")?.trim() ?? "";
   const [query, setQuery] = useState("");
   const [submittedQuery, setSubmittedQuery] = useState("");
   const [kind, setKind] = useState<MediaKind | "">("");
@@ -21,6 +28,13 @@ export default function DiscoverPage() {
   const [items, setItems] = useState<Work[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [initialized, setInitialized] = useState(false);
+
+  useEffect(() => {
+    setQuery(routeQuery);
+    setSubmittedQuery(routeQuery);
+    setInitialized(true);
+  }, [routeQuery]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -42,8 +56,8 @@ export default function DiscoverPage() {
   }, [genre, kind, maturity, status, submittedQuery, year]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (initialized) void load();
+  }, [initialized, load]);
 
   function submitSearch() {
     setSubmittedQuery(query.trim());
@@ -113,4 +127,8 @@ export default function DiscoverPage() {
       )}
     </div>
   );
+}
+
+function DiscoverLoading() {
+  return <div className="page inner-page discover-page"><div className="empty-state">Loading discovery…</div></div>;
 }

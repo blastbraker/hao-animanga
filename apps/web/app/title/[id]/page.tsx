@@ -529,7 +529,7 @@ function AnimeSourcePanel({ availability, workTitle, workId }: { availability: A
         </Link>
       </header>
       <div className="release-list">
-        {availability.episodes.slice(0, 60).map((episode) => (
+        {availability.episodes.map((episode) => (
           <Link key={episode.id} href={animePlayerHref(availability.source.id, availability.item.id, workTitle, episode.id, workId)}>
             <span className="release-number">{episode.number}</span>
             <span>

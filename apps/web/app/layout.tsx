@@ -15,6 +15,7 @@ import "./ux.css";
 import "./activity.css";
 import "./library.css";
 import "./custom-list.css";
+import "./global-search.css";
 import { AppShell } from "../components/app-shell";
 import { ServiceWorker } from "../components/service-worker";
 
