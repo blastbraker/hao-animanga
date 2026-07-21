@@ -150,14 +150,19 @@ class AniyomiFixtureRuntime(private val extensionRoot: Path, private val dataRoo
         // approved their CDN. Re-run public-HTTPS validation after recovery.
         AnimeNetworkPolicy.allowRemoteHttps(uri.toString())
         require(range == null || (range != "bytes=-" && range.matches(Regex("bytes=[0-9]*-[0-9]*")))) { "Invalid media range" }
-        val request = okhttp3.Request.Builder().url(uri.toString()).header("User-Agent", "HAO-Bridge/0.1").get()
-        video.headers.forEach { (name, values) ->
-            if (!name.equals("Host", true) && !name.equals("Content-Length", true)) values.forEach { request.header(name, it) }
+        fun request(requestRange: String?): okhttp3.Request {
+            val builder = okhttp3.Request.Builder().url(uri.toString()).header("User-Agent", "HAO-Bridge/0.1").get()
+            video.headers.forEach { (name, values) ->
+                if (!name.equals("Host", true) && !name.equals("Content-Length", true) && !name.equals("Range", true)) {
+                    values.forEach { builder.header(name, it) }
+                }
+            }
+            requestRange?.let { builder.header("Range", it) }
+            return builder.build()
         }
-        range?.let { request.header("Range", it) }
-        val response = mediaClient.newCall(request.build()).execute()
+        var response = mediaClient.newCall(request(range)).execute()
         require(response.code in listOf(200, 206)) { response.close(); "Aniyomi media returned HTTP ${response.code}" }
-        val body = response.body
+        var body = response.body
         val contentType = response.header("content-type") ?: "video/mp4"
         if (contentType.contains("mpegurl", true) || uri.path.endsWith(".m3u8", true)) {
             val manifest = body.string()
@@ -165,7 +170,28 @@ class AniyomiFixtureRuntime(private val extensionRoot: Path, private val dataRoo
             val rewritten = rewriteHlsManifest(uri, manifest, video.headers).toByteArray()
             return AnimeMediaResponse(200, "application/vnd.apple.mpegurl", rewritten.size.toString(), null, "none", ByteArrayInputStream(rewritten))
         }
-        if (range == null && contentType.startsWith("image/png", true)) {
+        if (contentType.startsWith("image/png", true)) {
+            if (range != null) {
+                // Some hosts disguise MPEG-TS segments behind a small PNG prefix.
+                // Browser range probes only contain part of that wrapped payload,
+                // so fetch the complete segment before applying the requested
+                // range to the unwrapped transport stream.
+                response.close()
+                response = mediaClient.newCall(request(null)).execute()
+                require(response.code == 200) { response.close(); "Aniyomi wrapped media returned HTTP ${response.code}" }
+                body = response.body
+                val declaredLength = body.contentLength()
+                require(declaredLength <= MAX_WRAPPED_SEGMENT_BYTES) {
+                    response.close()
+                    "Aniyomi wrapped media exceeded the size limit"
+                }
+                val bytes = body.byteStream().use { it.readNBytes(MAX_WRAPPED_SEGMENT_BYTES + 1) }
+                response.close()
+                require(bytes.size <= MAX_WRAPPED_SEGMENT_BYTES) { "Aniyomi wrapped media exceeded the size limit" }
+                val transportStreamOffset = mpegTransportStreamOffset(bytes)
+                require(transportStreamOffset != null) { "Aniyomi media returned an unsupported PNG payload" }
+                return rangedTransportStream(bytes.copyOfRange(transportStreamOffset, bytes.size), range)
+            }
             val input = body.byteStream()
             val prefix = input.readNBytes(4_096)
             val transportStreamOffset = mpegTransportStreamOffset(prefix)
@@ -347,7 +373,41 @@ class AniyomiFixtureRuntime(private val extensionRoot: Path, private val dataRoo
         private val HLS_URI = Regex("URI=\\\"([^\\\"]+)\\\"")
         private const val MAX_SUBTITLE_BYTES = 5 * 1024 * 1024
         private const val MAX_ARTWORK_BYTES = 10 * 1024 * 1024
+        private const val MAX_WRAPPED_SEGMENT_BYTES = 32 * 1024 * 1024
     }
+}
+
+internal fun rangedTransportStream(bytes: ByteArray, range: String): AnimeMediaResponse {
+    val selected = parseByteRange(range, bytes.size)
+    val slice = bytes.copyOfRange(selected.first, selected.last + 1)
+    return AnimeMediaResponse(
+        206,
+        "video/mp2t",
+        slice.size.toString(),
+        "bytes ${selected.first}-${selected.last}/${bytes.size}",
+        "bytes",
+        ByteArrayInputStream(slice),
+    )
+}
+
+internal fun parseByteRange(value: String, totalLength: Int): IntRange {
+    require(totalLength > 0) { "Media response was empty" }
+    val match = Regex("bytes=([0-9]*)-([0-9]*)").matchEntire(value) ?: throw IllegalArgumentException("Invalid media range")
+    val startText = match.groupValues[1]
+    val endText = match.groupValues[2]
+    require(startText.isNotEmpty() || endText.isNotEmpty()) { "Invalid media range" }
+    if (startText.isEmpty()) {
+        val suffixLength = endText.toLongOrNull() ?: throw IllegalArgumentException("Invalid media range")
+        require(suffixLength > 0) { "Invalid media range" }
+        val length = suffixLength.coerceAtMost(totalLength.toLong()).toInt()
+        return (totalLength - length)..(totalLength - 1)
+    }
+    val start = startText.toLongOrNull() ?: throw IllegalArgumentException("Invalid media range")
+    require(start in 0 until totalLength.toLong()) { "Media range was not satisfiable" }
+    val requestedEnd = endText.toLongOrNull() ?: (totalLength - 1).toLong()
+    require(requestedEnd >= start) { "Invalid media range" }
+    val end = requestedEnd.coerceAtMost((totalLength - 1).toLong()).toInt()
+    return start.toInt()..end
 }
 
 internal fun mpegTransportStreamOffset(prefix: ByteArray): Int? {
