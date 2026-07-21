@@ -344,7 +344,7 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
         {!availabilityBusy && !availabilityError && !animeAvailability.length && !mangaAvailability.length && (
           <div className="source-empty">
             <b>No confident installed match was found.</b>
-            <span>This exact title or season is not currently available from your enabled sources. HAO will not open a similar title or a different season.</span>
+            <span>This exact title, movie, or season is not currently available from your enabled sources. HAO will not open a similar title or a different release.</span>
             <Link href={work.kind === "ANIME" ? "/player/anime" : "/reader"}>Open the source browser →</Link>
           </div>
         )}

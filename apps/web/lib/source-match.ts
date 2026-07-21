@@ -18,6 +18,13 @@ function matchScore(targets: string[], candidate: string): number {
   if (explicitTargetSequel && candidateSeason !== explicitTargetSequel) return 0;
   if (!explicitTargetSequel && candidateSeason && candidateSeason > 1) return 0;
   if (targets.includes(candidate)) return 1;
+  const candidateMovie = movieSignature(candidate);
+  if (candidateMovie) {
+    const targetMovies = targets.map(movieSignature).filter((value): value is NonNullable<ReturnType<typeof movieSignature>> => value !== null);
+    if (targetMovies.some((target) => target.identity === candidateMovie.identity)) return .98;
+    if (targetMovies.some((target) => target.number && target.number === candidateMovie.number
+      && (target.identity.includes(candidateMovie.identity) || candidateMovie.identity.includes(target.identity)))) return .94;
+  }
   if (targets.some((target) => target.length >= 10 && (target.includes(candidate) || candidate.includes(target)))) return .9;
   const candidateTokens = new Set(candidate.split(" ").filter((token) => token.length > 1));
   return Math.max(0, ...targets.map((target) => {
@@ -29,8 +36,22 @@ function matchScore(targets: string[], candidate: string): number {
 }
 
 function seasonNumber(title: string): number | null {
+  if (/\b(?:movie|film)\b/.test(title)) return null;
   const numeric = title.match(/(?:season|part|s)\s*(\d{1,2})(?:\b|$)/)?.[1] ?? title.match(/\b(\d{1,2})(?:nd|rd|th)\s+season\b/)?.[1];
   if (numeric) return Number(numeric);
   const roman = title.match(/\b(?:season|part)\s+(ii|iii|iv|v)\b/)?.[1] ?? title.match(/\b(ii|iii|iv|v)\s*$/)?.[1];
   return roman ? ({ ii: 2, iii: 3, iv: 4, v: 5 } as const)[roman as "ii" | "iii" | "iv" | "v"] : null;
+}
+
+function movieSignature(title: string): { identity: string; number: number | null } | null {
+  if (!/\b(?:movie|film)\b/.test(title)) return null;
+  const tokens = title.split(" ").filter(Boolean);
+  const movieIndex = tokens.findIndex((token) => token === "movie" || token === "film");
+  const numberToken = tokens[movieIndex + 1];
+  const number = /^\d{1,2}$/.test(numberToken ?? "") ? Number(numberToken) : null;
+  const identity = tokens.filter((token, index) => {
+    if (token === "the" || token === "movie" || token === "film") return false;
+    return !(index === movieIndex + 1 && /^\d{1,2}$/.test(token));
+  });
+  return identity.length >= 3 ? { identity: identity.join(" "), number } : null;
 }

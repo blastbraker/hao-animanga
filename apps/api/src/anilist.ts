@@ -250,9 +250,13 @@ export class AniListProvider implements CatalogProvider {
           continue;
         }
         discovered.set(media.id, media);
+        const seasonFormats = ["TV", "TV_SHORT", "ONA"];
+        if (nextId === id && !seasonFormats.includes(media.format ?? "")) {
+          return { ok: true, data: [mapWork(media)] };
+        }
         for (const edge of media.relations?.edges ?? []) {
           const node = edge.node;
-          if ((edge.relationType === "PREQUEL" || edge.relationType === "SEQUEL") && node.type === "ANIME" && ["TV", "TV_SHORT", "ONA"].includes(node.format ?? "")) {
+          if ((edge.relationType === "PREQUEL" || edge.relationType === "SEQUEL") && node.type === "ANIME" && seasonFormats.includes(node.format ?? "")) {
             discovered.set(node.id, node);
             if (!visited.has(node.id)) pending.push(node.id);
           }

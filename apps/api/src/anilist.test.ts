@@ -25,6 +25,20 @@ describe("AniList anime seasons", () => {
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.data.map((item) => item.title)).toEqual(["Example", "Example Season 2", "Example Season 3", "Example Season 4"]);
   });
+
+  it("does not treat a movie's related TV series as another season", async () => {
+    const movie = {
+      ...media(10, "Bleach the Movie: Memories of Nobody", 2006),
+      format: "MOVIE",
+      relations: { edges: [{ relationType: "PREQUEL", node: media(1, "Bleach", 2004) }] },
+    };
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ data: { Media: movie } }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await new AniListProvider("https://example.test/graphql").getAnimeSeasons("10");
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.data.map((item) => item.title)).toEqual(["Bleach the Movie: Memories of Nobody"]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("AniList anime details", () => {

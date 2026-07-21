@@ -24,6 +24,36 @@ describe("confidentSourceMatch", () => {
   it("does not attach a sequel to base-series metadata", () => {
     expect(confidentSourceMatch({ title: "Re:ZERO -Starting Life in Another World-", alternateTitles: [] }, [{ title: "Re:ZERO -Starting Life in Another World- Season 3" }])).toBeNull();
   });
+
+  it("matches numbered Bleach movie source titles by their full movie subtitle", () => {
+    const cases = [
+      {
+        work: { title: "Bleach the Movie: Memories of Nobody", alternateTitles: ["BLEACH: MEMORIES OF NOBODY", "Bleach Movie 1"] },
+        item: { title: "Bleach Movie 1: Memories of Nobody", id: "bleach-movie-1" },
+      },
+      {
+        work: { title: "Bleach the Movie: The DiamondDust Rebellion", alternateTitles: ["Bleach: The Movie 2: The DiamondDust Rebellion"] },
+        item: { title: "Bleach Movie 2: The DiamondDust Rebellion - Mou Hitotsu no Hyourinmaru", id: "bleach-movie-2" },
+      },
+      {
+        work: { title: "Bleach the Movie: Fade to Black", alternateTitles: ["Bleach Movie 3"] },
+        item: { title: "Bleach Movie 3: Fade to Black", id: "bleach-movie-3" },
+      },
+      {
+        work: { title: "Bleach the Movie: Hell Verse", alternateTitles: ["Bleach Movie 4"] },
+        item: { title: "Bleach Movie 4: The Hell Verse", id: "bleach-movie-4" },
+      },
+    ];
+    for (const { work, item } of cases) expect(confidentSourceMatch(work, [item])).toEqual(item);
+  });
+
+  it("does not confuse different numbered movies in the same franchise", () => {
+    const movie = {
+      title: "Bleach the Movie: Memories of Nobody",
+      alternateTitles: ["BLEACH: MEMORIES OF NOBODY", "Bleach Movie 1"],
+    };
+    expect(confidentSourceMatch(movie, [{ title: "Bleach Movie 4: The Hell Verse" }])).toBeNull();
+  });
 });
 
 describe("sourceFallbackOrder", () => {
