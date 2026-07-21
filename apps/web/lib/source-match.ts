@@ -1,8 +1,8 @@
 import { normalizeTitle, type Work } from "@hao/domain";
 
 export function confidentSourceMatch<T extends { title: string }>(work: Pick<Work, "title" | "alternateTitles">, items: T[]): T | null {
-  const titles = [work.title, ...work.alternateTitles].map(normalizeTitle).filter(Boolean);
-  const ranked = items.map((item) => ({ item, score: matchScore(titles, normalizeTitle(item.title)) })).sort((left, right) => right.score - left.score);
+  const titles = [work.title, ...work.alternateTitles].map(comparableTitle).filter(Boolean);
+  const ranked = items.map((item) => ({ item, score: matchScore(titles, comparableTitle(item.title)) })).sort((left, right) => right.score - left.score);
   return ranked[0] && ranked[0].score >= .84 ? ranked[0].item : null;
 }
 
@@ -25,7 +25,13 @@ function matchScore(targets: string[], candidate: string): number {
     if (targetMovies.some((target) => target.number && target.number === candidateMovie.number
       && (target.identity.includes(candidateMovie.identity) || candidateMovie.identity.includes(target.identity)))) return .94;
   }
-  if (targets.some((target) => target.length >= 10 && (target.includes(candidate) || candidate.includes(target)))) return .9;
+  if (targets.some((target) => {
+    if (target.length < 10 || (!target.includes(candidate) && !candidate.includes(target))) return false;
+    const shorter = new Set((target.length <= candidate.length ? target : candidate).split(" ").filter((token) => token.length > 1));
+    const longer = new Set((target.length <= candidate.length ? candidate : target).split(" ").filter((token) => token.length > 1));
+    const extraTokens = [...longer].filter((token) => !shorter.has(token));
+    return extraTokens.length <= 1;
+  })) return .9;
   const candidateTokens = new Set(candidate.split(" ").filter((token) => token.length > 1));
   return Math.max(0, ...targets.map((target) => {
     const targetTokens = new Set(target.split(" ").filter((token) => token.length > 1));
@@ -33,6 +39,16 @@ function matchScore(targets: string[], candidate: string): number {
     const union = new Set([...targetTokens, ...candidateTokens]).size;
     return union ? intersection / union : 0;
   }));
+}
+
+function comparableTitle(title: string): string {
+  // Common romanization variants represent the same Japanese long vowel,
+  // e.g. Shippuuden and Shippuden. Folding doubled vowels lets the exact
+  // series outrank OVAs and specials that merely contain the requested name.
+  return normalizeTitle(title)
+    .split(" ")
+    .map((token) => token.length > 2 ? token.replace(/([aeiou])\1/g, "$1") : token)
+    .join(" ");
 }
 
 function seasonNumber(title: string): number | null {

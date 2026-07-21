@@ -54,6 +54,14 @@ describe("confidentSourceMatch", () => {
     };
     expect(confidentSourceMatch(movie, [{ title: "Bleach Movie 4: The Hell Verse" }])).toBeNull();
   });
+
+  it("prefers the main Naruto series over specials across romanization variants", () => {
+    const series = { title: "Naruto: Shippuden", alternateTitles: ["NARUTO: Shippuuden"] };
+    const main = { title: "Naruto: Shippuuden", id: "main-series" };
+    const special = { title: "Naruto: Shippuden: Sunny Side Battle", id: "special" };
+    expect(confidentSourceMatch(series, [special, main])).toEqual(main);
+    expect(confidentSourceMatch({ title: series.title, alternateTitles: [] }, [special])).toBeNull();
+  });
 });
 
 describe("sourceFallbackOrder", () => {
