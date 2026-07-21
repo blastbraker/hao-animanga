@@ -3,7 +3,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { User } from "@supabase/supabase-js";
-import { Activity, BookOpen, Compass, Home, Library, Settings, ShieldCheck } from "lucide-react";
+import { Activity, BookOpen, Compass, Home, Library, PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck } from "lucide-react";
 import { API_URL, api } from "../lib/api";
 import { getSupabaseBrowser, hasSupabaseBrowserConfig } from "../lib/supabase";
 import { OPEN_BETA_ONBOARDING_EVENT } from "../lib/onboarding";
@@ -25,6 +25,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null | undefined>(supabase ? undefined : null);
   const [role, setRole] = useState<"member" | "admin" | null | undefined>(supabase ? undefined : "admin");
   const [authError, setAuthError] = useState("");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  useEffect(() => {
+    try { setSidebarCollapsed(window.localStorage.getItem("hao:sidebar-collapsed") === "true"); } catch { /* Use the expanded navigation when storage is unavailable. */ }
+  }, []);
+  useEffect(() => {
+    function toggleFromKeyboard(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "b" || (target && ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName))) return;
+      event.preventDefault();
+      setSidebarCollapsed((value) => {
+        const next = !value;
+        try { window.localStorage.setItem("hao:sidebar-collapsed", String(next)); } catch { /* The toggle still works for this session. */ }
+        return next;
+      });
+    }
+    window.addEventListener("keydown", toggleFromKeyboard);
+    return () => window.removeEventListener("keydown", toggleFromKeyboard);
+  }, []);
   useEffect(() => {
     if (!supabase) return;
     let cancelled = false;
@@ -82,14 +100,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (authError) return <div className="login-page"><section className="login-card"><img className="brand-mark" src="/brand/hao-logo-64.png" alt="HAO"/><h1>Session unavailable</h1><p>{authError}</p><button className="button primary" onClick={()=>window.location.reload()}>Try again</button></section></div>;
   if (path.startsWith("/admin") && role !== "admin") return <div className="login-page"><section className="login-card"><img className="brand-mark" src="/brand/hao-logo-64.png" alt="HAO"/><h1>Administrator access required</h1><p>This account cannot open HAO’s operational console.</p><Link className="button primary" href="/">Return home</Link></section></div>;
   const label = user?.email?.split("@")[0] ?? "Ali";
-  return <div className="app-shell">
+  function toggleSidebar() {
+    setSidebarCollapsed((value) => {
+      const next = !value;
+      try { window.localStorage.setItem("hao:sidebar-collapsed", String(next)); } catch { /* The toggle still works for this session. */ }
+      return next;
+    });
+  }
+  return <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
     <aside className="sidebar" aria-label="Primary navigation">
-      <Link href="/" className="brand" aria-label="HAO home"><img className="brand-mark" src="/brand/hao-logo-64.png" alt=""/><span>HAO</span></Link>
-      <nav>{nav.map(({ href, label: itemLabel, icon: Icon }) => <Link key={href} href={href} className={path === href ? "active" : ""}><Icon size={20}/><span>{itemLabel}</span></Link>)}</nav>
+      <div className="sidebar-header"><Link href="/" className="brand" aria-label="HAO home"><img className="brand-mark" src="/brand/hao-logo-64.png" alt=""/><span>HAO</span></Link><button className="sidebar-toggle" aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} aria-expanded={!sidebarCollapsed} title={`${sidebarCollapsed ? "Expand" : "Collapse"} sidebar (Ctrl+B)`} onClick={toggleSidebar}>{sidebarCollapsed ? <PanelLeftOpen/> : <PanelLeftClose/>}</button></div>
+      <nav>{nav.map(({ href, label: itemLabel, icon: Icon }) => <Link key={href} href={href} className={path === href ? "active" : ""} title={sidebarCollapsed ? itemLabel : undefined}><Icon size={20}/><span>{itemLabel}</span></Link>)}</nav>
       <div className="side-bottom">
-        {role === "admin" && <Link href="/admin" className={path.startsWith("/admin") ? "active" : ""}><ShieldCheck size={20}/><span>Admin</span></Link>}
-        <Link href="/settings" className={path === "/settings" ? "active" : ""}><Settings size={20}/><span>Settings</span></Link>
-        <button className="profile-mini" onClick={()=>{if (supabase) void supabase.auth.signOut().then(()=>window.location.replace("/login"));}}><span className="avatar">{label.slice(0,2).toUpperCase()}</span><span><b>{label}</b><small>{supabase ? "Sign out" : "Beta member"}</small></span></button>
+        {role === "admin" && <Link href="/admin" className={path.startsWith("/admin") ? "active" : ""} title={sidebarCollapsed ? "Admin" : undefined}><ShieldCheck size={20}/><span>Admin</span></Link>}
+        <Link href="/settings" className={path === "/settings" ? "active" : ""} title={sidebarCollapsed ? "Settings" : undefined}><Settings size={20}/><span>Settings</span></Link>
+        <button className="profile-mini" title={sidebarCollapsed ? (supabase ? `Sign out ${label}` : label) : undefined} aria-label={supabase ? `Sign out ${label}` : `${label}, beta member`} onClick={()=>{if (supabase) void supabase.auth.signOut().then(()=>window.location.replace("/login"));}}><span className="avatar">{label.slice(0,2).toUpperCase()}</span><span><b>{label}</b><small>{supabase ? "Sign out" : "Beta member"}</small></span></button>
       </div>
     </aside>
     <header className="topbar">

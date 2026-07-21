@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Instrument_Sans, Manrope } from "next/font/google";
 import "./styles.css";
+import "./sidebar.css";
 import "./brand.css";
 import "./home.css";
 import "./discover.css";
