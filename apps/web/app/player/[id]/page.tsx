@@ -87,6 +87,7 @@ export default function PlayerPage() {
   } | null>(null);
   const playbackRecoveryRef = useRef(false);
   const failedPlaybackSourcesRef = useRef(new Set<string>());
+  const failedPlaybackStreamsRef = useRef(new Set<string>());
   const [bridge, setBridge] = useState("");
   const [bridgeScope, setBridgeScope] = useState<"personal" | "beta">("personal");
   const [workId, setWorkId] = useState("");
@@ -537,6 +538,7 @@ export default function PlayerPage() {
   }
 
   async function loadEpisode(endpoint: string, nextEpisodeId: string, cancelled = false) {
+    failedPlaybackStreamsRef.current.clear();
     setBusy("Loading stream servers…");
     setError("");
     safelyResetVideo(videoRef.current);
@@ -690,6 +692,7 @@ export default function PlayerPage() {
     const selectedStream = streams.find((item) => item.id === next);
     if (selectedStream) writePreference("hao:anime:preferred-stream", streamPreference(selectedStream));
     restoredPlaybackKeyRef.current = "";
+    failedPlaybackStreamsRef.current.delete(next);
     autoplayRequestedRef.current = continuePlaying;
     safelyResetVideo(videoRef.current);
     setStreamId(next);
@@ -709,7 +712,11 @@ export default function PlayerPage() {
     setError("");
     autoplayRequestedRef.current = true;
     try {
-      const candidate = nextPlaybackCandidate(streams, streamId, servers, serverId);
+      if (streamId) failedPlaybackStreamsRef.current.add(streamId);
+      if (stream && readPreference("hao:anime:preferred-stream") === streamPreference(stream)) {
+        writePreference("hao:anime:preferred-stream", "");
+      }
+      const candidate = nextPlaybackCandidate(streams, streamId, servers, serverId, failedPlaybackStreamsRef.current);
       if (candidate?.kind === "stream") {
         setSourceFallbackStatus("That quality failed, so HAO switched to another stream automatically.");
         safelyResetVideo(videoRef.current);

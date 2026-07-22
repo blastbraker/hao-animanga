@@ -13,6 +13,17 @@ describe("playback recovery", () => {
     expect(nextPlaybackCandidate(streams, "720p", servers, "default")).toEqual({ kind: "server", id: "backup" });
   });
 
+  it("tries a healthy earlier stream when a saved preference is dead", () => {
+    const preferredInMiddle = [{ id: "healthy-1080p" }, { id: "dead-preference" }, { id: "healthy-dub" }];
+    expect(nextPlaybackCandidate(preferredInMiddle, "dead-preference", servers, "default", new Set(["dead-preference"])))
+      .toEqual({ kind: "stream", id: "healthy-1080p" });
+  });
+
+  it("does not retry streams that already failed", () => {
+    const attempted = new Set(["auto", "720p"]);
+    expect(nextPlaybackCandidate(streams, "720p", servers, "default", attempted)).toEqual({ kind: "server", id: "backup" });
+  });
+
   it("reports exhaustion after the final server", () => {
     expect(nextPlaybackCandidate(streams, "720p", servers, "backup")).toBeNull();
   });
