@@ -17,6 +17,7 @@ import { seasonHref, seasonOptionLabel } from "../../../lib/anime-seasons";
 import { browseEpisodes, type EpisodeOrder } from "../../../lib/episode-browser";
 import { enrichEpisodes, episodeGroupLabel, type EpisodeGuideMetadata } from "../../../lib/episode-metadata";
 import { nextPlaybackSpeed, normalizePlaybackSpeed, PLAYBACK_SPEEDS } from "../../../lib/playback-speed";
+import { nextHlsRecoveryAction, supportsNativeHls } from "../../../lib/hls-recovery";
 
 type AnimeSourceSummary = {
   id: string;
@@ -73,6 +74,13 @@ type AnimeDetails = {
   malUrl: string | null;
 };
 
+type PlaybackFailure = {
+  engine: "hls.js" | "native";
+  type: string;
+  detail: string;
+  mediaCode: number | undefined;
+};
+
 export default function PlayerPage() {
   const playerShellRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -88,6 +96,7 @@ export default function PlayerPage() {
   const playbackRecoveryRef = useRef(false);
   const failedPlaybackSourcesRef = useRef(new Set<string>());
   const failedPlaybackStreamsRef = useRef(new Set<string>());
+  const lastPlaybackFailureRef = useRef<PlaybackFailure | null>(null);
   const [bridge, setBridge] = useState("");
   const [bridgeScope, setBridgeScope] = useState<"personal" | "beta">("personal");
   const [workId, setWorkId] = useState("");
@@ -279,12 +288,42 @@ export default function PlayerPage() {
     const video = videoRef.current;
     if (!video || !stream || !streamUrl) return;
     setError("");
+    lastPlaybackFailureRef.current = null;
+    if (stream.kind === "HLS" && supportsNativeHls(video)) {
+      video.src = streamUrl;
+      video.load();
+      return () => {
+        safelyResetVideo(video);
+      };
+    }
     if (stream.kind === "HLS" && Hls.isSupported()) {
       const hls = new Hls({ enableWorker: true });
+      const recoveryAttempts = { network: 0, media: 0 };
       hls.loadSource(streamUrl);
       hls.attachMedia(video);
       hls.on(Hls.Events.ERROR, (_event, data) => {
-        if (data.fatal) void recoverFromPlaybackFailure();
+        if (!data.fatal) return;
+        lastPlaybackFailureRef.current = {
+          engine: "hls.js",
+          type: String(data.type),
+          detail: String(data.details),
+          mediaCode: video.error?.code,
+        };
+        const action = nextHlsRecoveryAction(String(data.type), recoveryAttempts);
+        if (action === "retry-network") {
+          recoveryAttempts.network += 1;
+          setSourceFallbackStatus("The stream was interrupted. HAO is reconnecting before changing servers.");
+          hls.startLoad();
+          return;
+        }
+        if (action === "recover-media") {
+          recoveryAttempts.media += 1;
+          setSourceFallbackStatus("The browser decoder stalled. HAO is recovering playback before changing servers.");
+          hls.recoverMediaError();
+          return;
+        }
+        hls.destroy();
+        void recoverFromPlaybackFailure();
       });
       return () => {
         hls.destroy();
@@ -1024,9 +1063,28 @@ export default function PlayerPage() {
   }
 
   function reportPlayerIssue() {
-    saveSourceReport({ medium: "anime", sourceId, sourceName: activeSourceName, title: anime?.title ?? "Selected anime", detail: error || `Playback issue for episode ${episode?.number ?? "unknown"}`, pageUrl: window.location.href });
-    void api("/source-reports", { method: "POST", body: JSON.stringify({ medium: "anime", sourceId, sourceName: activeSourceName, title: anime?.title ?? "Selected anime", detail: error || `Playback issue for episode ${episode?.number ?? "unknown"}` }) }).catch(() => undefined);
+    const detail = playbackDiagnostic();
+    saveSourceReport({ medium: "anime", sourceId, sourceName: activeSourceName, title: anime?.title ?? "Selected anime", detail, pageUrl: window.location.href });
+    void api("/source-reports", { method: "POST", body: JSON.stringify({ medium: "anime", sourceId, sourceName: activeSourceName, title: anime?.title ?? "Selected anime", detail }) }).catch(() => undefined);
     setProgressStatus("Issue saved for the beta administrator");
+  }
+
+  function playbackDiagnostic(): string {
+    const failure = lastPlaybackFailureRef.current;
+    const video = videoRef.current;
+    const mediaError = video?.error;
+    const serverName = servers.find((item) => item.id === serverId)?.name ?? "unknown";
+    const facts = [
+      error || `Playback issue for episode ${episode?.number ?? "unknown"}`,
+      `Episode=${episode?.number ?? "unknown"}`,
+      `Server=${serverName}`,
+      `Stream=${stream?.kind ?? "none"}/${stream?.quality ?? "unknown"}/${stream?.audio ?? "default"}`,
+      `Failure=${failure ? `${failure.engine}:${failure.type}:${failure.detail}` : "not captured"}`,
+      `Media=${mediaError ? `${mediaError.code}:${mediaError.message || "no message"}` : "none"}`,
+      `Online=${navigator.onLine}`,
+      `Browser=${navigator.userAgent}`,
+    ];
+    return facts.join(" | ").slice(0, 1_000);
   }
 
   async function shareEpisode() {
@@ -1092,7 +1150,16 @@ export default function PlayerPage() {
               setControlsVisible(true);
               void handleEnded();
             }}
-            onError={() => void recoverFromPlaybackFailure()}
+            onError={() => {
+              const mediaError = videoRef.current?.error;
+              lastPlaybackFailureRef.current = {
+                engine: "native",
+                type: `MediaError ${mediaError?.code ?? "unknown"}`,
+                detail: mediaError?.message || "The browser rejected the media resource.",
+                mediaCode: mediaError?.code,
+              };
+              void recoverFromPlaybackFailure();
+            }}
           >
             {stream.subtitles.map((subtitle, index) => <track key={subtitle.url} kind="subtitles" label={subtitle.label} srcLang={subtitle.language} src={subtitleUrls[index]} default={subtitleMode === String(index)} onLoad={() => applySubtitleMode(subtitleMode)} onError={() => setError(`The ${subtitle.label} subtitle track could not be loaded. Try another server.`)} />)}
           </video>
