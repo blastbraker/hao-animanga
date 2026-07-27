@@ -260,13 +260,13 @@ class AniyomiFixtureRuntime(private val extensionRoot: Path, private val dataRoo
         }
         val response = mediaClient.newCall(request.build()).execute()
         require(response.isSuccessful) { response.close(); "Aniyomi artwork returned HTTP ${response.code}" }
-        val contentType = response.header("content-type") ?: "application/octet-stream"
-        require(contentType.startsWith("image/", true)) { response.close(); "Aniyomi artwork returned an unsupported format" }
         val declaredLength = response.body.contentLength()
         require(declaredLength <= MAX_ARTWORK_BYTES) { response.close(); "Aniyomi artwork exceeded the size limit" }
         val bytes = response.body.byteStream().use { it.readNBytes(MAX_ARTWORK_BYTES + 1) }
         response.close()
         require(bytes.size <= MAX_ARTWORK_BYTES) { "Aniyomi artwork exceeded the size limit" }
+        val contentType = detectArtworkContentType(bytes)
+        require(contentType != null) { "Aniyomi artwork returned an unsupported format" }
         return BinaryResponse(contentType, ByteArrayInputStream(bytes))
     }
 
