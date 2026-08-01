@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type { Work } from "@hao/domain";
-import { BookMarked, BookOpen, ChevronLeft, ChevronRight, Columns2, Flag, LoaderCircle, RefreshCw, Search, Server, TriangleAlert } from "lucide-react";
+import { BookMarked, BookOpen, ChevronLeft, ChevronRight, Columns2, Flag, LoaderCircle, RefreshCw, Search, Server, Settings2, TriangleAlert } from "lucide-react";
 import { api, bridgeErrorMessage, bridgeJson, getActiveBridge, type LibraryResponse } from "../../lib/api";
 import {
   MangaChapter,
@@ -62,6 +62,12 @@ export default function ReaderPage() {
     if (saved === "webtoon" || saved === "ltr" || saved === "rtl") setReadingMode(saved);
     setDoublePage(window.localStorage.getItem("hao:manga-double-page") === "true");
   }, []);
+
+  useEffect(() => {
+    const immersive = Boolean(pages && selected);
+    document.body.classList.toggle("reader-immersive", immersive);
+    return () => document.body.classList.remove("reader-immersive");
+  }, [pages, selected]);
 
   useEffect(() => {
     if (!selected || !chapters.length) return;
@@ -452,23 +458,28 @@ export default function ReaderPage() {
     return (
       <div className="reader-page live-reader">
         <header className="reader-toolbar">
-          <button onClick={() => setPages(null)}>
+          <button aria-label={`Back to ${selected.title} chapters`} title={`Back to ${selected.title} chapters`} onClick={() => setPages(null)}>
             <ChevronLeft /> Chapters
           </button>
-          <div>
+          <div className="reader-title-context" aria-hidden="true">
             <b>{selected.title}</b>
             <span>{pages.chapterName}{syncStatus ? ` · ${syncStatus}` : ""}</span>
           </div>
           <div className="reader-mode-controls">
-            <button aria-label="Report a source issue" onClick={reportReaderIssue}><Flag /></button>
-            <button className={bookmarked ? "active" : ""} aria-label={bookmarked ? "Remove bookmark" : "Bookmark this page"} onClick={toggleBookmark}><BookMarked /></button>
-            {readingMode !== "webtoon" && <button className={doublePage ? "active" : ""} aria-label="Toggle double-page spread" onClick={toggleDoublePage}><Columns2 /></button>}
-            <select aria-label="Reading mode" value={readingMode} onChange={(event) => changeReadingMode(event.target.value as ReadingMode)}>
-              <option value="webtoon">Webtoon</option>
-              <option value="ltr">Left to right</option>
-              <option value="rtl">Right to left</option>
-            </select>
-            <span>{readingMode === "webtoon" ? `${pages.pageCount} pages` : `${pageIndex + 1}${doublePage && pageIndex + 1 < pages.pageCount ? `–${pageIndex + 2}` : ""} / ${pages.pageCount}`}</span>
+            <button title="Report a source issue" aria-label="Report a source issue" onClick={reportReaderIssue}><Flag /></button>
+            <button title={bookmarked ? "Remove bookmark" : "Bookmark this page"} className={bookmarked ? "active" : ""} aria-label={bookmarked ? "Remove bookmark" : "Bookmark this page"} onClick={toggleBookmark}><BookMarked /></button>
+            {readingMode !== "webtoon" && <button title="Toggle double-page spread" className={doublePage ? "active" : ""} aria-label="Toggle double-page spread" onClick={toggleDoublePage}><Columns2 /></button>}
+            <label className="reader-mode-select" title={`Reading mode: ${readingMode === "webtoon" ? "Webtoon" : readingMode === "ltr" ? "Left to right" : "Right to left"}`}>
+              <Settings2 aria-hidden="true" />
+              <select aria-label="Reading mode" value={readingMode} onChange={(event) => changeReadingMode(event.target.value as ReadingMode)}>
+                <option value="webtoon">Webtoon</option>
+                <option value="ltr">Left to right</option>
+                <option value="rtl">Right to left</option>
+              </select>
+            </label>
+            <span className="reader-page-count" title={`${pages.chapterName}: ${readingMode === "webtoon" ? `${pages.pageCount} pages` : `page ${pageIndex + 1} of ${pages.pageCount}`}`}>
+              {readingMode === "webtoon" ? pages.pageCount : pageIndex + 1}
+            </span>
           </div>
         </header>
         {busy && <ReaderStatus text={busy} />} {error && <ReaderError text={error} onRetry={() => window.location.reload()} />}
