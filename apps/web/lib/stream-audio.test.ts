@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compatibleAudioStreams, pickAudioVariant, streamAudioMode } from "./stream-audio";
+import { compatibleAudioStreams, pickAudioVariant, pickQualityUpgrade, streamAudioMode, streamResolution } from "./stream-audio";
 
 describe("stream audio variants", () => {
   it("recognizes sub, hardsub, and dub labels", () => {
@@ -39,5 +39,24 @@ describe("stream audio variants", () => {
       { id: "neutral", quality: "Auto - 1080p" }
     ];
     expect(compatibleAudioStreams(streams, "dub").map((stream) => stream.id)).toEqual(["neutral"]);
+  });
+
+  it("finds the requested resolution without crossing audio modes", () => {
+    const streams = [
+      { id: "dub-720", quality: "HD-1 - Dub - 720p" },
+      { id: "sub-1080", quality: "HD-1 - Sub - 1080p" },
+      { id: "dub-1440", quality: "HD-2 - Dub - 1440p" },
+      { id: "dub-1080", quality: "HD-3 - Dub - 1080p" }
+    ];
+    expect(streamResolution(streams[0])).toBe(720);
+    expect(pickQualityUpgrade(streams, "dub-720", 1080, "dub")?.id).toBe("dub-1080");
+  });
+
+  it("does not upgrade to a known subtitled stream while dub is selected", () => {
+    const streams = [
+      { id: "dub-720", quality: "Dub - 720p" },
+      { id: "sub-1080", quality: "Sub - 1080p" }
+    ];
+    expect(pickQualityUpgrade(streams, "dub-720", 1080, "dub")).toBeUndefined();
   });
 });

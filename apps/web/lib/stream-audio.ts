@@ -37,6 +37,27 @@ export function compatibleAudioStreams<T extends StreamLike>(streams: T[], targe
   return streams.filter((stream) => streamAudioMode(stream) === null);
 }
 
+export function streamResolution(stream: StreamLike | undefined): number | null {
+  const value = stream?.quality?.match(/\b(2160|1440|1080|720|480|360)p\b/i)?.[1];
+  return value ? Number(value) : null;
+}
+
+export function pickQualityUpgrade<T extends StreamLike>(
+  streams: T[],
+  currentStreamId: string,
+  targetResolution: number,
+  targetAudioMode: AudioMode | null,
+): T | undefined {
+  const audioCandidates = targetAudioMode ? compatibleAudioStreams(streams, targetAudioMode) : streams;
+  return audioCandidates
+    .filter((stream) => stream.id !== currentStreamId && (streamResolution(stream) ?? 0) >= targetResolution)
+    .sort((left, right) => {
+      const leftDistance = Math.abs((streamResolution(left) ?? 0) - targetResolution);
+      const rightDistance = Math.abs((streamResolution(right) ?? 0) - targetResolution);
+      return leftDistance - rightDistance;
+    })[0];
+}
+
 function resolution(quality?: string): string | null {
   return quality?.match(/\b(2160|1440|1080|720|480|360)p\b/i)?.[1] ?? null;
 }

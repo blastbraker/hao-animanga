@@ -9,7 +9,7 @@ import { completedEpisodeUnits, continueWatchingId, CONTINUE_WATCHING_STORAGE_KE
 import { confidentSourceMatch } from "../../../lib/source-match";
 import { rankSourcesByReliability, recordSourceResult } from "../../../lib/source-reliability";
 import { nextPlaybackCandidate, playbackRecoveryPosition, prioritizePlaybackItems } from "../../../lib/playback-recovery";
-import { compatibleAudioStreams, pickAudioVariant, streamAudioMode, type AudioMode } from "../../../lib/stream-audio";
+import { compatibleAudioStreams, pickAudioVariant, pickQualityUpgrade, streamAudioMode, streamResolution, type AudioMode } from "../../../lib/stream-audio";
 import { maybeNotifyNewReleases, recordActivity, RELEASE_SNAPSHOTS_STORAGE_KEY, saveSourceReport, updateReleaseSnapshot } from "../../../lib/beta-features";
 import { isPlayerFullscreen, togglePlayerFullscreen, type FullscreenVideo } from "../../../lib/player-fullscreen";
 import { episodeDisplayLabel, episodeDisplayName, episodeNumberLabel } from "../../../lib/episode-title";
@@ -86,6 +86,13 @@ type PendingPlaybackPosition = {
   positionSeconds: number;
 };
 
+type QualityUpgradeTarget = {
+  episodeNumber: number;
+  resolution: number;
+  audioMode: AudioMode | null;
+  attempts: number;
+};
+
 export default function PlayerPage() {
   const playerShellRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -100,6 +107,7 @@ export default function PlayerPage() {
   } | null>(null);
   const playbackRecoveryRef = useRef(false);
   const pendingPlaybackPositionRef = useRef<PendingPlaybackPosition | null>(null);
+  const qualityUpgradeTargetRef = useRef<QualityUpgradeTarget | null>(null);
   const failedPlaybackSourcesRef = useRef(new Set<string>());
   const failedPlaybackStreamsRef = useRef(new Set<string>());
   const lastPlaybackFailureRef = useRef<PlaybackFailure | null>(null);
@@ -221,6 +229,29 @@ export default function PlayerPage() {
     const video = videoRef.current;
     if (video) video.playbackRate = playbackSpeed;
   }, [playbackSpeed, streamId]);
+
+  useEffect(() => {
+    const target = qualityUpgradeTargetRef.current;
+    if (!target || !episode || target.episodeNumber !== episode.number || !stream) return;
+    const currentResolution = streamResolution(stream);
+    if (currentResolution !== null && currentResolution >= target.resolution) return;
+    const upgrade = pickQualityUpgrade(streams, stream.id, target.resolution, target.audioMode);
+    if (!upgrade) return;
+    const delay = Math.min(20_000 * (2 ** target.attempts), 120_000);
+    const timer = window.setTimeout(() => {
+      const latestTarget = qualityUpgradeTargetRef.current;
+      if (!latestTarget || latestTarget.episodeNumber !== episode.number) return;
+      latestTarget.attempts += 1;
+      rememberPlaybackPosition();
+      failedPlaybackStreamsRef.current.delete(upgrade.id);
+      autoplayRequestedRef.current = true;
+      setError("");
+      setSourceFallbackStatus(`Checking whether ${latestTarget.resolution}p ${latestTarget.audioMode === "dub" ? "dubbed " : latestTarget.audioMode === "sub" ? "subtitled " : ""}playback is available again...`);
+      safelyResetVideo(videoRef.current);
+      setStreamId(upgrade.id);
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [episode, stream, streams]);
 
   useEffect(() => {
     const video = videoRef.current as (HTMLVideoElement & FullscreenVideo) | null;
@@ -639,6 +670,7 @@ export default function PlayerPage() {
 
   async function changeAnime(next: string) {
     pendingPlaybackPositionRef.current = null;
+    qualityUpgradeTargetRef.current = null;
     failedPlaybackSourcesRef.current.clear();
     clearCanonicalWork();
     const selectedAnime = catalog.find((item) => item.id === next);
@@ -664,6 +696,7 @@ export default function PlayerPage() {
   async function changeEpisode(next: string, autoplayVideo = true) {
     if (next === episodeId) return;
     pendingPlaybackPositionRef.current = null;
+    qualityUpgradeTargetRef.current = null;
     const nextEpisode = episodes.find((item) => item.id === next);
     failedPlaybackSourcesRef.current.clear();
     if (!videoRef.current?.ended) await persistProgress(false);
@@ -692,6 +725,7 @@ export default function PlayerPage() {
   async function changeServer(next: string) {
     const continuePlaying = videoRef.current ? !videoRef.current.paused : false;
     rememberPlaybackPosition();
+    qualityUpgradeTargetRef.current = null;
     await persistProgress(false);
     const selectedServer = servers.find((item) => item.id === next);
     if (selectedServer) writePreference("hao:anime:preferred-server", selectedServer.name);
@@ -708,6 +742,7 @@ export default function PlayerPage() {
   }
   async function changeSource(next: string) {
     pendingPlaybackPositionRef.current = null;
+    qualityUpgradeTargetRef.current = null;
     failedPlaybackSourcesRef.current.clear();
     clearCanonicalWork();
     setSourceId(next);
@@ -717,6 +752,7 @@ export default function PlayerPage() {
   }
   async function changeBrowseMode(next: "popular" | "latest") {
     pendingPlaybackPositionRef.current = null;
+    qualityUpgradeTargetRef.current = null;
     clearCanonicalWork();
     setBrowseMode(next);
     await loadCatalog(bridge, sourceId, next, "");
@@ -724,6 +760,7 @@ export default function PlayerPage() {
   async function submitSearch(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     pendingPlaybackPositionRef.current = null;
+    qualityUpgradeTargetRef.current = null;
     const query = searchDraft.trim();
     if (query.length < 2) {
       setError("Enter at least two characters to search.");
@@ -743,6 +780,7 @@ export default function PlayerPage() {
   async function changeStream(next: string) {
     const continuePlaying = videoRef.current ? !videoRef.current.paused : false;
     rememberPlaybackPosition();
+    qualityUpgradeTargetRef.current = null;
     await persistProgress(false);
     const selectedStream = streams.find((item) => item.id === next);
     if (selectedStream) {
@@ -772,6 +810,7 @@ export default function PlayerPage() {
     setError("");
     autoplayRequestedRef.current = true;
     try {
+      rememberQualityUpgradeTarget();
       if (streamId) failedPlaybackStreamsRef.current.add(streamId);
       if (stream && readPreference("hao:anime:preferred-stream") === streamPreference(stream)) {
         writePreference("hao:anime:preferred-stream", "");
@@ -921,12 +960,35 @@ export default function PlayerPage() {
     if (autoplayRequestedRef.current) void attemptAutoplay(video);
   }
 
+  function handlePlaying() {
+    setIsBuffering(false);
+    const target = qualityUpgradeTargetRef.current;
+    const currentResolution = streamResolution(stream);
+    if (!target || !episode || target.episodeNumber !== episode.number || currentResolution === null || currentResolution < target.resolution) return;
+    qualityUpgradeTargetRef.current = null;
+    setSourceFallbackStatus(`${currentResolution}p ${target.audioMode === "dub" ? "dubbed " : target.audioMode === "sub" ? "subtitled " : ""}playback is available again and was restored automatically.`);
+  }
+
   function rememberPlaybackPosition() {
     if (!episode) return;
     const videoPosition = videoRef.current?.currentTime;
     const positionSeconds = Number.isFinite(videoPosition) ? videoPosition! : currentTime;
     if (!Number.isFinite(positionSeconds) || positionSeconds <= 0) return;
     pendingPlaybackPositionRef.current = { episodeNumber: episode.number, positionSeconds };
+  }
+
+  function rememberQualityUpgradeTarget() {
+    if (!episode || !stream) return;
+    const resolution = streamResolution(stream);
+    if (resolution === null) return;
+    const existing = qualityUpgradeTargetRef.current;
+    if (existing?.episodeNumber === episode.number && existing.resolution >= resolution) return;
+    qualityUpgradeTargetRef.current = {
+      episodeNumber: episode.number,
+      resolution,
+      audioMode: streamAudioMode(stream) ?? readAudioModePreference(),
+      attempts: 0,
+    };
   }
 
   async function attemptAutoplay(video: HTMLVideoElement) {
@@ -1178,7 +1240,7 @@ export default function PlayerPage() {
               revealControls();
               void persistProgress(false);
             }}
-            onPlaying={() => setIsBuffering(false)}
+            onPlaying={handlePlaying}
             onWaiting={() => setIsBuffering(true)}
             onTimeUpdate={handleTimeUpdate}
             onPause={() => {
