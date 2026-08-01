@@ -26,18 +26,35 @@ describe("AniList anime seasons", () => {
     if (result.ok) expect(result.data.map((item) => item.title)).toEqual(["Example", "Example Season 2", "Example Season 3", "Example Season 4"]);
   });
 
-  it("does not treat a movie's related TV series as another season", async () => {
-    const movie = {
-      ...media(10, "Bleach the Movie: Memories of Nobody", 2006),
-      format: "MOVIE",
-      relations: { edges: [{ relationType: "PREQUEL", node: media(1, "Bleach", 2004) }] },
-    };
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ data: { Media: movie } }), { status: 200, headers: { "content-type": "application/json" } }));
+  it("includes movie side stories in a series release group", async () => {
+    const movie = { ...media(10, "Bleach the Movie: Memories of Nobody", 2006), format: "MOVIE" };
+    const nodes = new Map([
+      [1, { ...media(1, "Bleach", 2004), relations: { edges: [{ relationType: "SIDE_STORY", node: movie }] } }],
+    ]);
+    const fetchMock = vi.fn(async (_url, init) => {
+      const id = (JSON.parse(String(init?.body)) as { variables: { id: number } }).variables.id;
+      return new Response(JSON.stringify({ data: { Media: nodes.get(id) } }), { status: 200, headers: { "content-type": "application/json" } });
+    });
     vi.stubGlobal("fetch", fetchMock);
+    const result = await new AniListProvider("https://example.test/graphql").getAnimeSeasons("1");
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.data.map((item) => item.title)).toEqual(["Bleach", "Bleach the Movie: Memories of Nobody"]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("walks from a movie back to its parent series and related releases", async () => {
+    const movie = { ...media(10, "Bleach the Movie: Memories of Nobody", 2006), format: "MOVIE" };
+    const nodes = new Map([
+      [10, { ...movie, relations: { edges: [{ relationType: "PARENT", node: media(1, "Bleach", 2004) }] } }],
+      [1, { ...media(1, "Bleach", 2004), relations: { edges: [{ relationType: "SIDE_STORY", node: movie }] } }],
+    ]);
+    vi.stubGlobal("fetch", vi.fn(async (_url, init) => {
+      const id = (JSON.parse(String(init?.body)) as { variables: { id: number } }).variables.id;
+      return new Response(JSON.stringify({ data: { Media: nodes.get(id) } }), { status: 200, headers: { "content-type": "application/json" } });
+    }));
     const result = await new AniListProvider("https://example.test/graphql").getAnimeSeasons("10");
     expect(result.ok).toBe(true);
-    if (result.ok) expect(result.data.map((item) => item.title)).toEqual(["Bleach the Movie: Memories of Nobody"]);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    if (result.ok) expect(result.data.map((item) => item.title)).toEqual(["Bleach", "Bleach the Movie: Memories of Nobody"]);
   });
 });
 

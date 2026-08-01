@@ -251,14 +251,22 @@ export class AniListProvider implements CatalogProvider {
         }
         discovered.set(media.id, media);
         const seasonFormats = ["TV", "TV_SHORT", "ONA"];
-        if (nextId === id && !seasonFormats.includes(media.format ?? "")) {
-          return { ok: true, data: [mapWork(media)] };
-        }
+        const mediaIsMovie = media.format === "MOVIE";
+        if (nextId === id && !mediaIsMovie && !seasonFormats.includes(media.format ?? "")) return { ok: true, data: [mapWork(media)] };
         for (const edge of media.relations?.edges ?? []) {
           const node = edge.node;
-          if ((edge.relationType === "PREQUEL" || edge.relationType === "SEQUEL") && node.type === "ANIME" && seasonFormats.includes(node.format ?? "")) {
+          const isConnectedSeason = (edge.relationType === "PREQUEL" || edge.relationType === "SEQUEL")
+            && seasonFormats.includes(media.format ?? "")
+            && seasonFormats.includes(node.format ?? "");
+          const isRelatedMovie = edge.relationType === "SIDE_STORY"
+            && seasonFormats.includes(media.format ?? "")
+            && node.format === "MOVIE";
+          const isMovieParent = mediaIsMovie
+            && edge.relationType === "PARENT"
+            && seasonFormats.includes(node.format ?? "");
+          if (node.type === "ANIME" && (isConnectedSeason || isRelatedMovie || isMovieParent)) {
             discovered.set(node.id, node);
-            if (!visited.has(node.id)) pending.push(node.id);
+            if ((isConnectedSeason || isMovieParent) && !visited.has(node.id)) pending.push(node.id);
           }
         }
       }
