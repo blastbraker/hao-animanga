@@ -9,6 +9,7 @@ export type ReadableMangaFallback = {
 
 type MangaFallbackOptions = {
   title: string;
+  alternateTitles?: string[];
   currentSourceId: string;
   language: string;
   sources: MangaSource[];
@@ -25,14 +26,21 @@ export function findExactMangaTitleMatch(items: MangaSummary[], title: string): 
 
 export async function findReadableMangaFallback(options: MangaFallbackOptions): Promise<ReadableMangaFallback | null> {
   const candidates = options.sources.filter((source) => source.id !== options.currentSourceId && source.language === options.language);
+  const targetTitles = [...new Set([options.title, ...(options.alternateTitles ?? [])].map((title) => title.trim()).filter(Boolean))].slice(0, 8);
   for (const source of candidates) {
     const startedAt = Date.now();
-    try {
-      const match = findExactMangaTitleMatch(await options.searchSource(source, options.title), options.title);
-      if (!match) {
-        options.onAttempt?.(source, false, Date.now() - startedAt);
-        continue;
+    let match: MangaSummary | null = null;
+    for (const searchTitle of targetTitles) {
+      try {
+        const results = await options.searchSource(source, searchTitle);
+        match = targetTitles.map((title) => findExactMangaTitleMatch(results, title)).find(Boolean) ?? null;
+        if (match) break;
+      } catch {
+        // One title spelling can fail while an alternate title still succeeds.
       }
+    }
+    try {
+      if (!match) throw new Error("No matching title from this source");
       const item = match.sourceId ? match : { ...match, sourceId: source.id };
       const chapters = await options.loadChapters(item);
       const succeeded = chapters.length > 0;

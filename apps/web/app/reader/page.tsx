@@ -18,6 +18,7 @@ import {
 } from "../../lib/manga-response";
 import { findReadableMangaFallback, type ReadableMangaFallback } from "../../lib/manga-fallback";
 import { dedupeSourceResults, rankSourcesByReliability, recordSourceResult } from "../../lib/source-reliability";
+import { confidentSourceMatch } from "../../lib/source-match";
 import { maybeNotifyNewReleases, parseReaderBookmarks, recordActivity, READER_BOOKMARKS_STORAGE_KEY, RELEASE_SNAPSHOTS_STORAGE_KEY, saveSourceReport, toggleReaderBookmark, updateReleaseSnapshot } from "../../lib/beta-features";
 type BrowseMode = "popular" | "latest";
 type ReadingMode = "webtoon" | "ltr" | "rtl";
@@ -187,8 +188,16 @@ export default function ReaderPage() {
       availableSources.filter((source) => source.id !== currentSource.id && source.language === currentSource.language),
       "manga",
     ).slice(0, 8);
+    let alternateTitles: string[] = [];
+    try {
+      const metadata = await api<{ items: Work[] }>(`/search?q=${encodeURIComponent(title)}&kind=MANGA&pageSize=5`);
+      alternateTitles = confidentSourceMatch({ title, alternateTitles: [] }, metadata.items)?.alternateTitles ?? [];
+    } catch {
+      // Source fallback still works with the displayed title when metadata is unavailable.
+    }
     return findReadableMangaFallback({
       title,
+      alternateTitles,
       currentSourceId: currentSource.id,
       language: currentSource.language,
       sources: fallbackSources,
