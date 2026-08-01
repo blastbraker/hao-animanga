@@ -323,16 +323,21 @@ export default function HomePage() {
   return (
     <div className="page home-page">
       <section
-        className="hero home-hero"
+        className={`hero home-hero ${hero.title.length > 52 ? "has-long-title" : ""}`}
         style={{
-          backgroundImage: `linear-gradient(90deg, rgba(8,10,18,.98) 8%, rgba(8,10,18,.64) 54%, rgba(8,10,18,.2)), linear-gradient(0deg,#080a12 0%,transparent 48%), url(${hero.bannerUrl ?? hero.coverUrl})`
+          backgroundImage: [
+            "linear-gradient(90deg, rgba(8,10,18,.98) 8%, rgba(8,10,18,.64) 54%, rgba(8,10,18,.2))",
+            "linear-gradient(0deg,#080a12 0%,transparent 48%)",
+            hero.bannerUrl ? `url(${hero.bannerUrl})` : "",
+            hero.coverUrl ? `url(${hero.coverUrl})` : ""
+          ].filter(Boolean).join(", ")
         }}
       >
         <div className="hero-copy">
           <span className="eyebrow">
             <Sparkles size={14} /> FEATURED ARCHIVE
           </span>
-          <h1>{hero.title}</h1>
+          <h1 className={hero.title.length > 52 ? "long-title" : undefined} title={hero.title}>{hero.title}</h1>
           <p>{hero.synopsis}</p>
           <div className="hero-meta">
             <span>{hero.year}</span>

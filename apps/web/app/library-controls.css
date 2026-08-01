@@ -70,6 +70,15 @@
 }
 
 @media (max-width: 760px) {
+  .library-page > .tabs {
+    overscroll-behavior-inline: contain;
+    scrollbar-width: none;
+  }
+
+  .library-page > .tabs::-webkit-scrollbar {
+    display: none;
+  }
+
   .library-entry-actions {
     grid-template-columns: 40px minmax(0, 1fr);
   }

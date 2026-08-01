@@ -13,7 +13,8 @@ import { compatibleAudioStreams, pickAudioVariant, pickQualityUpgrade, selectAud
 import { maybeNotifyNewReleases, recordActivity, RELEASE_SNAPSHOTS_STORAGE_KEY, saveSourceReport, updateReleaseSnapshot } from "../../../lib/beta-features";
 import { isPlayerFullscreen, togglePlayerFullscreen, type FullscreenVideo } from "../../../lib/player-fullscreen";
 import { episodeDisplayLabel, episodeDisplayName, episodeNumberLabel } from "../../../lib/episode-title";
-import { seasonHref, seasonOptionLabel } from "../../../lib/anime-seasons";
+import { seasonHref } from "../../../lib/anime-seasons";
+import { ReleasePicker } from "../../../components/release-picker";
 import { browseEpisodes, type EpisodeOrder } from "../../../lib/episode-browser";
 import { enrichEpisodes, episodeGroupLabel, type EpisodeGuideMetadata } from "../../../lib/episode-metadata";
 import { nextPlaybackSpeed, normalizePlaybackSpeed, PLAYBACK_SPEEDS } from "../../../lib/playback-speed";
@@ -1548,10 +1549,7 @@ export default function PlayerPage() {
           <h1>{anime?.title ?? "Anime player"}</h1>
           <p>{episode ? episodeDisplayLabel(episode) : (anime?.description ?? "Connect an authorized anime source.")}</p>
           {anime?.attribution && <small>{anime.attribution}</small>}
-          {canonicalWork && seasonItems.length > 1 && <label className="season-switcher player-season-switcher"><span>Season</span><select aria-label={`Season for ${canonicalWork.title}`} value={canonicalWork.id} onChange={(event) => {
-            const selected = seasonItems.find((item) => item.id === event.target.value);
-            if (selected) window.location.assign(seasonHref(selected));
-          }}>{seasonItems.map((item, index) => <option key={item.id} value={item.id}>{seasonOptionLabel(item, index)}</option>)}</select></label>}
+          {canonicalWork && <ReleasePicker current={canonicalWork} items={seasonItems} className="player-season-switcher" />}
           {progressStatus && (
             <span className="progress-save-status">
               <CheckCircle2 />

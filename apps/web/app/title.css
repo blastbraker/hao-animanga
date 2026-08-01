@@ -22,6 +22,7 @@
 .release-list b, .release-list small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .release-list b { font: 600 11px var(--font-display); }
 .release-list small { color: var(--muted); font-size: 8px; }
+.release-list-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 15px; border-top: 1px solid var(--line); color: var(--muted); background: #10131e; font-size: 9px; }
 .availability-loading { min-height: 150px; display: flex; align-items: center; justify-content: center; gap: 14px; border: 1px dashed var(--line); border-radius: 15px; color: var(--muted); }
 .availability-loading > svg { width: 23px; color: var(--cyan); }
 .availability-loading div { display: grid; gap: 5px; }
@@ -41,6 +42,7 @@
   .availability-panel > header { grid-template-columns: auto 1fr; padding: 15px; }
   .availability-panel > header .button { grid-column: 1/-1; width: 100%; }
   .release-list { grid-template-columns: 1fr; }
+  .release-list-footer { align-items: stretch; flex-direction: column; }
   .source-empty.availability-error { grid-template-columns: auto 1fr; }
   .availability-error .button { grid-column: 1/-1; width: 100%; }
 }

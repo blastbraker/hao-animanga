@@ -13,3 +13,10 @@
   .discover-page .filter-row::-webkit-scrollbar { display: none; }
   .discover-results-heading h2 { font-size: 23px; }
 }
+
+@media(max-width:520px) {
+  .discover-page .search-panel { grid-template-columns: 1fr; }
+  .discover-page .search-panel label { min-height: 44px; }
+  .discover-page .search-panel select { grid-column: auto; grid-row: auto; }
+  .discover-page .search-panel .button { width: 100%; }
+}

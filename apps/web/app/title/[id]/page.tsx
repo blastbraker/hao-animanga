@@ -3,12 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { LibraryEntry, LibraryStatus, Work } from "@hao/domain";
-import { BookOpen, BookmarkPlus, ChevronDown, CircleAlert, Clapperboard, ExternalLink, Heart, LoaderCircle, Play, RefreshCw, Server, Star } from "lucide-react";
+import { BookOpen, BookmarkPlus, CircleAlert, Clapperboard, ExternalLink, Heart, LoaderCircle, Play, RefreshCw, Server, Star } from "lucide-react";
 import { api, bridgeErrorMessage, bridgeJson, getActiveBridge, type LibraryResponse } from "../../../lib/api";
 import { confidentSourceMatch } from "../../../lib/source-match";
 import { rankSourcesByReliability, recordSourceResult } from "../../../lib/source-reliability";
 import { episodeDisplayName, episodeNumberLabel } from "../../../lib/episode-title";
-import { isAnimeMovie, seasonHref, seasonOptionLabel } from "../../../lib/anime-seasons";
+import { ReleasePicker } from "../../../components/release-picker";
 
 type AnimeSource = {
   id: string;
@@ -234,10 +234,6 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
   }
 
   const mediaLabel = work.kind === "ANIME" ? "anime" : "manga";
-  const seasonReleases = seasonItems.filter((item) => !isAnimeMovie(item));
-  const movieReleases = seasonItems.filter(isAnimeMovie);
-  const activeSeasonIndex = Math.max(0, seasonReleases.findIndex((item) => item.id === work.id));
-  const activeReleaseLabel = seasonOptionLabel(work, activeSeasonIndex);
   return (
     <div className="title-page">
       <div
@@ -291,45 +287,7 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
             </button>
             {work.kind === "ANIME" && <a className="button ghost imdb-button" href={imdbSearchHref(work)} target="_blank" rel="noreferrer"><ExternalLink /> IMDb rating & watchlist</a>}
           </div>
-          {seasonItems.length > 1 && (
-            <div className="season-switcher">
-              <span>Release</span>
-              <details className="season-dropdown">
-                <summary aria-label={`Choose a season or movie for ${work.title}`}>
-                  <span>{activeReleaseLabel}</span>
-                  <ChevronDown aria-hidden="true" />
-                </summary>
-                <div className="season-dropdown-menu" role="listbox" aria-label={`Seasons and movies for ${work.title}`}>
-                  {seasonReleases.length > 0 && <span className="season-dropdown-group">Seasons</span>}
-                  {seasonReleases.map((item, index) => (
-                    <Link
-                      key={item.id}
-                      href={seasonHref(item)}
-                      className={`season-dropdown-option ${item.id === work.id ? "active" : ""}`}
-                      role="option"
-                      aria-selected={item.id === work.id}
-                    >
-                      <span>{seasonOptionLabel(item, index)}</span>
-                      {item.id === work.id && <small>Current</small>}
-                    </Link>
-                  ))}
-                  {movieReleases.length > 0 && <span className="season-dropdown-group movie-group">Movies</span>}
-                  {movieReleases.map((item) => (
-                    <Link
-                      key={item.id}
-                      href={seasonHref(item)}
-                      className={`season-dropdown-option ${item.id === work.id ? "active" : ""}`}
-                      role="option"
-                      aria-selected={item.id === work.id}
-                    >
-                      <span>{seasonOptionLabel(item, 0)}</span>
-                      {item.id === work.id && <small>Current</small>}
-                    </Link>
-                  ))}
-                </div>
-              </details>
-            </div>
-          )}
+          <ReleasePicker current={work} items={seasonItems} />
           <div className="personal-rating">
             <span><Star size={15} /> Your HAO rating</span>
             <select aria-label="Your rating" value={libraryEntry?.rating ?? ""} disabled={ratingBusy} onChange={(event) => void rate(event.target.value ? Number(event.target.value) : null)}>
@@ -568,6 +526,12 @@ function mangaReaderHref(sourceId: string, mangaId: number, chapterIndex?: numbe
 }
 
 function AnimeSourcePanel({ availability, workTitle, workId }: { availability: AnimeAvailability; workTitle: string; workId: string }) {
+  const initialReleaseCount = 24;
+  const [showAll, setShowAll] = useState(false);
+  const visibleEpisodes = showAll ? availability.episodes : availability.episodes.slice(0, initialReleaseCount);
+
+  useEffect(() => setShowAll(false), [availability.item.id, availability.source.id]);
+
   return (
     <article className="availability-panel">
       <header>
@@ -586,7 +550,7 @@ function AnimeSourcePanel({ availability, workTitle, workId }: { availability: A
         </Link>
       </header>
       <div className="release-list">
-        {availability.episodes.map((episode) => (
+        {visibleEpisodes.map((episode) => (
           <Link key={episode.id} href={animePlayerHref(availability.source.id, availability.item.id, workTitle, episode.id, workId)}>
             <span className="release-number">{episodeNumberLabel(episode.number)}</span>
             <span>
@@ -597,6 +561,14 @@ function AnimeSourcePanel({ availability, workTitle, workId }: { availability: A
           </Link>
         ))}
       </div>
+      {availability.episodes.length > initialReleaseCount && (
+        <div className="release-list-footer">
+          <span>Showing {visibleEpisodes.length} of {availability.episodes.length} episodes</span>
+          <button type="button" className="button ghost compact" onClick={() => setShowAll((value) => !value)}>
+            {showAll ? "Show fewer" : `Show all ${availability.episodes.length}`}
+          </button>
+        </div>
+      )}
     </article>
   );
 }

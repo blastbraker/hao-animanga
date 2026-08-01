@@ -8,7 +8,7 @@ const contentSecurityPolicy = [
   "object-src 'none'",
   `script-src 'self' 'unsafe-inline'${process.env.NODE_ENV === "production" ? "" : " 'unsafe-eval'"}`,
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: https:",
+  "img-src 'self' data: blob: https: http://127.0.0.1:* http://localhost:*",
   "font-src 'self' data:",
   "media-src 'self' blob: https: http://127.0.0.1:*",
   `connect-src 'self' https: wss: http://127.0.0.1:* ws://127.0.0.1:*${process.env.NODE_ENV === "production" ? "" : " http://localhost:* ws://localhost:*"}`,

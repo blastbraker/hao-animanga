@@ -1,4 +1,7 @@
 .home-hero { min-height: 610px; height: 68vh; max-height: 760px; }
+.home-hero.has-long-title { min-height: 680px; }
+.home-hero h1 { max-width: 760px; font-size: clamp(44px, 5.4vw, 72px); }
+.home-hero h1.long-title { display: -webkit-box; max-width: 720px; overflow: hidden; font-size: clamp(40px, 4.4vw, 58px); line-height: .98; -webkit-box-orient: vertical; -webkit-line-clamp: 5; line-clamp: 5; }
 .home-hero .hero-copy > p { display: -webkit-box; max-width: 620px; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 4; line-clamp: 4; }
 .source-hub { position: relative; z-index: 2; margin-top: 0; padding-top: 0; }
 .source-hub::before { content: ""; position: absolute; inset: -90px 0 auto; height: 180px; pointer-events: none; background: linear-gradient(transparent, var(--bg) 72%); z-index: -1; }
@@ -107,6 +110,9 @@
 
 @media(max-width:760px) {
   .home-hero { height: 620px; min-height: 620px; }
+  .home-hero.has-long-title { height: 710px; min-height: 710px; }
+  .home-hero h1 { font-size: 46px; }
+  .home-hero h1.long-title { font-size: 36px; -webkit-line-clamp: 6; line-clamp: 6; }
   .home-hero .hero-copy > p { -webkit-line-clamp: 3; line-clamp: 3; }
   .source-hub { margin-top: 0; padding-top: 20px; }
   .continue-watching-section { margin-top: -28px; padding: 0 20px 18px; }
