@@ -56,6 +56,28 @@ describe("AniList anime seasons", () => {
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.data.map((item) => item.title)).toEqual(["Bleach", "Bleach the Movie: Memories of Nobody"]);
   });
+
+  it("supplements a season chain when AniList omits the original series relation", async () => {
+    const seasonOne = media(1, "Example", 2020);
+    const seasonTwo = { ...media(2, "Example Season 2", 2022), synonyms: ["Example"] };
+    const seasonTwoPartTwo = media(3, "Example Season 2 Part 2", 2022);
+    const spinOff = media(4, "Example Side Stories", 2021);
+    const fetchMock = vi.fn(async (_url, init) => {
+      const request = JSON.parse(String(init?.body)) as { query: string; variables: { id?: number } };
+      if (request.query.includes("query Search")) {
+        return new Response(JSON.stringify({ data: { Page: { pageInfo: { hasNextPage: false }, media: [seasonOne, seasonTwo, seasonTwoPartTwo, spinOff] } } }), { status: 200 });
+      }
+      const node = request.variables.id === 2
+        ? { ...seasonTwo, relations: { edges: [{ relationType: "SEQUEL", node: seasonTwoPartTwo }] } }
+        : { ...seasonTwoPartTwo, relations: { edges: [] } };
+      return new Response(JSON.stringify({ data: { Media: node } }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await new AniListProvider("https://example.test/graphql").getAnimeSeasons("2");
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.data.map((item) => item.title)).toEqual(["Example", "Example Season 2", "Example Season 2 Part 2"]);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
 });
 
 describe("AniList anime details", () => {

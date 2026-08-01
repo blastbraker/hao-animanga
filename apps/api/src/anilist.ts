@@ -124,6 +124,56 @@ function stableWorkId(externalId: number): string {
   return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20, 32)}`;
 }
 
+const ANIME_SEASON_FORMATS = ["TV", "TV_SHORT", "ONA"];
+
+function animeTitleValues(media: AniListMedia): string[] {
+  return [media.title.english, media.title.romaji, media.title.native, ...media.synonyms]
+    .filter((value): value is string => Boolean(value?.trim()));
+}
+
+function animePrimaryTitleValues(media: AniListMedia): string[] {
+  return [media.title.english, media.title.romaji, media.title.native]
+    .filter((value): value is string => Boolean(value?.trim()));
+}
+
+function seasonFamilyTitle(title: string): string {
+  return title
+    .normalize("NFKC")
+    .replace(/\s+(?:season\s*\d+(?:\s+part\s*\d+)?|part\s*\d+|\d+(?:st|nd|rd|th)\s+season)\s*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLocaleLowerCase();
+}
+
+function normalizedAnimeTitle(title: string): string {
+  return title.normalize("NFKC").replace(/\s+/g, " ").trim().toLocaleLowerCase();
+}
+
+function seasonFamilyKeys(media: AniListMedia): Set<string> {
+  const titles = animePrimaryTitleValues(media);
+  const stripped = titles
+    .map((title) => ({ family: seasonFamilyTitle(title), original: normalizedAnimeTitle(title) }))
+    .filter(({ family, original }) => family && family !== original)
+    .map(({ family }) => family);
+  return new Set(stripped.length ? stripped : titles.map(seasonFamilyTitle).filter(Boolean));
+}
+
+function isWorkSeasonFamilyCandidate(seed: AniListMedia, candidate: Work): boolean {
+  if (candidate.kind !== "ANIME") return false;
+  const seedFamilies = seasonFamilyKeys(seed);
+  return [candidate.title, ...candidate.alternateTitles].some((title) => seedFamilies.has(seasonFamilyTitle(title)));
+}
+
+function isMediaSeasonFamilyCandidate(seed: AniListMedia, candidate: AniListMedia): boolean {
+  const seedFamilies = seasonFamilyKeys(seed);
+  return animePrimaryTitleValues(candidate).some((title) => seedFamilies.has(seasonFamilyTitle(title)));
+}
+
+function hasFamilyRoot(seed: AniListMedia, candidates: Iterable<AniListMedia>): boolean {
+  const seedFamilies = seasonFamilyKeys(seed);
+  return [...candidates].some((candidate) => animePrimaryTitleValues(candidate).some((title) => seedFamilies.has(normalizedAnimeTitle(title))));
+}
+
 export class AniListProvider implements CatalogProvider {
   readonly id = "anilist";
   constructor(private readonly endpoint = process.env.ANILIST_API_URL ?? "https://graphql.anilist.co") {}
@@ -223,6 +273,8 @@ export class AniListProvider implements CatalogProvider {
       const pending = [id];
       const visited = new Set<number>();
       const discovered = new Map<number, AniListMedia>();
+      const supplemented = new Map<string, Work>();
+      let seedMedia: SeasonMedia | null = null;
       let firstFailure: { code: "UNAVAILABLE" | "RATE_LIMITED"; message: string; retryable: boolean } | null = null;
       while (pending.length && visited.size < 20) {
         const nextId = pending.shift()!;
@@ -250,29 +302,46 @@ export class AniListProvider implements CatalogProvider {
           continue;
         }
         discovered.set(media.id, media);
-        const seasonFormats = ["TV", "TV_SHORT", "ONA"];
+        if (nextId === id) seedMedia = media;
         const mediaIsMovie = media.format === "MOVIE";
-        if (nextId === id && !mediaIsMovie && !seasonFormats.includes(media.format ?? "")) return { ok: true, data: [mapWork(media)] };
+        if (nextId === id && !mediaIsMovie && !ANIME_SEASON_FORMATS.includes(media.format ?? "")) return { ok: true, data: [mapWork(media)] };
         for (const edge of media.relations?.edges ?? []) {
           const node = edge.node;
           const isConnectedSeason = (edge.relationType === "PREQUEL" || edge.relationType === "SEQUEL")
-            && seasonFormats.includes(media.format ?? "")
-            && seasonFormats.includes(node.format ?? "");
+            && ANIME_SEASON_FORMATS.includes(media.format ?? "")
+            && ANIME_SEASON_FORMATS.includes(node.format ?? "");
           const isRelatedMovie = edge.relationType === "SIDE_STORY"
-            && seasonFormats.includes(media.format ?? "")
+            && ANIME_SEASON_FORMATS.includes(media.format ?? "")
             && node.format === "MOVIE";
           const isMovieParent = mediaIsMovie
             && edge.relationType === "PARENT"
-            && seasonFormats.includes(node.format ?? "");
+            && ANIME_SEASON_FORMATS.includes(node.format ?? "");
           if (node.type === "ANIME" && (isConnectedSeason || isRelatedMovie || isMovieParent)) {
             discovered.set(node.id, node);
             if ((isConnectedSeason || isMovieParent) && !visited.has(node.id)) pending.push(node.id);
           }
         }
       }
+      if (seedMedia && (discovered.size <= 1 || !hasFamilyRoot(seedMedia, discovered.values()))) {
+        const search = animeTitleValues(seedMedia).map((title) => title.replace(/\s+(?:season\s*\d+(?:\s+part\s*\d+)?|part\s*\d+|\d+(?:st|nd|rd|th)\s+season)\s*$/i, "").trim()).find(Boolean);
+        if (search) {
+          const result = await this.search({ query: search, kind: "ANIME", page: 1, pageSize: 30 }, signal);
+          if (result.ok) {
+            for (const candidate of result.data.items) {
+              if (isWorkSeasonFamilyCandidate(seedMedia, candidate)) supplemented.set(candidate.id, candidate);
+            }
+          }
+        }
+      }
       if (!discovered.size && firstFailure) return { ok: false, error: firstFailure };
-      const items = [...discovered.values()].map(mapWork)
-        .filter((item) => item.kind === "ANIME")
+      const grouped = new Map<string, Work>();
+      for (const media of discovered.values()) {
+        if (media.format === "ONA" && seedMedia && !isMediaSeasonFamilyCandidate(seedMedia, media)) continue;
+        const item = mapWork(media);
+        grouped.set(item.id, item);
+      }
+      for (const item of supplemented.values()) grouped.set(item.id, item);
+      const items = [...grouped.values()].filter((item) => item.kind === "ANIME")
         .sort((left, right) => (left.year ?? 9999) - (right.year ?? 9999) || left.title.localeCompare(right.title));
       return { ok: true, data: items };
     } catch (error) {
