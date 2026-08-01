@@ -3,17 +3,15 @@ package app.hao.bridge
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class AniyomiMediaTest {
     @Test
     fun `finds an MPEG transport stream after a PNG compatibility wrapper`() {
         val wrapper = byteArrayOf(0x89.toByte(), 0x50, 0x4e, 0x47) + ByteArray(248)
-        val transportStream = ByteArray(188 * 3).also { bytes ->
-            bytes[0] = 0x47
-            bytes[188] = 0x47
-            bytes[376] = 0x47
-        }
+        val transportStream = transportStream()
 
         assertEquals(252, mpegTransportStreamOffset(wrapper + transportStream))
     }
@@ -24,14 +22,17 @@ class AniyomiMediaTest {
     }
 
     @Test
-    fun `does not unwrap non-PNG transport streams`() {
-        val transportStream = ByteArray(188 * 3).also { bytes ->
-            bytes[0] = 0x47
-            bytes[188] = 0x47
-            bytes[376] = 0x47
-        }
+    fun `recognizes raw transport streams despite an unrelated content type`() {
+        assertEquals(0, mpegTransportStreamOffset(transportStream()))
+    }
 
-        assertNull(mpegTransportStreamOffset(transportStream))
+    @Test
+    fun `recognizes content types used to disguise transport segments`() {
+        assertTrue(isDisguisedMediaContentType("image/jpeg"))
+        assertTrue(isDisguisedMediaContentType("text/html; charset=utf-8"))
+        assertTrue(isDisguisedMediaContentType("application/javascript"))
+        assertFalse(isDisguisedMediaContentType("video/mp2t"))
+        assertFalse(isDisguisedMediaContentType("application/octet-stream"))
     }
 
     @Test
@@ -60,5 +61,13 @@ class AniyomiMediaTest {
         assertEquals("188", response.contentLength)
         assertEquals("bytes 188-375/4096", response.contentRange)
         assertEquals(188, response.body.readBytes().size)
+    }
+
+    private fun transportStream() = ByteArray(188 * 5).also { bytes ->
+        bytes[0] = 0x47
+        bytes[188] = 0x47
+        bytes[376] = 0x47
+        bytes[564] = 0x47
+        bytes[752] = 0x47
     }
 }

@@ -170,47 +170,44 @@ class AniyomiFixtureRuntime(private val extensionRoot: Path, private val dataRoo
             val rewritten = rewriteHlsManifest(uri, manifest, video.headers).toByteArray()
             return AnimeMediaResponse(200, "application/vnd.apple.mpegurl", rewritten.size.toString(), null, "none", ByteArrayInputStream(rewritten))
         }
-        if (contentType.startsWith("image/png", true)) {
-            if (range != null) {
-                // Some hosts disguise MPEG-TS segments behind a small PNG prefix.
-                // Browser range probes only contain part of that wrapped payload,
-                // so fetch the complete segment before applying the requested
-                // range to the unwrapped transport stream.
+        if (range != null && isDisguisedMediaContentType(contentType)) {
+            // Some hosts label consecutive MPEG-TS segments as unrelated image,
+            // HTML, JavaScript, CSS, and text formats. Fetch the bounded complete
+            // segment before applying a browser range to the detected TS bytes.
+            response.close()
+            response = mediaClient.newCall(request(null)).execute()
+            require(response.code == 200) { response.close(); "Aniyomi compatibility media returned HTTP ${response.code}" }
+            body = response.body
+            val declaredLength = body.contentLength()
+            require(declaredLength <= MAX_WRAPPED_SEGMENT_BYTES) {
                 response.close()
-                response = mediaClient.newCall(request(null)).execute()
-                require(response.code == 200) { response.close(); "Aniyomi wrapped media returned HTTP ${response.code}" }
-                body = response.body
-                val declaredLength = body.contentLength()
-                require(declaredLength <= MAX_WRAPPED_SEGMENT_BYTES) {
-                    response.close()
-                    "Aniyomi wrapped media exceeded the size limit"
-                }
-                val bytes = body.byteStream().use { it.readNBytes(MAX_WRAPPED_SEGMENT_BYTES + 1) }
-                response.close()
-                require(bytes.size <= MAX_WRAPPED_SEGMENT_BYTES) { "Aniyomi wrapped media exceeded the size limit" }
-                val transportStreamOffset = mpegTransportStreamOffset(bytes)
-                require(transportStreamOffset != null) { "Aniyomi media returned an unsupported PNG payload" }
-                return rangedTransportStream(bytes.copyOfRange(transportStreamOffset, bytes.size), range)
+                "Aniyomi compatibility media exceeded the size limit"
             }
-            val input = body.byteStream()
-            val prefix = input.readNBytes(4_096)
-            val transportStreamOffset = mpegTransportStreamOffset(prefix)
-            if (transportStreamOffset != null) {
-                val unwrapped = SequenceInputStream(
-                    ByteArrayInputStream(prefix, transportStreamOffset, prefix.size - transportStreamOffset),
-                    input,
-                )
-                val contentLength = response.header("content-length")?.toLongOrNull()
-                    ?.minus(transportStreamOffset)?.takeIf { it >= 0 }?.toString()
-                return AnimeMediaResponse(200, "video/mp2t", contentLength, null, "none", unwrapped)
-            }
+            val bytes = body.byteStream().use { it.readNBytes(MAX_WRAPPED_SEGMENT_BYTES + 1) }
+            response.close()
+            require(bytes.size <= MAX_WRAPPED_SEGMENT_BYTES) { "Aniyomi compatibility media exceeded the size limit" }
+            val transportStreamOffset = mpegTransportStreamOffset(bytes)
+            require(transportStreamOffset != null) { "Aniyomi media returned an unsupported compatibility payload" }
+            return rangedTransportStream(bytes.copyOfRange(transportStreamOffset, bytes.size), range)
+        }
+        val input = body.byteStream()
+        val prefix = input.readNBytes(4_096)
+        val shouldInspectTransportStream = range == null || range.startsWith("bytes=0-")
+        val transportStreamOffset = if (shouldInspectTransportStream) mpegTransportStreamOffset(prefix) else null
+        if (transportStreamOffset != null) {
+            val unwrapped = SequenceInputStream(
+                ByteArrayInputStream(prefix, transportStreamOffset, prefix.size - transportStreamOffset),
+                input,
+            )
+            val contentLength = response.header("content-length")?.toLongOrNull()
+                ?.minus(transportStreamOffset)?.takeIf { it >= 0 }?.toString()
             return AnimeMediaResponse(
                 response.code,
-                contentType,
-                response.header("content-length"),
+                "video/mp2t",
+                contentLength,
                 response.header("content-range"),
                 response.header("accept-ranges") ?: "bytes",
-                SequenceInputStream(ByteArrayInputStream(prefix), input),
+                unwrapped,
             )
         }
         return AnimeMediaResponse(
@@ -219,7 +216,7 @@ class AniyomiFixtureRuntime(private val extensionRoot: Path, private val dataRoo
             response.header("content-length"),
             response.header("content-range"),
             response.header("accept-ranges") ?: "bytes",
-            body.byteStream(),
+            SequenceInputStream(ByteArrayInputStream(prefix), input),
         )
     }
 
@@ -410,11 +407,20 @@ internal fun parseByteRange(value: String, totalLength: Int): IntRange {
     return start.toInt()..end
 }
 
+internal fun isDisguisedMediaContentType(contentType: String): Boolean =
+    contentType.startsWith("image/", true) ||
+        contentType.startsWith("text/", true) ||
+        contentType.contains("javascript", true)
+
 internal fun mpegTransportStreamOffset(prefix: ByteArray): Int? {
-    if (prefix.size < 4 || prefix[0].toInt() and 0xff != 0x89 || prefix[1] != 0x50.toByte()
-        || prefix[2] != 0x4e.toByte() || prefix[3] != 0x47.toByte()) return null
-    for (offset in 0 until prefix.size - 376) {
-        if (prefix[offset] == 0x47.toByte() && prefix[offset + 188] == 0x47.toByte() && prefix[offset + 376] == 0x47.toByte()) return offset
+    if (prefix.size < 753) return null
+    for (offset in 0..prefix.size - 753) {
+        if (prefix[offset] == 0x47.toByte() &&
+            prefix[offset + 188] == 0x47.toByte() &&
+            prefix[offset + 376] == 0x47.toByte() &&
+            prefix[offset + 564] == 0x47.toByte() &&
+            prefix[offset + 752] == 0x47.toByte()
+        ) return offset
     }
     return null
 }
