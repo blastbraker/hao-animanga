@@ -19,6 +19,7 @@ import {
 import { findReadableMangaFallback, type ReadableMangaFallback } from "../../lib/manga-fallback";
 import { dedupeSourceResults, rankSourcesByReliability, recordSourceResult } from "../../lib/source-reliability";
 import { confidentSourceMatch } from "../../lib/source-match";
+import { OPEN_READER_BROWSER_EVENT } from "../../lib/reader-navigation";
 import { maybeNotifyNewReleases, parseReaderBookmarks, recordActivity, READER_BOOKMARKS_STORAGE_KEY, RELEASE_SNAPSHOTS_STORAGE_KEY, saveSourceReport, toggleReaderBookmark, updateReleaseSnapshot } from "../../lib/beta-features";
 type BrowseMode = "popular" | "latest";
 type ReadingMode = "webtoon" | "ltr" | "rtl";
@@ -62,6 +63,23 @@ export default function ReaderPage() {
     const saved = window.localStorage.getItem("hao:manga-reading-mode");
     if (saved === "webtoon" || saved === "ltr" || saved === "rtl") setReadingMode(saved);
     setDoublePage(window.localStorage.getItem("hao:manga-double-page") === "true");
+  }, []);
+
+  useEffect(() => {
+    function openReaderBrowser() {
+      setSelected(null);
+      setChapters([]);
+      setPages(null);
+      setPageIndex(0);
+      setError("");
+      setBusy("");
+      setSyncStatus("");
+      libraryWorkIdRef.current = null;
+      libraryReadyWorkIdRef.current = null;
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+    window.addEventListener(OPEN_READER_BROWSER_EVENT, openReaderBrowser);
+    return () => window.removeEventListener(OPEN_READER_BROWSER_EVENT, openReaderBrowser);
   }, []);
 
   useEffect(() => {

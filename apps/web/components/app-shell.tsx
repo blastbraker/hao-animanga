@@ -7,6 +7,7 @@ import { Activity, BookOpen, Compass, Home, Library, PanelLeftClose, PanelLeftOp
 import { API_URL, api } from "../lib/api";
 import { getSupabaseBrowser, hasSupabaseBrowserConfig } from "../lib/supabase";
 import { OPEN_BETA_ONBOARDING_EVENT } from "../lib/onboarding";
+import { OPEN_READER_BROWSER_EVENT } from "../lib/reader-navigation";
 import { BetaOnboarding } from "./beta-onboarding";
 import { GlobalSearch } from "./global-search";
 import { FeedbackDialog } from "./feedback-dialog";
@@ -107,10 +108,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       return next;
     });
   }
+  function handleNavigation(href: string) {
+    if (href === "/reader" && path === "/reader") window.dispatchEvent(new Event(OPEN_READER_BROWSER_EVENT));
+  }
   return <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
     <aside className="sidebar" aria-label="Primary navigation">
       <div className="sidebar-header"><Link href="/" className="brand" aria-label="HAO home"><img className="brand-mark" src="/brand/hao-logo-64.png" alt=""/><span>HAO</span></Link><button className="sidebar-toggle" aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} aria-expanded={!sidebarCollapsed} title={`${sidebarCollapsed ? "Expand" : "Collapse"} sidebar (Ctrl+B)`} onClick={toggleSidebar}>{sidebarCollapsed ? <PanelLeftOpen/> : <PanelLeftClose/>}</button></div>
-      <nav>{nav.map(({ href, label: itemLabel, icon: Icon }) => <Link key={href} href={href} className={path === href ? "active" : ""} title={sidebarCollapsed ? itemLabel : undefined}><Icon size={20}/><span>{itemLabel}</span></Link>)}</nav>
+      <nav>{nav.map(({ href, label: itemLabel, icon: Icon }) => <Link key={href} href={href} className={path === href ? "active" : ""} title={sidebarCollapsed ? itemLabel : undefined} onClick={() => handleNavigation(href)}><Icon size={20}/><span>{itemLabel}</span></Link>)}</nav>
       <div className="side-bottom">
         {role === "admin" && <Link href="/admin" className={path.startsWith("/admin") ? "active" : ""} title={sidebarCollapsed ? "Admin" : undefined}><ShieldCheck size={20}/><span>Admin</span></Link>}
         <Link href="/settings" className={path === "/settings" ? "active" : ""} title={sidebarCollapsed ? "Settings" : undefined}><Settings size={20}/><span>Settings</span></Link>
@@ -123,7 +127,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <button className="beta-pill" onClick={() => window.dispatchEvent(new Event(OPEN_BETA_ONBOARDING_EVENT))}>BETA GUIDE</button>
     </header>
     <main>{children}</main>
-    <nav className="mobile-nav" aria-label="Mobile navigation">{nav.map(({ href, label: itemLabel, icon: Icon }) => <Link key={href} href={href} className={path === href ? "active" : ""}><Icon size={20}/><span>{itemLabel}</span></Link>)}</nav>
+    <nav className="mobile-nav" aria-label="Mobile navigation">{nav.map(({ href, label: itemLabel, icon: Icon }) => <Link key={href} href={href} className={path === href ? "active" : ""} onClick={() => handleNavigation(href)}><Icon size={20}/><span>{itemLabel}</span></Link>)}</nav>
     <BetaOnboarding autoOpen={role === "member"} />
     <FeedbackDialog />
   </div>;
