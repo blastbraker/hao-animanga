@@ -58,8 +58,8 @@
 .manga-pages img { display: block; max-width: 100%; height: auto; background: #111; }
 .manga-pages.webtoon { width: min(calc(100% - 24px), 1120px); gap: 0; }
 .manga-pages.webtoon img { width: 100%; }
-.manga-pages.paged { position: relative; min-height: calc(100dvh - 175px); place-items: center; padding: clamp(6px,1.2vw,18px); border-radius: 10px; background: #0d111a; }
-.manga-pages.paged img { max-height: calc(100dvh - 185px); object-fit: contain; }
+.manga-pages.paged { position: relative; min-height: 100dvh; margin-top: 0; margin-bottom: 0; place-items: center; padding: 0; border-radius: 10px; background: #0d111a; }
+.manga-pages.paged img { max-height: 100dvh; object-fit: contain; }
 .reader-single-page,.reader-spread { display: flex; align-items: center; justify-content: center; width: 100%; min-width: 0; max-width: 100%; }
 .reader-spread { gap: 4px; }
 .reader-spread img { width: auto; max-width: 50%; }
@@ -74,7 +74,8 @@
 .page-turn-zone:disabled { cursor: default; pointer-events: none; }
 .chapter-navigation button:disabled { opacity: .35; }
 .page-navigation button:disabled { opacity: .35; }
+.live-reader .page-navigation { display: none; }
 @media(max-width:900px){.manga-results{grid-template-columns:repeat(3,1fr)}}
-@media(max-width:760px){.reader-immersive .mobile-nav{display:none}.manga-search{grid-template-columns:1fr auto}.manga-search select{display:block;grid-column:1/-1;height:42px;grid-row:2}.manga-results{grid-template-columns:repeat(2,1fr);gap:13px}.manga-title-copy{grid-template-columns:105px 1fr;gap:16px}.manga-title-copy h2{font-size:28px}.manga-title-copy p{grid-column:1/-1}.chapter-list-head{align-items:stretch;flex-direction:column}.chapter-search{width:100%}.live-reader .reader-toolbar{right:8px;width:46px;padding:6px 5px}.manga-pages,.manga-pages.webtoon{width:100%;margin:0 auto 12px}.manga-pages.paged{min-height:100dvh;padding:4px 50px 4px 4px;border-radius:0}.manga-pages.paged img{max-height:calc(100dvh - 8px)}.reader-spread{gap:2px}.chapter-navigation,.page-navigation{font-size:9px}.reader-mode-controls{gap:4px}}
+@media(max-width:760px){.reader-immersive .mobile-nav{display:none}.manga-search{grid-template-columns:1fr auto}.manga-search select{display:block;grid-column:1/-1;height:42px;grid-row:2}.manga-results{grid-template-columns:repeat(2,1fr);gap:13px}.manga-title-copy{grid-template-columns:105px 1fr;gap:16px}.manga-title-copy h2{font-size:28px}.manga-title-copy p{grid-column:1/-1}.chapter-list-head{align-items:stretch;flex-direction:column}.chapter-search{width:100%}.live-reader .reader-toolbar{right:8px;width:46px;padding:6px 5px}.manga-pages,.manga-pages.webtoon{width:100%;margin:0 auto 12px}.manga-pages.paged{min-height:100dvh;margin:0;padding:0;border-radius:0}.manga-pages.paged img{max-height:100dvh}.reader-spread{gap:2px}.chapter-navigation,.page-navigation{font-size:9px}.reader-mode-controls{gap:4px}}
 @media(hover:none){.page-turn-zone span{display:none}.page-turn-zone:hover{opacity:0}}
 @media(prefers-reduced-motion:reduce){.spin{animation:none}}
