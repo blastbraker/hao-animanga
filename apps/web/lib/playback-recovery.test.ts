@@ -24,6 +24,19 @@ describe("playback recovery", () => {
     expect(nextPlaybackCandidate(streams, "720p", servers, "default", attempted)).toEqual({ kind: "server", id: "backup" });
   });
 
+  it("skips an earlier sub stream when recovery is locked to dub", () => {
+    const mixedStreams = [{ id: "dub-720" }, { id: "sub-1080" }, { id: "dub-1080" }];
+    const dubbedIds = new Set(["dub-720", "dub-1080"]);
+    expect(nextPlaybackCandidate(mixedStreams, "dub-720", servers, "default", new Set(["dub-720"]), dubbedIds))
+      .toEqual({ kind: "stream", id: "dub-1080" });
+  });
+
+  it("changes server instead of crossing a locked audio mode", () => {
+    const mixedStreams = [{ id: "dub" }, { id: "sub-1080" }];
+    expect(nextPlaybackCandidate(mixedStreams, "dub", servers, "default", new Set(["dub"]), new Set(["dub"])))
+      .toEqual({ kind: "server", id: "backup" });
+  });
+
   it("reports exhaustion after the final server", () => {
     expect(nextPlaybackCandidate(streams, "720p", servers, "backup")).toBeNull();
   });

@@ -31,6 +31,12 @@ export function pickAudioVariant<T extends StreamLike>(streams: T[], current: T 
   }
 }
 
+export function compatibleAudioStreams<T extends StreamLike>(streams: T[], target: AudioMode): T[] {
+  const exactMatches = streams.filter((stream) => streamAudioMode(stream) === target);
+  if (exactMatches.length) return exactMatches;
+  return streams.filter((stream) => streamAudioMode(stream) === null);
+}
+
 function resolution(quality?: string): string | null {
   return quality?.match(/\b(2160|1440|1080|720|480|360)p\b/i)?.[1] ?? null;
 }

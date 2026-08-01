@@ -9,7 +9,7 @@ import { completedEpisodeUnits, continueWatchingId, CONTINUE_WATCHING_STORAGE_KE
 import { confidentSourceMatch } from "../../../lib/source-match";
 import { rankSourcesByReliability, recordSourceResult } from "../../../lib/source-reliability";
 import { nextPlaybackCandidate, prioritizePlaybackItems } from "../../../lib/playback-recovery";
-import { pickAudioVariant, streamAudioMode, type AudioMode } from "../../../lib/stream-audio";
+import { compatibleAudioStreams, pickAudioVariant, streamAudioMode, type AudioMode } from "../../../lib/stream-audio";
 import { maybeNotifyNewReleases, recordActivity, RELEASE_SNAPSHOTS_STORAGE_KEY, saveSourceReport, updateReleaseSnapshot } from "../../../lib/beta-features";
 import { isPlayerFullscreen, togglePlayerFullscreen, type FullscreenVideo } from "../../../lib/player-fullscreen";
 import { episodeDisplayLabel, episodeDisplayName, episodeNumberLabel } from "../../../lib/episode-title";
@@ -617,12 +617,15 @@ export default function PlayerPage() {
     if (!nextStreams.length) throw new Error("This server did not return a playable stream.");
     if (cancelled) return;
     const preferredStream = readPreference("hao:anime:preferred-stream");
-    const preferredAudioMode: AudioMode = readPreference("hao:anime:audio-mode") === "dub" ? "dub" : "sub";
+    const lockedAudioMode = readAudioModePreference();
+    const preferredAudioMode: AudioMode = lockedAudioMode ?? "sub";
     const preferredAudioStreams = nextStreams.filter((item) => streamAudioMode(item) === preferredAudioMode);
     const orderedStreams = preferredAudioStreams.length
       ? [...preferredAudioStreams, ...nextStreams.filter((item) => streamAudioMode(item) !== preferredAudioMode)]
       : nextStreams;
-    const initialStream = orderedStreams.find((item) => streamPreference(item) === preferredStream) ?? orderedStreams[0]!;
+    const selectableStreams = lockedAudioMode ? compatibleAudioStreams(nextStreams, lockedAudioMode) : (preferredAudioStreams.length ? preferredAudioStreams : nextStreams);
+    if (!selectableStreams.length) throw new Error(`This server did not return ${lockedAudioMode === "dub" ? "dubbed" : "subtitled"} audio.`);
+    const initialStream = selectableStreams.find((item) => streamPreference(item) === preferredStream) ?? selectableStreams[0]!;
     setStreams(orderedStreams);
     setStreamId(initialStream.id);
     setBusy("");
@@ -729,7 +732,11 @@ export default function PlayerPage() {
     const continuePlaying = videoRef.current ? !videoRef.current.paused : false;
     await persistProgress(false);
     const selectedStream = streams.find((item) => item.id === next);
-    if (selectedStream) writePreference("hao:anime:preferred-stream", streamPreference(selectedStream));
+    if (selectedStream) {
+      writePreference("hao:anime:preferred-stream", streamPreference(selectedStream));
+      const selectedAudioMode = streamAudioMode(selectedStream);
+      if (selectedAudioMode) writePreference("hao:anime:audio-mode", selectedAudioMode);
+    }
     restoredPlaybackKeyRef.current = "";
     failedPlaybackStreamsRef.current.delete(next);
     autoplayRequestedRef.current = continuePlaying;
@@ -755,9 +762,14 @@ export default function PlayerPage() {
       if (stream && readPreference("hao:anime:preferred-stream") === streamPreference(stream)) {
         writePreference("hao:anime:preferred-stream", "");
       }
-      const candidate = nextPlaybackCandidate(streams, streamId, servers, serverId, failedPlaybackStreamsRef.current);
+      const lockedAudioMode = (stream ? streamAudioMode(stream) : null) ?? readAudioModePreference();
+      if (lockedAudioMode) writePreference("hao:anime:audio-mode", lockedAudioMode);
+      const eligibleStreamIds = lockedAudioMode
+        ? new Set(compatibleAudioStreams(streams, lockedAudioMode).map((item) => item.id))
+        : undefined;
+      const candidate = nextPlaybackCandidate(streams, streamId, servers, serverId, failedPlaybackStreamsRef.current, eligibleStreamIds);
       if (candidate?.kind === "stream") {
-        setSourceFallbackStatus("That quality failed, so HAO switched to another stream automatically.");
+        setSourceFallbackStatus(`That quality failed, so HAO switched to another ${lockedAudioMode === "dub" ? "dubbed" : lockedAudioMode === "sub" ? "subtitled" : "compatible"} stream automatically.`);
         safelyResetVideo(videoRef.current);
         setStreamId(candidate.id);
         return;
@@ -1458,6 +1470,11 @@ function writePreference(key: string, value: string) {
   } catch {
     /* Playback continues when local storage is unavailable. */
   }
+}
+
+function readAudioModePreference(): AudioMode | null {
+  const preference = readPreference("hao:anime:audio-mode");
+  return preference === "dub" || preference === "sub" ? preference : null;
 }
 
 function streamPreference(stream: AnimeStream): string {

@@ -9,13 +9,17 @@ export function nextPlaybackCandidate(
   servers: Array<{ id: string }>,
   serverId: string,
   failedStreamIds?: ReadonlySet<string>,
+  eligibleStreamIds?: ReadonlySet<string>,
 ): PlaybackCandidate {
+  const eligibleStreams = eligibleStreamIds
+    ? streams.filter((item) => eligibleStreamIds.has(item.id))
+    : streams;
   if (failedStreamIds) {
-    const untriedStream = streams.find((item) => item.id !== streamId && !failedStreamIds.has(item.id));
+    const untriedStream = eligibleStreams.find((item) => item.id !== streamId && !failedStreamIds.has(item.id));
     if (untriedStream) return { kind: "stream", id: untriedStream.id };
   }
-  const streamIndex = streams.findIndex((item) => item.id === streamId);
-  if (!failedStreamIds && streamIndex >= 0 && streamIndex < streams.length - 1) return { kind: "stream", id: streams[streamIndex + 1]!.id };
+  const streamIndex = eligibleStreams.findIndex((item) => item.id === streamId);
+  if (!failedStreamIds && streamIndex >= 0 && streamIndex < eligibleStreams.length - 1) return { kind: "stream", id: eligibleStreams[streamIndex + 1]!.id };
   const serverIndex = servers.findIndex((item) => item.id === serverId);
   if (serverIndex >= 0 && serverIndex < servers.length - 1) return { kind: "server", id: servers[serverIndex + 1]!.id };
   return null;
