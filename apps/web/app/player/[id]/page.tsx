@@ -9,7 +9,7 @@ import { completedEpisodeUnits, continueWatchingId, CONTINUE_WATCHING_STORAGE_KE
 import { confidentSourceMatch } from "../../../lib/source-match";
 import { rankSourcesByReliability, recordSourceResult } from "../../../lib/source-reliability";
 import { nextPlaybackCandidate, playbackRecoveryPosition, prioritizePlaybackItems } from "../../../lib/playback-recovery";
-import { compatibleAudioStreams, pickAudioVariant, pickQualityUpgrade, streamAudioMode, streamResolution, type AudioMode } from "../../../lib/stream-audio";
+import { compatibleAudioStreams, pickAudioVariant, pickQualityUpgrade, selectAudioStreams, streamAudioMode, streamResolution, type AudioMode } from "../../../lib/stream-audio";
 import { maybeNotifyNewReleases, recordActivity, RELEASE_SNAPSHOTS_STORAGE_KEY, saveSourceReport, updateReleaseSnapshot } from "../../../lib/beta-features";
 import { isPlayerFullscreen, togglePlayerFullscreen, type FullscreenVideo } from "../../../lib/player-fullscreen";
 import { episodeDisplayLabel, episodeDisplayName, episodeNumberLabel } from "../../../lib/episode-title";
@@ -645,23 +645,39 @@ export default function PlayerPage() {
       setStreams([]);
       setStreamId("");
       try {
-        await loadServer(endpoint, nextEpisodeId, candidateServer.id, cancelled);
-        if (index > 0) setSourceFallbackStatus(`Switched to ${candidateServer.name} because the preferred server had no playable stream.`);
+        const result = await loadServer(endpoint, nextEpisodeId, candidateServer.id, cancelled);
+        if (index > 0 && !result.usedAudioFallback) setSourceFallbackStatus(`Switched to ${candidateServer.name} because the preferred server had no playable stream.`);
         return;
       } catch (cause) {
         lastFailure = cause;
       }
     }
+
+    const preferredAudioMode = readAudioModePreference();
+    if (preferredAudioMode) {
+      for (const candidateServer of orderedServers) {
+        if (cancelled) return;
+        setServerId(candidateServer.id);
+        setStreams([]);
+        setStreamId("");
+        try {
+          await loadServer(endpoint, nextEpisodeId, candidateServer.id, cancelled, true);
+          return;
+        } catch (cause) {
+          lastFailure = cause;
+        }
+      }
+    }
     throw new Error(lastFailure ? "Every server from this source was checked, but none returned a playable stream." : "No stream server returned a playable stream for this episode.");
   }
 
-  async function loadServer(endpoint: string, nextEpisodeId: string, nextServerId: string, cancelled = false) {
+  async function loadServer(endpoint: string, nextEpisodeId: string, nextServerId: string, cancelled = false, allowAudioFallback = false) {
     setBusy("Resolving authorized streams…");
     setError("");
     safelyResetVideo(videoRef.current);
     const nextStreams = await bridgeRequest<AnimeStream[]>(endpoint, `/v1/anime/episodes/${encodeURIComponent(nextEpisodeId)}/streams?serverId=${encodeURIComponent(nextServerId)}`);
     if (!nextStreams.length) throw new Error("This server did not return a playable stream.");
-    if (cancelled) return;
+    if (cancelled) return { usedAudioFallback: false };
     const preferredStream = readPreference("hao:anime:preferred-stream");
     const lockedAudioMode = readAudioModePreference();
     const preferredAudioMode: AudioMode = lockedAudioMode ?? "sub";
@@ -669,12 +685,21 @@ export default function PlayerPage() {
     const orderedStreams = preferredAudioStreams.length
       ? [...preferredAudioStreams, ...nextStreams.filter((item) => streamAudioMode(item) !== preferredAudioMode)]
       : nextStreams;
-    const selectableStreams = lockedAudioMode ? compatibleAudioStreams(nextStreams, lockedAudioMode) : (preferredAudioStreams.length ? preferredAudioStreams : nextStreams);
+    const audioSelection = lockedAudioMode
+      ? selectAudioStreams(nextStreams, lockedAudioMode, allowAudioFallback)
+      : { candidates: preferredAudioStreams.length ? preferredAudioStreams : nextStreams, selectedMode: preferredAudioStreams.length ? preferredAudioMode : null, usedFallback: false };
+    const selectableStreams = audioSelection.candidates;
     if (!selectableStreams.length) throw new Error(`This server did not return ${lockedAudioMode === "dub" ? "dubbed" : "subtitled"} audio.`);
     const initialStream = selectableStreams.find((item) => streamPreference(item) === preferredStream) ?? selectableStreams[0]!;
     setStreams(orderedStreams);
     setStreamId(initialStream.id);
+    if (audioSelection.usedFallback) {
+      const preferredLabel = lockedAudioMode === "dub" ? "Dubbed" : "Subtitled";
+      const fallbackLabel = audioSelection.selectedMode === "dub" ? "dubbed" : "subtitled";
+      setSourceFallbackStatus(`${preferredLabel} audio is not available for this episode, so HAO is playing the ${fallbackLabel} version. Your ${lockedAudioMode} preference is still saved.`);
+    }
     setBusy("");
+    return { usedAudioFallback: audioSelection.usedFallback };
   }
 
   async function changeAnime(next: string) {
@@ -714,6 +739,7 @@ export default function PlayerPage() {
     autoplayRequestedRef.current = autoplayVideo;
     restoredPlaybackKeyRef.current = "";
     setProgressStatus("");
+    setSourceFallbackStatus("");
     setEpisodeId(next);
     setServers([]);
     setStreams([]);

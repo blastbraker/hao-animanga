@@ -37,6 +37,22 @@ export function compatibleAudioStreams<T extends StreamLike>(streams: T[], targe
   return streams.filter((stream) => streamAudioMode(stream) === null);
 }
 
+export function selectAudioStreams<T extends StreamLike>(streams: T[], preferred: AudioMode | null, allowOpposite = false) {
+  if (!preferred) return { candidates: streams, selectedMode: null, usedFallback: false };
+
+  const compatible = compatibleAudioStreams(streams, preferred);
+  if (compatible.length) return { candidates: compatible, selectedMode: preferred, usedFallback: false };
+  if (!allowOpposite) return { candidates: [] as T[], selectedMode: null, usedFallback: false };
+
+  const opposite: AudioMode = preferred === "dub" ? "sub" : "dub";
+  const oppositeStreams = streams.filter((stream) => streamAudioMode(stream) === opposite);
+  return {
+    candidates: oppositeStreams,
+    selectedMode: oppositeStreams.length ? opposite : null,
+    usedFallback: oppositeStreams.length > 0,
+  };
+}
+
 export function streamResolution(stream: StreamLike | undefined): number | null {
   const value = stream?.quality?.match(/\b(2160|1440|1080|720|480|360)p\b/i)?.[1];
   return value ? Number(value) : null;

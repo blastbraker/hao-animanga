@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compatibleAudioStreams, pickAudioVariant, pickQualityUpgrade, streamAudioMode, streamResolution } from "./stream-audio";
+import { compatibleAudioStreams, pickAudioVariant, pickQualityUpgrade, selectAudioStreams, streamAudioMode, streamResolution } from "./stream-audio";
 
 describe("stream audio variants", () => {
   it("recognizes sub, hardsub, and dub labels", () => {
@@ -58,5 +58,31 @@ describe("stream audio variants", () => {
       { id: "sub-1080", quality: "Sub - 1080p" }
     ];
     expect(pickQualityUpgrade(streams, "dub-720", 1080, "dub")).toBeUndefined();
+  });
+
+  it("keeps a sub-only episode unavailable during the preferred-audio pass", () => {
+    const streams = [{ id: "sub-1080", quality: "Sub - 1080p" }];
+    expect(selectAudioStreams(streams, "dub")).toEqual({ candidates: [], selectedMode: null, usedFallback: false });
+  });
+
+  it("temporarily falls back to sub when an episode has no dubbed stream", () => {
+    const streams = [{ id: "sub-1080", quality: "Sub - 1080p" }];
+    expect(selectAudioStreams(streams, "dub", true)).toEqual({
+      candidates: streams,
+      selectedMode: "sub",
+      usedFallback: true,
+    });
+  });
+
+  it("still chooses dub when it becomes available on a later episode", () => {
+    const streams = [
+      { id: "sub-1080", quality: "Sub - 1080p" },
+      { id: "dub-720", quality: "Dub - 720p" },
+    ];
+    expect(selectAudioStreams(streams, "dub", true)).toEqual({
+      candidates: [streams[1]],
+      selectedMode: "dub",
+      usedFallback: false,
+    });
   });
 });
