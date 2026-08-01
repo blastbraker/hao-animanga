@@ -93,6 +93,11 @@ type QualityUpgradeTarget = {
   attempts: number;
 };
 
+type QualityUpgradeRollback = {
+  episodeNumber: number;
+  streamId: string;
+};
+
 export default function PlayerPage() {
   const playerShellRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -108,6 +113,8 @@ export default function PlayerPage() {
   const playbackRecoveryRef = useRef(false);
   const pendingPlaybackPositionRef = useRef<PendingPlaybackPosition | null>(null);
   const qualityUpgradeTargetRef = useRef<QualityUpgradeTarget | null>(null);
+  const qualityUpgradeRollbackRef = useRef<QualityUpgradeRollback | null>(null);
+  const qualityUpgradeConfirmationTimerRef = useRef<number | null>(null);
   const failedPlaybackSourcesRef = useRef(new Set<string>());
   const failedPlaybackStreamsRef = useRef(new Set<string>());
   const lastPlaybackFailureRef = useRef<PlaybackFailure | null>(null);
@@ -191,6 +198,7 @@ export default function PlayerPage() {
     void connect();
     return () => {
       if (controlsTimerRef.current !== null) window.clearTimeout(controlsTimerRef.current);
+      if (qualityUpgradeConfirmationTimerRef.current !== null) window.clearTimeout(qualityUpgradeConfirmationTimerRef.current);
       safelyResetVideo(videoRef.current);
     };
   }, []);
@@ -243,6 +251,7 @@ export default function PlayerPage() {
       if (!latestTarget || latestTarget.episodeNumber !== episode.number) return;
       latestTarget.attempts += 1;
       rememberPlaybackPosition();
+      qualityUpgradeRollbackRef.current = { episodeNumber: episode.number, streamId: stream.id };
       failedPlaybackStreamsRef.current.delete(upgrade.id);
       autoplayRequestedRef.current = true;
       setError("");
@@ -671,6 +680,7 @@ export default function PlayerPage() {
   async function changeAnime(next: string) {
     pendingPlaybackPositionRef.current = null;
     qualityUpgradeTargetRef.current = null;
+    qualityUpgradeRollbackRef.current = null;
     failedPlaybackSourcesRef.current.clear();
     clearCanonicalWork();
     const selectedAnime = catalog.find((item) => item.id === next);
@@ -697,6 +707,7 @@ export default function PlayerPage() {
     if (next === episodeId) return;
     pendingPlaybackPositionRef.current = null;
     qualityUpgradeTargetRef.current = null;
+    qualityUpgradeRollbackRef.current = null;
     const nextEpisode = episodes.find((item) => item.id === next);
     failedPlaybackSourcesRef.current.clear();
     if (!videoRef.current?.ended) await persistProgress(false);
@@ -726,6 +737,7 @@ export default function PlayerPage() {
     const continuePlaying = videoRef.current ? !videoRef.current.paused : false;
     rememberPlaybackPosition();
     qualityUpgradeTargetRef.current = null;
+    qualityUpgradeRollbackRef.current = null;
     await persistProgress(false);
     const selectedServer = servers.find((item) => item.id === next);
     if (selectedServer) writePreference("hao:anime:preferred-server", selectedServer.name);
@@ -743,6 +755,7 @@ export default function PlayerPage() {
   async function changeSource(next: string) {
     pendingPlaybackPositionRef.current = null;
     qualityUpgradeTargetRef.current = null;
+    qualityUpgradeRollbackRef.current = null;
     failedPlaybackSourcesRef.current.clear();
     clearCanonicalWork();
     setSourceId(next);
@@ -753,6 +766,7 @@ export default function PlayerPage() {
   async function changeBrowseMode(next: "popular" | "latest") {
     pendingPlaybackPositionRef.current = null;
     qualityUpgradeTargetRef.current = null;
+    qualityUpgradeRollbackRef.current = null;
     clearCanonicalWork();
     setBrowseMode(next);
     await loadCatalog(bridge, sourceId, next, "");
@@ -761,6 +775,7 @@ export default function PlayerPage() {
     event.preventDefault();
     pendingPlaybackPositionRef.current = null;
     qualityUpgradeTargetRef.current = null;
+    qualityUpgradeRollbackRef.current = null;
     const query = searchDraft.trim();
     if (query.length < 2) {
       setError("Enter at least two characters to search.");
@@ -781,6 +796,7 @@ export default function PlayerPage() {
     const continuePlaying = videoRef.current ? !videoRef.current.paused : false;
     rememberPlaybackPosition();
     qualityUpgradeTargetRef.current = null;
+    qualityUpgradeRollbackRef.current = null;
     await persistProgress(false);
     const selectedStream = streams.find((item) => item.id === next);
     if (selectedStream) {
@@ -810,6 +826,21 @@ export default function PlayerPage() {
     setError("");
     autoplayRequestedRef.current = true;
     try {
+      const rollback = qualityUpgradeRollbackRef.current;
+      const rollbackStream = rollback?.episodeNumber === episode.number
+        ? streams.find((item) => item.id === rollback.streamId)
+        : undefined;
+      if (rollbackStream && rollbackStream.id !== streamId) {
+        if (streamId) failedPlaybackStreamsRef.current.add(streamId);
+        cancelQualityUpgradeConfirmation();
+        qualityUpgradeRollbackRef.current = null;
+        const attemptedQuality = qualityUpgradeTargetRef.current ? `${qualityUpgradeTargetRef.current.resolution}p` : "preferred quality";
+        setSourceFallbackStatus(`The ${attemptedQuality} retry is not stable yet, so HAO returned to the working stream.`);
+        safelyResetVideo(videoRef.current);
+        setStreamId(rollbackStream.id);
+        return;
+      }
+      qualityUpgradeRollbackRef.current = null;
       rememberQualityUpgradeTarget();
       if (streamId) failedPlaybackStreamsRef.current.add(streamId);
       if (stream && readPreference("hao:anime:preferred-stream") === streamPreference(stream)) {
@@ -965,8 +996,20 @@ export default function PlayerPage() {
     const target = qualityUpgradeTargetRef.current;
     const currentResolution = streamResolution(stream);
     if (!target || !episode || target.episodeNumber !== episode.number || currentResolution === null || currentResolution < target.resolution) return;
-    qualityUpgradeTargetRef.current = null;
-    setSourceFallbackStatus(`${currentResolution}p ${target.audioMode === "dub" ? "dubbed " : target.audioMode === "sub" ? "subtitled " : ""}playback is available again and was restored automatically.`);
+    if (qualityUpgradeConfirmationTimerRef.current !== null) return;
+    qualityUpgradeConfirmationTimerRef.current = window.setTimeout(() => {
+      qualityUpgradeConfirmationTimerRef.current = null;
+      if (qualityUpgradeTargetRef.current !== target || qualityUpgradeRollbackRef.current?.episodeNumber !== episode.number) return;
+      qualityUpgradeTargetRef.current = null;
+      qualityUpgradeRollbackRef.current = null;
+      setSourceFallbackStatus(`${currentResolution}p ${target.audioMode === "dub" ? "dubbed " : target.audioMode === "sub" ? "subtitled " : ""}playback is available again and was restored automatically.`);
+    }, 15_000);
+  }
+
+  function cancelQualityUpgradeConfirmation() {
+    if (qualityUpgradeConfirmationTimerRef.current === null) return;
+    window.clearTimeout(qualityUpgradeConfirmationTimerRef.current);
+    qualityUpgradeConfirmationTimerRef.current = null;
   }
 
   function rememberPlaybackPosition() {
