@@ -21,6 +21,24 @@ describe("confidentSourceMatch", () => {
     expect(confidentSourceMatch(seasonTwo, [item])).toEqual(item);
   });
 
+  it("matches named Bleach TYBW cours even when AniList also supplies numbered aliases", () => {
+    const cases = [
+      {
+        work: { title: "BLEACH: Thousand-Year Blood War - The Separation", alternateTitles: ["BLEACH: Sennen Kessen-hen - Ketsubetsu-tan", "BLEACH: Thousand Year Blood War Part 2"] },
+        item: { title: "Bleach: Thousand-Year Blood War - The Separation", id: "separation" },
+      },
+      {
+        work: { title: "BLEACH: Thousand-Year Blood War - The Conflict", alternateTitles: ["BLEACH: Sennen Kessen-hen - Soukoku-tan", "BLEACH: Thousand Year Blood War Part 3"] },
+        item: { title: "Bleach: Sennen Kessen-hen - Soukoku-tan", id: "conflict" },
+      },
+      {
+        work: { title: "BLEACH: Thousand-Year Blood War - The Calamity", alternateTitles: ["BLEACH: Sennen Kessen-hen - Kashin-tan", "BLEACH: Thousand-Year Blood War Part 4"] },
+        item: { title: "Bleach: Thousand-Year Blood War - The Calamity", id: "calamity" },
+      },
+    ];
+    for (const { work, item } of cases) expect(confidentSourceMatch(work, [item])).toEqual(item);
+  });
+
   it("does not attach a sequel to base-series metadata", () => {
     expect(confidentSourceMatch({ title: "Re:ZERO -Starting Life in Another World-", alternateTitles: [] }, [{ title: "Re:ZERO -Starting Life in Another World- Season 3" }])).toBeNull();
   });

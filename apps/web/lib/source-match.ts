@@ -12,12 +12,15 @@ export function sourceFallbackOrder<T extends { id: string }>(sources: T[], pref
 }
 
 function matchScore(targets: string[], candidate: string): number {
+  // An exact canonical or alternate title is the strongest possible match.
+  // Check it before sequel-number guards because AniList can expose both a
+  // named cour ("The Conflict") and a numbered alias ("Part 3") for one work.
+  if (targets.includes(candidate)) return 1;
   const targetSeasons = targets.map(seasonNumber).filter((value): value is number => value !== null);
   const candidateSeason = seasonNumber(candidate);
   const explicitTargetSequel = targetSeasons.find((value) => value > 1);
   if (explicitTargetSequel && candidateSeason !== explicitTargetSequel) return 0;
   if (!explicitTargetSequel && candidateSeason && candidateSeason > 1) return 0;
-  if (targets.includes(candidate)) return 1;
   const candidateMovie = movieSignature(candidate);
   if (candidateMovie) {
     const targetMovies = targets.map(movieSignature).filter((value): value is NonNullable<ReturnType<typeof movieSignature>> => value !== null);
