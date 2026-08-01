@@ -29,3 +29,13 @@ export function prioritizePlaybackItems<T extends { id: string }>(items: T[], pr
   const preferred = items.find((item) => item.id === preferredId);
   return preferred ? [preferred, ...items.filter((item) => item.id !== preferredId)] : [...items];
 }
+
+export function playbackRecoveryPosition(
+  pending: { episodeNumber: number; positionSeconds: number } | null,
+  episodeNumber: number,
+  durationSeconds: number,
+): number | null {
+  if (!pending || Math.abs(pending.episodeNumber - episodeNumber) > 0.001 || !Number.isFinite(pending.positionSeconds) || pending.positionSeconds <= 0) return null;
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) return pending.positionSeconds;
+  return Math.min(pending.positionSeconds, Math.max(0, durationSeconds - 0.25));
+}

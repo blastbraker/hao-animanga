@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { nextPlaybackCandidate, prioritizePlaybackItems } from "./playback-recovery";
+import { nextPlaybackCandidate, playbackRecoveryPosition, prioritizePlaybackItems } from "./playback-recovery";
 
 describe("playback recovery", () => {
   const streams = [{ id: "auto" }, { id: "720p" }];
@@ -43,5 +43,17 @@ describe("playback recovery", () => {
 
   it("tries a preferred server first without dropping the others", () => {
     expect(prioritizePlaybackItems([{ id: "one" }, { id: "two" }, { id: "three" }], "two").map((item) => item.id)).toEqual(["two", "one", "three"]);
+  });
+
+  it("restores the same episode position after changing quality", () => {
+    expect(playbackRecoveryPosition({ episodeNumber: 12, positionSeconds: 845.5 }, 12, 1_420)).toBe(845.5);
+  });
+
+  it("does not carry a recovery position into another episode", () => {
+    expect(playbackRecoveryPosition({ episodeNumber: 12, positionSeconds: 845.5 }, 13, 1_420)).toBeNull();
+  });
+
+  it("keeps a recovered position inside the replacement duration", () => {
+    expect(playbackRecoveryPosition({ episodeNumber: 12, positionSeconds: 1_500 }, 12, 1_420)).toBe(1_419.75);
   });
 });

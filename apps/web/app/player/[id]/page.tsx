@@ -8,7 +8,7 @@ import { api, bridgeErrorMessage, bridgeJson, getActiveBridge, type LibraryRespo
 import { completedEpisodeUnits, continueWatchingId, CONTINUE_WATCHING_STORAGE_KEY, DISMISSED_CONTINUE_STORAGE_KEY, parseContinueWatching, parseDismissedWorkIds, parsePlaybackPosition, playbackPercent, playbackStorageKey, resumablePosition, updateContinueWatching, type ContinueWatchingEntry } from "../../../lib/playback-progress";
 import { confidentSourceMatch } from "../../../lib/source-match";
 import { rankSourcesByReliability, recordSourceResult } from "../../../lib/source-reliability";
-import { nextPlaybackCandidate, prioritizePlaybackItems } from "../../../lib/playback-recovery";
+import { nextPlaybackCandidate, playbackRecoveryPosition, prioritizePlaybackItems } from "../../../lib/playback-recovery";
 import { compatibleAudioStreams, pickAudioVariant, streamAudioMode, type AudioMode } from "../../../lib/stream-audio";
 import { maybeNotifyNewReleases, recordActivity, RELEASE_SNAPSHOTS_STORAGE_KEY, saveSourceReport, updateReleaseSnapshot } from "../../../lib/beta-features";
 import { isPlayerFullscreen, togglePlayerFullscreen, type FullscreenVideo } from "../../../lib/player-fullscreen";
@@ -81,6 +81,11 @@ type PlaybackFailure = {
   mediaCode: number | undefined;
 };
 
+type PendingPlaybackPosition = {
+  episodeNumber: number;
+  positionSeconds: number;
+};
+
 export default function PlayerPage() {
   const playerShellRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -94,6 +99,7 @@ export default function PlayerPage() {
     positionSeconds: number;
   } | null>(null);
   const playbackRecoveryRef = useRef(false);
+  const pendingPlaybackPositionRef = useRef<PendingPlaybackPosition | null>(null);
   const failedPlaybackSourcesRef = useRef(new Set<string>());
   const failedPlaybackStreamsRef = useRef(new Set<string>());
   const lastPlaybackFailureRef = useRef<PlaybackFailure | null>(null);
@@ -632,6 +638,7 @@ export default function PlayerPage() {
   }
 
   async function changeAnime(next: string) {
+    pendingPlaybackPositionRef.current = null;
     failedPlaybackSourcesRef.current.clear();
     clearCanonicalWork();
     const selectedAnime = catalog.find((item) => item.id === next);
@@ -656,6 +663,7 @@ export default function PlayerPage() {
   }
   async function changeEpisode(next: string, autoplayVideo = true) {
     if (next === episodeId) return;
+    pendingPlaybackPositionRef.current = null;
     const nextEpisode = episodes.find((item) => item.id === next);
     failedPlaybackSourcesRef.current.clear();
     if (!videoRef.current?.ended) await persistProgress(false);
@@ -683,6 +691,7 @@ export default function PlayerPage() {
   }
   async function changeServer(next: string) {
     const continuePlaying = videoRef.current ? !videoRef.current.paused : false;
+    rememberPlaybackPosition();
     await persistProgress(false);
     const selectedServer = servers.find((item) => item.id === next);
     if (selectedServer) writePreference("hao:anime:preferred-server", selectedServer.name);
@@ -698,6 +707,7 @@ export default function PlayerPage() {
     }
   }
   async function changeSource(next: string) {
+    pendingPlaybackPositionRef.current = null;
     failedPlaybackSourcesRef.current.clear();
     clearCanonicalWork();
     setSourceId(next);
@@ -706,12 +716,14 @@ export default function PlayerPage() {
     await loadCatalog(bridge, next, "popular", "");
   }
   async function changeBrowseMode(next: "popular" | "latest") {
+    pendingPlaybackPositionRef.current = null;
     clearCanonicalWork();
     setBrowseMode(next);
     await loadCatalog(bridge, sourceId, next, "");
   }
   async function submitSearch(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    pendingPlaybackPositionRef.current = null;
     const query = searchDraft.trim();
     if (query.length < 2) {
       setError("Enter at least two characters to search.");
@@ -730,6 +742,7 @@ export default function PlayerPage() {
 
   async function changeStream(next: string) {
     const continuePlaying = videoRef.current ? !videoRef.current.paused : false;
+    rememberPlaybackPosition();
     await persistProgress(false);
     const selectedStream = streams.find((item) => item.id === next);
     if (selectedStream) {
@@ -754,6 +767,7 @@ export default function PlayerPage() {
 
   async function recoverFromPlaybackFailure() {
     if (playbackRecoveryRef.current || !episode) return;
+    rememberPlaybackPosition();
     playbackRecoveryRef.current = true;
     setError("");
     autoplayRequestedRef.current = true;
@@ -785,7 +799,7 @@ export default function PlayerPage() {
         }
       }
 
-      await fallBackToAnotherSource(episode.number, currentTime);
+      await fallBackToAnotherSource(episode.number, pendingPlaybackPositionRef.current?.positionSeconds ?? currentTime);
     } catch {
       setBusy("");
       setError("HAO tried the available qualities, servers, and installed sources, but this episode still could not be played.");
@@ -877,7 +891,14 @@ export default function PlayerPage() {
     setDuration(Number.isFinite(video.duration) ? video.duration : 0);
     setCurrentTime(video.currentTime);
     const key = playbackStorageKey(sourceId, animeId, episode.id);
-    if (restoredPlaybackKeyRef.current !== key) {
+    const recoveredAt = playbackRecoveryPosition(pendingPlaybackPositionRef.current, episode.number, video.duration);
+    pendingPlaybackPositionRef.current = null;
+    if (recoveredAt !== null) {
+      video.currentTime = recoveredAt;
+      setCurrentTime(recoveredAt);
+      setProgressStatus(`Playback recovered at ${formatTime(recoveredAt)}`);
+      restoredPlaybackKeyRef.current = key;
+    } else if (restoredPlaybackKeyRef.current !== key) {
       const localPosition = parsePlaybackPosition(readPreference(key));
       const remoteProgress = remoteProgressRef.current;
       const remotePosition =
@@ -898,6 +919,14 @@ export default function PlayerPage() {
       restoredPlaybackKeyRef.current = key;
     }
     if (autoplayRequestedRef.current) void attemptAutoplay(video);
+  }
+
+  function rememberPlaybackPosition() {
+    if (!episode) return;
+    const videoPosition = videoRef.current?.currentTime;
+    const positionSeconds = Number.isFinite(videoPosition) ? videoPosition! : currentTime;
+    if (!Number.isFinite(positionSeconds) || positionSeconds <= 0) return;
+    pendingPlaybackPositionRef.current = { episodeNumber: episode.number, positionSeconds };
   }
 
   async function attemptAutoplay(video: HTMLVideoElement) {
