@@ -317,38 +317,13 @@ export default function NovelsPage() {
 
   return (
     <div className="page inner-page novels-page">
-      <section className="novels-hero">
-        <div>
-          <span className="eyebrow">
-            <BookOpenText /> LIGHT NOVEL LIBRARY
-          </span>
-          <h1>Stories worth staying up for.</h1>
-          <p>
-            Browse approved extension sources through your Bridge, discover
-            light novels with AniList metadata, or keep private EPUBs in your
-            HAO library.
-          </p>
-        </div>
-        <button
-          className="novel-upload-card"
-          type="button"
-          disabled={uploading}
-          onClick={() => fileInput.current?.click()}
-        >
-          <FileUp />
-          <span>
-            <b>{uploading ? "Checking EPUB…" : "Upload an EPUB"}</b>
-            <small>Validated, private, and limited to 50 MB</small>
-          </span>
-        </button>
-        <input
-          ref={fileInput}
-          className="visually-hidden"
-          type="file"
-          accept=".epub,application/epub+zip"
-          onChange={(event) => void upload(event.target.files?.[0])}
-        />
-      </section>
+      <input
+        ref={fileInput}
+        className="visually-hidden"
+        type="file"
+        accept=".epub,application/epub+zip"
+        onChange={(event) => void upload(event.target.files?.[0])}
+      />
       {uploadMessage && (
         <p className="novel-upload-status" role="status">
           {uploadMessage}
@@ -373,11 +348,21 @@ export default function NovelsPage() {
               selected source.
             </p>
           </div>
-          {selectedSource && (
-            <span>
-              {selectedSource.name} · {selectedSource.language.toUpperCase()}
-            </span>
-          )}
+          <div className="novel-heading-actions">
+            {selectedSource && (
+              <span>
+                {selectedSource.name} · {selectedSource.language.toUpperCase()}
+              </span>
+            )}
+            <button
+              className="button ghost novel-upload-action"
+              type="button"
+              disabled={uploading}
+              onClick={() => fileInput.current?.click()}
+            >
+              <FileUp /> {uploading ? "Checking EPUB…" : "Upload EPUB"}
+            </button>
+          </div>
         </div>
         {sources.length ? (
           <>
