@@ -6,6 +6,7 @@ import type { Work } from "@hao/domain";
 import { ArrowRight, BookOpen, CircleAlert, Clapperboard, LoaderCircle, Play, RefreshCw, Server, Settings, Sparkles, X } from "lucide-react";
 import { api, bridgeErrorMessage, bridgeJson, getActiveBridge, type DiscoverResponse, type LibraryResponse } from "../lib/api";
 import { CONTINUE_WATCHING_STORAGE_KEY, DISMISSED_CONTINUE_STORAGE_KEY, parseContinueWatching, parseDismissedWorkIds, playbackPercent } from "../lib/playback-progress";
+import { NOVEL_RESUMES_KEY, parseNovelResumes } from "../lib/novel-state";
 import { MediaCard } from "../components/media-card";
 
 type AnimeSource = {
@@ -48,6 +49,7 @@ type BridgeReadiness = {
   latencyMs: number | null;
 };
 type HomeContinueItem = {
+  kind: "anime" | "novel";
   id: string;
   storageId: string | null;
   workId: string | null;
@@ -136,6 +138,7 @@ export default function HomePage() {
       });
       if (entry.workId) parameters.set("workId", entry.workId);
       return {
+        kind: "anime" as const,
         id: `local:${entry.id}`,
         storageId: entry.id,
         workId: entry.workId,
@@ -149,7 +152,21 @@ export default function HomePage() {
         href: `/player/anime?${parameters.toString()}`
       };
     });
-    setContinueItems(localItems);
+    const novelItems: HomeContinueItem[] = parseNovelResumes(readLocal(NOVEL_RESUMES_KEY)).map((entry) => ({
+      kind: "novel",
+      id: `novel:${entry.id}`,
+      storageId: entry.id,
+      workId: entry.workId,
+      title: entry.title,
+      coverUrl: entry.coverUrl,
+      episodeLabel: entry.chapterTitle,
+      sourceLabel: "Light novel",
+      percent: entry.progressPercent,
+      positionSeconds: 0,
+      updatedAt: entry.updatedAt,
+      href: entry.href,
+    }));
+    setContinueItems([...localItems, ...novelItems].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)).slice(0, 12));
     try {
       const library = await api<LibraryResponse>("/library");
       const localWorkIds = new Set(localEntries.flatMap((entry) => (entry.workId ? [entry.workId] : [])));
@@ -163,6 +180,7 @@ export default function HomePage() {
         if (entry.work.source.kind === "ANILIST") parameters.set("anilistId", entry.work.source.externalId);
         return [
           {
+            kind: "anime" as const,
             id: `synced:${entry.work.id}`,
             storageId: null,
             workId: entry.work.id,
@@ -177,14 +195,18 @@ export default function HomePage() {
           }
         ];
       });
-      setContinueItems([...localItems, ...syncedItems].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)).slice(0, 12));
+      setContinueItems([...localItems, ...novelItems, ...syncedItems].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)).slice(0, 12));
     } catch {
       /* Local continue-watching remains available while sync is offline. */
     }
   }
 
   function removeContinueItem(item: HomeContinueItem) {
-    if (item.storageId) {
+    if (item.kind === "novel" && item.storageId) {
+      const remaining = parseNovelResumes(readLocal(NOVEL_RESUMES_KEY)).filter((entry) => entry.id !== item.storageId);
+      writeLocal(NOVEL_RESUMES_KEY, JSON.stringify(remaining));
+    }
+    if (item.kind === "anime" && item.storageId) {
       const remaining = parseContinueWatching(readLocal(CONTINUE_WATCHING_STORAGE_KEY)).filter((entry) => (item.workId ? entry.workId !== item.workId : entry.id !== item.storageId));
       writeLocal(CONTINUE_WATCHING_STORAGE_KEY, JSON.stringify(remaining));
     }
@@ -480,7 +502,7 @@ function ContinueWatchingSection({ items, onRemove }: { items: HomeContinueItem[
       <div className="section-head">
         <div>
           <span className="eyebrow">PICK UP WHERE YOU LEFT OFF</span>
-          <h2>Continue watching</h2>
+          <h2>Continue watching & reading</h2>
         </div>
         <Link href="/library">
           My library <ArrowRight size={16} />
@@ -505,8 +527,8 @@ function ContinueWatchingSection({ items, onRemove }: { items: HomeContinueItem[
                 <h3>{item.title}</h3>
                 <p>{item.episodeLabel}</p>
                 <div className="continue-watch-meta">
-                  <b>{item.percent > 0 ? `${Math.round(item.percent)}% watched` : "Ready to start"}</b>
-                  <small>{item.positionSeconds > 0 ? formatWatchTime(item.positionSeconds) : "Next episode"}</small>
+                  <b>{item.percent > 0 ? `${Math.round(item.percent)}% ${item.kind === "novel" ? "read" : "watched"}` : "Ready to start"}</b>
+                  <small>{item.kind === "novel" ? "Resume chapter" : item.positionSeconds > 0 ? formatWatchTime(item.positionSeconds) : "Next episode"}</small>
                 </div>
                 <div className="continue-watch-track">
                   <i style={{ width: `${item.percent}%` }} />
@@ -516,7 +538,7 @@ function ContinueWatchingSection({ items, onRemove }: { items: HomeContinueItem[
                 <Play fill="currentColor" />
               </span>
             </Link>
-            <button className="continue-watch-remove" aria-label={`Remove ${item.title} from Continue Watching`} title="Remove from Continue Watching" onClick={() => onRemove(item)}>
+            <button className="continue-watch-remove" aria-label={`Remove ${item.title} from continue shelf`} title="Remove from continue shelf" onClick={() => onRemove(item)}>
               <X />
             </button>
           </article>

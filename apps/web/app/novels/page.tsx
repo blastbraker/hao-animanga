@@ -36,6 +36,16 @@ import {
   novelSourceSearchQueries,
 } from "../../lib/novel-catalog";
 import { sourceFallbackOrder } from "../../lib/source-match";
+import {
+  NOVEL_MATCHES_KEY,
+  NOVEL_RESUMES_KEY,
+  forgetNovelMatch,
+  novelMatchKey,
+  parseNovelMatches,
+  parseNovelResumes,
+  rememberNovelMatch,
+  type NovelResume,
+} from "../../lib/novel-state";
 
 const GENRES = ["Fantasy", "Romance", "Adventure", "Drama", "Comedy"] as const;
 type Shelf = "POPULAR" | "RELEASING" | "NEW";
@@ -75,6 +85,7 @@ export default function NovelsPage() {
   const [chapters, setChapters] = useState<NovelChapter[]>([]);
   const [chapterQuery, setChapterQuery] = useState("");
   const [visibleChapters, setVisibleChapters] = useState(60);
+  const [continueReading, setContinueReading] = useState<NovelResume[]>([]);
 
   const selectedSource = useMemo(
     () => sources.find((source) => source.id === sourceId) ?? null,
@@ -94,6 +105,10 @@ export default function NovelsPage() {
     () => blendNovelRankings(items, sourceItems, 3),
     [items, sourceItems],
   );
+
+  useEffect(() => {
+    setContinueReading(parseNovelResumes(window.localStorage.getItem(NOVEL_RESUMES_KEY)).slice(0, 10));
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -232,8 +247,8 @@ export default function NovelsPage() {
     setSubmittedSourceQuery(next);
   }
 
-  async function openNovel(item: NovelSummary) {
-    if (!bridge) return;
+  async function openNovel(item: NovelSummary): Promise<boolean> {
+    if (!bridge) return false;
     setSourceBusy(`Loading ${item.title}…`);
     setSourceError("");
     setVisibleChapters(60);
@@ -246,12 +261,14 @@ export default function NovelsPage() {
       ]);
       setSelected(normalizeNovelSummary(detailPayload) ?? item);
       setChapters(normalizeNovelChapters(chapterPayload));
+      return true;
     } catch (cause) {
       setSelected(item);
       setChapters([]);
       setSourceError(
         bridgeErrorMessage(cause, "This novel could not be loaded."),
       );
+      return false;
     } finally {
       setSourceBusy("");
     }
@@ -264,10 +281,24 @@ export default function NovelsPage() {
     setSelected(null);
     setChapters([]);
 
+    const matchKey = novelMatchKey(
+      work.source.kind === "ANILIST" ? work.source.externalId : undefined,
+      work.title,
+    );
+    const remembered = parseNovelMatches(window.localStorage.getItem(NOVEL_MATCHES_KEY));
+    const savedMatch = remembered.find((item) => item.key === matchKey);
+    if (savedMatch) {
+      if (await openNovel(savedMatch.novel)) return;
+      window.localStorage.setItem(NOVEL_MATCHES_KEY, JSON.stringify(forgetNovelMatch(remembered, matchKey)));
+      setSourceError("");
+    }
+
     const visibleMatch = confidentNovelSourceMatch(work, sourceItems);
     if (visibleMatch) {
-      await openNovel(visibleMatch);
-      return;
+      if (await openNovel(visibleMatch)) {
+        window.localStorage.setItem(NOVEL_MATCHES_KEY, JSON.stringify(rememberNovelMatch(remembered, matchKey, visibleMatch)));
+        return;
+      }
     }
 
     const queries = novelSourceSearchQueries(work).slice(0, 6);
@@ -289,8 +320,10 @@ export default function NovelsPage() {
           );
           const match = confidentNovelSourceMatch(work, result.items);
           if (match) {
-            await openNovel(match);
-            return;
+            if (await openNovel(match)) {
+              window.localStorage.setItem(NOVEL_MATCHES_KEY, JSON.stringify(rememberNovelMatch(remembered, matchKey, match)));
+              return;
+            }
           }
         } catch {
           // A failed source must not prevent the remaining installed sources
@@ -310,6 +343,7 @@ export default function NovelsPage() {
       sourceId: chapter.sourceId,
       novelId: chapter.novelId,
       chapterId: chapter.id,
+      chapterIndex: String(chapter.index),
       title: selected?.title ?? "Novel",
     });
     return `/novels/read?${parameters.toString()}`;
@@ -328,6 +362,23 @@ export default function NovelsPage() {
         <p className="novel-upload-status" role="status">
           {uploadMessage}
         </p>
+      )}
+
+      {continueReading.length > 0 && (
+        <section className="content-block novel-continue-section">
+          <div className="section-head">
+            <div><span className="eyebrow">PICK UP WHERE YOU LEFT OFF</span><h2>Continue reading</h2></div>
+            <Link href="/library">My library <ChevronRight /></Link>
+          </div>
+          <div className="novel-continue-row">
+            {continueReading.map((item) => (
+              <Link href={item.href} className="novel-continue-card" key={item.id}>
+                {item.coverUrl ? <img src={item.coverUrl} alt="" /> : <span className="novel-cover-placeholder"><BookOpenText /></span>}
+                <div><small>{Math.round(item.progressPercent)}% read</small><b>{item.title}</b><p>{item.chapterTitle}</p><i><span style={{ width: `${item.progressPercent}%` }} /></i></div>
+              </Link>
+            ))}
+          </div>
+        </section>
       )}
 
       <section

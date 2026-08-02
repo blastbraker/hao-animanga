@@ -7,6 +7,7 @@ import { FolderPlus, Grid3X3, Heart, Library as LibraryIcon, List, Search, X } f
 import { api, type LibraryResponse } from "../../lib/api";
 import { MediaCard } from "../../components/media-card";
 import { libraryProgressLabel } from "../../lib/library-progress";
+import { NOVEL_RESUMES_KEY, parseNovelResumes } from "../../lib/novel-state";
 
 type View = "grid" | "list";
 type Sort = "updated" | "title" | "rating" | "progress";
@@ -34,8 +35,10 @@ export default function LibraryPage() {
   const [newListName, setNewListName] = useState("");
   const [updating, setUpdating] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState("");
+  const [resumeHrefs, setResumeHrefs] = useState<Record<string, string>>({});
 
   useEffect(() => {
+    setResumeHrefs(Object.fromEntries(parseNovelResumes(window.localStorage.getItem(NOVEL_RESUMES_KEY)).flatMap((item) => item.workId ? [[item.workId, item.href]] : [])));
     Promise.all([api<LibraryResponse>("/library"), api<{ items: CustomList[] }>("/lists")])
       .then(([library, custom]) => { setEntries(library.items); setLists(custom.items); })
       .catch((cause) => setMessage(cause instanceof Error ? cause.message : "Your library could not be loaded."))
@@ -93,10 +96,10 @@ export default function LibraryPage() {
     <div className="library-tools"><label><Search/><input aria-label="Search library" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search your library"/></label><select aria-label="Media type" value={kind} onChange={(event) => setKind(event.target.value)}><option value="ALL">All media</option><option value="ANIME">Anime</option><option value="MANGA">Manga</option><option value="MANHWA">Manhwa</option><option value="LIGHT_NOVEL">Light novels</option></select><select aria-label="Sort library" value={sort} onChange={(event) => setSort(event.target.value as Sort)}><option value="updated">Recently updated</option><option value="title">Title A-Z</option><option value="rating">My rating</option><option value="progress">Progress</option></select><button className={favoritesOnly ? "active" : ""} onClick={() => setFavoritesOnly((value) => !value)}><Heart fill={favoritesOnly ? "currentColor" : "none"}/>Favorites</button></div>
     {message && <p className="library-message" role="alert">{message}</p>}
     {loading ? <div className="empty-state">Loading your library...</div> : filtered.length ? view === "grid" ? (
-      <div className="catalog-grid library-grid">{filtered.map((entry) => <LibraryGridItem key={entry.id} entry={entry} busy={updating.has(entry.id)} onUpdate={updateEntry}/>)}</div>
+      <div className="catalog-grid library-grid">{filtered.map((entry) => <LibraryGridItem key={entry.id} entry={entry} resumeHref={resumeHrefs[entry.work.id]} busy={updating.has(entry.id)} onUpdate={updateEntry}/>)}</div>
     ) : (
       <div className="library-list">{filtered.map((entry) => <div key={entry.id}>
-        <Link href={workHref(entry)}><img src={entry.work.coverUrl ?? "/icon.svg"} alt=""/><span><b>{entry.work.title}</b><small>{entry.work.kind.replace("_"," ")} · {libraryProgressLabel(entry)}</small></span></Link>
+        <Link href={workHref(entry, resumeHrefs[entry.work.id])}><img src={entry.work.coverUrl ?? "/icon.svg"} alt=""/><span><b>{entry.work.title}</b><small>{entry.work.kind.replace("_"," ")} · {libraryProgressLabel(entry)}</small></span></Link>
         <button className={`library-favorite ${entry.favorite ? "active" : ""}`} aria-label={`${entry.favorite ? "Remove" : "Add"} ${entry.work.title} ${entry.favorite ? "from" : "to"} favorites`} disabled={updating.has(entry.id)} onClick={() => void updateEntry(entry, { favorite: !entry.favorite })}><Heart fill={entry.favorite ? "currentColor" : "none"}/></button>
         <select className="library-status-select" aria-label={`Status for ${entry.work.title}`} value={entry.status} disabled={updating.has(entry.id)} onChange={(event) => void updateEntry(entry, { status: event.target.value as LibraryStatus })}>{LIBRARY_STATUSES.map((item) => <option value={item.value} key={item.value}>{item.label}</option>)}</select>
         {entry.rating !== null && <strong>{entry.rating.toFixed(1)}</strong>}
@@ -106,9 +109,9 @@ export default function LibraryPage() {
   </div>;
 }
 
-function LibraryGridItem({ entry, busy, onUpdate }: { entry: LibraryEntry; busy: boolean; onUpdate: (entry: LibraryEntry, patch: Partial<Pick<LibraryEntry, "status" | "favorite">>) => Promise<void> }) {
+function LibraryGridItem({ entry, resumeHref, busy, onUpdate }: { entry: LibraryEntry; resumeHref: string | undefined; busy: boolean; onUpdate: (entry: LibraryEntry, patch: Partial<Pick<LibraryEntry, "status" | "favorite">>) => Promise<void> }) {
   return <article className="library-grid-item">
-    <MediaCard work={entry.work} progress={entry.progress?.positionPercent ?? undefined} progressLabel={libraryProgressLabel(entry)} userRating={entry.rating}/>
+    <MediaCard href={entry.work.kind === "LIGHT_NOVEL" ? resumeHref : undefined} work={entry.work} progress={entry.progress?.positionPercent ?? undefined} progressLabel={libraryProgressLabel(entry)} userRating={entry.rating}/>
     <div className="library-entry-actions">
       <button className={entry.favorite ? "active" : ""} aria-label={`${entry.favorite ? "Remove" : "Add"} ${entry.work.title} ${entry.favorite ? "from" : "to"} favorites`} disabled={busy} onClick={() => void onUpdate(entry, { favorite: !entry.favorite })}><Heart fill={entry.favorite ? "currentColor" : "none"}/></button>
       <select aria-label={`Status for ${entry.work.title}`} value={entry.status} disabled={busy} onChange={(event) => void onUpdate(entry, { status: event.target.value as LibraryStatus })}>{LIBRARY_STATUSES.map((item) => <option value={item.value} key={item.value}>{item.label}</option>)}</select>
@@ -116,6 +119,7 @@ function LibraryGridItem({ entry, busy, onUpdate }: { entry: LibraryEntry; busy:
   </article>;
 }
 
-function workHref(entry: LibraryEntry): string {
+function workHref(entry: LibraryEntry, resumeHref?: string): string {
+  if (entry.work.kind === "LIGHT_NOVEL" && resumeHref) return resumeHref;
   return entry.work.source.kind === "ANILIST" ? `/title/${entry.work.id}?anilistId=${entry.work.source.externalId}` : `/title/${entry.work.id}`;
 }
