@@ -24,7 +24,8 @@ fun main() {
     )
     val suwayomiManager = SuwayomiManager.default(suwayomi)
     val animeHost = AnimeHostManager.default()
-    val runtimes = listOf(SuwayomiRuntime(suwayomiManager), AnimeHostExtensionRuntime(animeHost), AniyomiCompatibilityRuntime(animeHost), MangayomiNovelRuntime())
+    val novelHost = NovelHostManager.default()
+    val runtimes = listOf(SuwayomiRuntime(suwayomiManager), AnimeHostExtensionRuntime(animeHost), AniyomiCompatibilityRuntime(animeHost), MangayomiNovelRuntime(novelHost))
     val port = System.getenv("HAO_BRIDGE_PORT")?.toIntOrNull() ?: 4568
     val adminToken = System.getenv("HAO_BRIDGE_ADMIN_TOKEN")?.trim()?.takeIf { it.isNotEmpty() }
     require(adminToken == null || adminToken.length >= 32) { "HAO_BRIDGE_ADMIN_TOKEN must contain at least 32 characters" }
@@ -37,6 +38,10 @@ fun main() {
     app.exception(AnimeHostRequestException::class.java) { error, ctx ->
         val clientError = error.status in 400..499 && error.status != 401
         ctx.status(if (clientError) error.status else 503).json(ErrorResponse(if (clientError) "INVALID" else "UNAVAILABLE", if (clientError) "Anime source request was invalid" else "Isolated anime host is unavailable", !clientError))
+    }
+    app.exception(NovelHostRequestException::class.java) { error, ctx ->
+        val clientError = error.status in 400..499 && error.status != 401
+        ctx.status(if (clientError) error.status else 503).json(ErrorResponse(if (clientError) "INVALID" else "UNAVAILABLE", if (clientError) "Novel source request was invalid" else "Isolated novel host is unavailable", !clientError))
     }
     app.exception(Exception::class.java) { error, ctx -> error.printStackTrace(); ctx.status(500).json(ErrorResponse("UNAVAILABLE", "Bridge operation failed", true)) }
     app.get("/health") { ctx -> ctx.json(HealthResponse("ok", "0.1.0", pairing.get() != null, adminToken != null)) }
@@ -57,6 +62,7 @@ fun main() {
         val installed = extensions.install(json.decodeFromString<ConfirmInstallRequest>(ctx.body()), storageRoot)
         if (installed.mediaKind == MediaKind.MANGA) suwayomiManager.sync(extensions.listInstalled(storageRoot))
         if (installed.mediaKind == MediaKind.ANIME) animeHost.close()
+        if (installed.mediaKind == MediaKind.NOVEL) novelHost.restart()
         ctx.status(201).contentType("application/json").result(json.encodeToString(installed))
     }
     app.post("/v1/extensions/state") { ctx ->
@@ -64,6 +70,7 @@ fun main() {
         val updated = extensions.setEnabled(json.decodeFromString<ExtensionStateRequest>(ctx.body()), storageRoot)
         if (updated.mediaKind == MediaKind.MANGA) suwayomiManager.sync(extensions.listInstalled(storageRoot))
         if (updated.mediaKind == MediaKind.ANIME) animeHost.close()
+        if (updated.mediaKind == MediaKind.NOVEL) novelHost.restart()
         ctx.contentType("application/json").result(json.encodeToString(updated))
     }
     app.post("/v1/extensions/remove") { ctx ->
@@ -72,6 +79,7 @@ fun main() {
         if (request.mediaKind == MediaKind.MANGA) suwayomiManager.uninstall(request.packageName)
         val removed = extensions.remove(request, storageRoot)
         if (request.mediaKind == MediaKind.ANIME) animeHost.close()
+        if (request.mediaKind == MediaKind.NOVEL) novelHost.restart()
         ctx.contentType("application/json").result(json.encodeToString(removed))
     }
     System.getenv("HAO_DEV_FIXTURE_APK")?.let { fixturePath ->
@@ -143,6 +151,19 @@ fun main() {
         val response = suwayomi.page(ctx.pathParam("mangaId").toInt(), ctx.pathParam("chapterIndex").toInt(), ctx.pathParam("pageIndex").toInt())
         ctx.contentType(response.contentType).header("Cache-Control", "private, max-age=86400").result(response.body)
     }
+    app.get("/v1/novel/sources") { ctx -> requirePaired(ctx, pairing); ctx.json(novelHost.sources()) }
+    app.get("/v1/novel/catalog") { ctx ->
+        requirePaired(ctx, pairing)
+        ctx.json(novelHost.catalog(
+            ctx.queryParam("sourceId") ?: throw IllegalArgumentException("Novel source is required"),
+            ctx.queryParam("mode") ?: "popular",
+            ctx.queryParam("query"),
+            ctx.queryParam("page")?.toIntOrNull() ?: 1,
+        ))
+    }
+    app.get("/v1/novel/{novelId}") { ctx -> requirePaired(ctx, pairing); ctx.json(novelHost.detail(ctx.pathParam("novelId"))) }
+    app.get("/v1/novel/{novelId}/chapters") { ctx -> requirePaired(ctx, pairing); ctx.json(novelHost.chapters(ctx.pathParam("novelId"))) }
+    app.get("/v1/novel/chapters/{chapterId}") { ctx -> requirePaired(ctx, pairing); ctx.json(novelHost.chapter(ctx.pathParam("chapterId"))) }
     app.start("127.0.0.1", port)
     Thread.ofVirtual().name("hao-suwayomi-startup").start {
         runCatching {
@@ -151,7 +172,8 @@ fun main() {
         }.onFailure { it.printStackTrace() }
     }
     Thread.ofVirtual().name("hao-anime-host-startup").start { runCatching { animeHost.ensureStarted() }.onFailure { it.printStackTrace() } }
-    Runtime.getRuntime().addShutdownHook(Thread { animeHost.close() })
+    Thread.ofVirtual().name("hao-novel-host-startup").start { runCatching { novelHost.ensureStarted() }.onFailure { it.printStackTrace() } }
+    Runtime.getRuntime().addShutdownHook(Thread { animeHost.close(); novelHost.close() })
 }
 
 private fun requirePaired(ctx: Context, pairing: AtomicReference<PairResponse?>) { require(pairing.get() != null) { "Bridge must be paired first" } }

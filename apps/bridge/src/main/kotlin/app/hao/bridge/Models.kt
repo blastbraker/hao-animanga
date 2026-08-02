@@ -60,6 +60,10 @@ import kotlinx.serialization.Serializable
     val localPath: String,
     val installedAt: String,
     val enabled: Boolean,
+    val runtime: String = "ANDROID_APK",
+    val sourceCodeUrl: String? = null,
+    val baseUrl: String? = null,
+    val language: String? = null,
 )
 @Serializable enum class MediaKind { ANIME, MANGA, NOVEL }
 @Serializable data class ErrorResponse(val code: String, val message: String, val retryable: Boolean = false)
@@ -179,6 +183,46 @@ import kotlinx.serialization.Serializable
     val chapterName: String,
     val pageCount: Int,
     val pageUrls: List<String>,
+)
+
+@Serializable data class NovelSource(
+    val id: String,
+    val name: String,
+    val language: String,
+    val supportsLatest: Boolean,
+    val mature: Boolean,
+)
+
+@Serializable data class NovelSummary(
+    val id: String,
+    val sourceId: String,
+    val title: String,
+    val imageUrl: String? = null,
+    val author: String? = null,
+    val description: String? = null,
+    val status: String? = null,
+    val genres: List<String> = emptyList(),
+)
+
+@Serializable data class NovelSearchResponse(
+    val items: List<NovelSummary>,
+    val hasNextPage: Boolean,
+)
+
+@Serializable data class NovelChapter(
+    val id: String,
+    val index: Int,
+    val title: String,
+    val sourceId: String,
+    val novelId: String,
+    val uploadDate: Long? = null,
+)
+
+@Serializable data class NovelChapterContent(
+    val chapterId: String,
+    val novelId: String,
+    val title: String,
+    val html: String,
 )
 
 const val DISCLAIMER = "Third-party repositories and extensions are not created, reviewed, hosted, endorsed, supported, or controlled by HAO. Their developers and content providers are unaffiliated with HAO. Availability, safety, and legality are not guaranteed. You are responsible for using only content you are authorized to access and for complying with applicable laws and provider terms."

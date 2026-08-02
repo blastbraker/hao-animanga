@@ -1,10 +1,27 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { BookOpen, Check, Cloud, Download, Film, HardDrive, Link2, Plus, Power, RefreshCw, Search, Server, ShieldAlert, ShieldCheck, Trash2 } from "lucide-react";
+import {
+  BookOpen,
+  Check,
+  Cloud,
+  Download,
+  Film,
+  HardDrive,
+  Link2,
+  Plus,
+  Power,
+  RefreshCw,
+  Search,
+  Server,
+  ShieldAlert,
+  ShieldCheck,
+  Trash2,
+} from "lucide-react";
 import { api, bridgeJson, type LibraryResponse } from "../../lib/api";
 
-const DISCLAIMER = "Third-party repositories and extensions are not created, reviewed, hosted, endorsed, supported, or controlled by HAO. Their developers and content providers are unaffiliated with HAO. Availability, safety, and legality are not guaranteed. You are responsible for using only content you are authorized to access and for complying with applicable laws and provider terms.";
+const DISCLAIMER =
+  "Third-party repositories and extensions are not created, reviewed, hosted, endorsed, supported, or controlled by HAO. Their developers and content providers are unaffiliated with HAO. Availability, safety, and legality are not guaranteed. You are responsible for using only content you are authorized to access and for complying with applicable laws and provider terms.";
 
 type MediaKind = "ANIME" | "MANGA" | "NOVEL";
 type BridgeDevice = {
@@ -33,7 +50,11 @@ type ExtensionPackage = {
   version: string;
   language?: string;
   nsfw?: number;
-  runtime?: "ANDROID_APK" | "MANGAYOMI_JAVASCRIPT" | "MANGAYOMI_DART" | "MANGAYOMI_UNKNOWN";
+  runtime?:
+    | "ANDROID_APK"
+    | "MANGAYOMI_JAVASCRIPT"
+    | "MANGAYOMI_DART"
+    | "MANGAYOMI_UNKNOWN";
   runtimeAvailable?: boolean;
   compatibilityMessage?: string;
   sourceCodeUrl?: string;
@@ -102,15 +123,25 @@ export default function SettingsPage() {
   const [adminToken, setAdminToken] = useState("");
   const [bridges, setBridges] = useState<BridgeDevice[]>([]);
   const [repositories, setRepositories] = useState<SavedRepository[]>([]);
-  const [installedExtensions, setInstalledExtensions] = useState<InstalledExtension[]>([]);
-  const [mangaRuntime, setMangaRuntime] = useState<MangaRuntimeStatus | null>(null);
-  const [bridgeRuntimes, setBridgeRuntimes] = useState<BridgeRuntimeStatus[]>([]);
+  const [installedExtensions, setInstalledExtensions] = useState<
+    InstalledExtension[]
+  >([]);
+  const [mangaRuntime, setMangaRuntime] = useState<MangaRuntimeStatus | null>(
+    null,
+  );
+  const [bridgeRuntimes, setBridgeRuntimes] = useState<BridgeRuntimeStatus[]>(
+    [],
+  );
   const [managementLocked, setManagementLocked] = useState(false);
-  const [repo, setRepo] = useState("https://raw.githubusercontent.com/yuzono/anime-repo/repo/index.min.json");
+  const [repo, setRepo] = useState(
+    "https://raw.githubusercontent.com/yuzono/anime-repo/repo/index.min.json",
+  );
   const [mediaKind, setMediaKind] = useState<MediaKind>("ANIME");
   const [acknowledged, setAcknowledged] = useState(false);
   const [preview, setPreview] = useState<RepositoryPreview | null>(null);
-  const [inspection, setInspection] = useState<ExtensionInspection | null>(null);
+  const [inspection, setInspection] = useState<ExtensionInspection | null>(
+    null,
+  );
   const [packageQuery, setPackageQuery] = useState("");
   const [maturityFilter, setMaturityFilter] = useState("GENERAL");
   const [permissionConsent, setPermissionConsent] = useState(false);
@@ -119,17 +150,31 @@ export default function SettingsPage() {
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [message, setMessage] = useState("");
 
-  const personalBridge = bridges.find((bridge) => bridge.scope === "personal" && !bridge.revokedAt) ?? null;
-  const sharedBridge = bridges.find((bridge) => bridge.scope === "beta" && !bridge.revokedAt) ?? null;
+  const personalBridge =
+    bridges.find(
+      (bridge) => bridge.scope === "personal" && !bridge.revokedAt,
+    ) ?? null;
+  const sharedBridge =
+    bridges.find((bridge) => bridge.scope === "beta" && !bridge.revokedAt) ??
+    null;
   const activeBridge = personalBridge ?? sharedBridge;
   const normalizedRepositoryUrl = repo.trim();
   function selectRepositoryKind(kind: MediaKind) {
     setMediaKind(kind);
     setPreview(null);
     setInspection(null);
-    if (kind === "NOVEL") setRepo("https://raw.githubusercontent.com/m2k3a/mangayomi-extensions/refs/heads/main/novel_index.json");
-    else if (kind === "ANIME") setRepo("https://raw.githubusercontent.com/yuzono/anime-repo/repo/index.min.json");
-    else setRepo("https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json");
+    if (kind === "NOVEL")
+      setRepo(
+        "https://raw.githubusercontent.com/m2k3a/mangayomi-extensions/refs/heads/main/novel_index.json",
+      );
+    else if (kind === "ANIME")
+      setRepo(
+        "https://raw.githubusercontent.com/yuzono/anime-repo/repo/index.min.json",
+      );
+    else
+      setRepo(
+        "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json",
+      );
   }
   const visiblePackages = useMemo(() => {
     if (!preview) return [];
@@ -137,18 +182,28 @@ export default function SettingsPage() {
     return preview.packages
       .filter((item) => {
         const maturity = packageMaturity(item);
-        const maturityMatches = maturityFilter === "ALL" || maturity === maturityFilter;
-        const queryMatches = !query || `${item.name} ${item.pkg} ${item.language ?? ""}`.toLowerCase().includes(query);
+        const maturityMatches =
+          maturityFilter === "ALL" || maturity === maturityFilter;
+        const queryMatches =
+          !query ||
+          `${item.name} ${item.pkg} ${item.language ?? ""}`
+            .toLowerCase()
+            .includes(query);
         return maturityMatches && queryMatches;
       })
       .slice(0, 50);
   }, [maturityFilter, packageQuery, preview]);
 
   async function loadCloudState() {
-    const [bridgeResult, repositoryResult] = await Promise.all([api<{ items: BridgeDevice[] }>("/bridges"), api<{ items: SavedRepository[] }>("/repositories")]);
+    const [bridgeResult, repositoryResult] = await Promise.all([
+      api<{ items: BridgeDevice[] }>("/bridges"),
+      api<{ items: SavedRepository[] }>("/repositories"),
+    ]);
     setBridges(bridgeResult.items);
     setRepositories(repositoryResult.items);
-    const personal = bridgeResult.items.find((bridge) => bridge.scope === "personal" && !bridge.revokedAt);
+    const personal = bridgeResult.items.find(
+      (bridge) => bridge.scope === "personal" && !bridge.revokedAt,
+    );
     if (personal?.endpoint) setBridgeEndpoint(personal.endpoint);
   }
 
@@ -160,15 +215,21 @@ export default function SettingsPage() {
     void refreshManagement(activeBridge.endpoint);
   }, [activeBridge?.endpoint, activeBridge?.scope]);
 
-  async function requestBridgeAt<T>(endpointValue: string, path: string, body?: unknown): Promise<T> {
+  async function requestBridgeAt<T>(
+    endpointValue: string,
+    path: string,
+    body?: unknown,
+  ): Promise<T> {
     const endpoint = endpointValue.trim().replace(/\/$/, "");
     const headers = {
       ...(body === undefined ? {} : { "content-type": "application/json" }),
-      ...(adminToken.trim() ? { "X-HAO-Bridge-Admin": adminToken.trim() } : {})
+      ...(adminToken.trim() ? { "X-HAO-Bridge-Admin": adminToken.trim() } : {}),
     };
     const init = {
-      ...(body === undefined ? {} : { method: "POST", body: JSON.stringify(body) }),
-      headers
+      ...(body === undefined
+        ? {}
+        : { method: "POST", body: JSON.stringify(body) }),
+      headers,
     };
     return bridgeJson<T>(endpoint, path, init);
   }
@@ -182,7 +243,7 @@ export default function SettingsPage() {
       const [extensions, runtime, runtimes] = await Promise.all([
         requestBridgeAt<InstalledExtension[]>(endpointValue, "/v1/extensions"),
         requestBridgeAt<MangaRuntimeStatus>(endpointValue, "/v1/manga/runtime"),
-        requestBridgeAt<BridgeRuntimeStatus[]>(endpointValue, "/v1/runtimes")
+        requestBridgeAt<BridgeRuntimeStatus[]>(endpointValue, "/v1/runtimes"),
       ]);
       setInstalledExtensions(extensions);
       setMangaRuntime(runtime);
@@ -190,10 +251,17 @@ export default function SettingsPage() {
       setManagementLocked(false);
       setMessage("Bridge management unlocked.");
     } catch (error) {
-      const detail = error instanceof Error ? error.message : "Bridge management is unavailable.";
+      const detail =
+        error instanceof Error
+          ? error.message
+          : "Bridge management is unavailable.";
       const locked = /administrator access required/i.test(detail);
       setManagementLocked(locked);
-      setMessage(locked ? "Enter the Bridge administrator token to manage runtimes and extensions." : `Bridge extension status unavailable: ${detail}`);
+      setMessage(
+        locked
+          ? "Enter the Bridge administrator token to manage runtimes and extensions."
+          : `Bridge extension status unavailable: ${detail}`,
+      );
     }
   }
 
@@ -212,11 +280,18 @@ export default function SettingsPage() {
     setBusyAction("runtime-start");
     setMessage("Starting the local manga runtime…");
     try {
-      const result = await bridgeRequest<MangaRuntimeStatus>("/v1/manga/runtime/start", {});
+      const result = await bridgeRequest<MangaRuntimeStatus>(
+        "/v1/manga/runtime/start",
+        {},
+      );
       setMangaRuntime(result);
       setMessage(result.running ? "Manga runtime is ready." : result.message);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Manga runtime failed to start");
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Manga runtime failed to start",
+      );
     } finally {
       setBusyAction(null);
     }
@@ -226,11 +301,22 @@ export default function SettingsPage() {
     setBusyAction("runtime-sync");
     setMessage("Synchronizing reviewed manga extensions…");
     try {
-      const result = await bridgeRequest<ExtensionSyncResult>("/v1/manga/runtime/sync", {});
+      const result = await bridgeRequest<ExtensionSyncResult>(
+        "/v1/manga/runtime/sync",
+        {},
+      );
       await loadRuntime();
-      setMessage(result.errors.length ? `Synchronization finished with errors: ${result.errors.join("; ")}` : `Manga runtime synchronized. ${result.installed.length} installed, ${result.removed.length} removed, ${result.unchanged.length} unchanged.`);
+      setMessage(
+        result.errors.length
+          ? `Synchronization finished with errors: ${result.errors.join("; ")}`
+          : `Manga runtime synchronized. ${result.installed.length} installed, ${result.removed.length} removed, ${result.unchanged.length} unchanged.`,
+      );
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Extension synchronization failed");
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Extension synchronization failed",
+      );
     } finally {
       setBusyAction(null);
     }
@@ -241,14 +327,17 @@ export default function SettingsPage() {
     setMessage("Contacting HAO Bridge…");
     try {
       await bridgeRequest("/health");
-      const pairing = await api<{ code: string; userId: string }>("/bridges/pairing-code", { method: "POST" });
+      const pairing = await api<{ code: string; userId: string }>(
+        "/bridges/pairing-code",
+        { method: "POST" },
+      );
       const paired = await bridgeRequest<{
         deviceId: string;
         publicKey: string;
       }>("/v1/pair", {
         code: pairing.code,
         accountId: pairing.userId,
-        deviceName
+        deviceName,
       });
       await api("/bridges/complete", {
         method: "POST",
@@ -257,26 +346,39 @@ export default function SettingsPage() {
           deviceId: paired.deviceId,
           publicKey: paired.publicKey,
           name: deviceName,
-          endpoint: bridgeEndpoint.trim()
-        })
+          endpoint: bridgeEndpoint.trim(),
+        }),
       });
       await loadCloudState();
       setMessage("Bridge paired. Repository validation is ready.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Bridge pairing failed");
+      setMessage(
+        error instanceof Error ? error.message : "Bridge pairing failed",
+      );
     } finally {
       setBusyAction(null);
     }
   }
 
-  async function previewRepository(url: string, kind: MediaKind, save: boolean) {
-    if (!activeBridge) return setMessage("Pair HAO Bridge before using a repository.");
-    if (!acknowledged) return setMessage("Accept the third-party repository acknowledgement first.");
+  async function previewRepository(
+    url: string,
+    kind: MediaKind,
+    save: boolean,
+  ) {
+    if (!activeBridge)
+      return setMessage("Pair HAO Bridge before using a repository.");
+    if (!acknowledged)
+      return setMessage(
+        "Accept the third-party repository acknowledgement first.",
+      );
     setBusyAction("repository");
     setInspection(null);
     setMessage("Validating repository through your Bridge…");
     try {
-      const result = await bridgeRequest<RepositoryPreview>("/v1/repositories/preview", { url: url.trim(), mediaKind: kind, acknowledged });
+      const result = await bridgeRequest<RepositoryPreview>(
+        "/v1/repositories/preview",
+        { url: url.trim(), mediaKind: kind, acknowledged },
+      );
       setRepo(url.trim());
       setMediaKind(kind);
       setPreview(result);
@@ -290,14 +392,18 @@ export default function SettingsPage() {
             mediaKind: kind,
             url: url.trim(),
             name: result.name,
-            acknowledged
-          })
+            acknowledged,
+          }),
         });
         await loadCloudState();
       }
-      setMessage(`${save ? "Enabled" : "Loaded"} ${result.name} with ${result.packages.length} compatible packages.`);
+      setMessage(
+        `${save ? "Enabled" : "Loaded"} ${result.name} with ${result.packages.length} compatible packages.`,
+      );
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Repository validation failed");
+      setMessage(
+        error instanceof Error ? error.message : "Repository validation failed",
+      );
     } finally {
       setBusyAction(null);
     }
@@ -309,18 +415,27 @@ export default function SettingsPage() {
     setInspection(null);
     setPermissionConsent(false);
     setSignerConsent(false);
-    setMessage(`Downloading ${item.name} into the Bridge quarantine for inspection…`);
+    setMessage(
+      `Downloading ${item.name} into the Bridge quarantine for inspection…`,
+    );
     try {
-      const result = await bridgeRequest<ExtensionInspection>("/v1/extensions/inspect", {
-        repositoryUrl: preview.url,
-        mediaKind: preview.mediaKind,
-        packageInfo: item,
-        acknowledged
-      });
+      const result = await bridgeRequest<ExtensionInspection>(
+        "/v1/extensions/inspect",
+        {
+          repositoryUrl: preview.url,
+          mediaKind: preview.mediaKind,
+          packageInfo: item,
+          acknowledged,
+        },
+      );
       setInspection(result);
-      setMessage("Inspection complete. Review the signer and permissions before installation.");
+      setMessage(
+        "Inspection complete. Review the signer and permissions before installation.",
+      );
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Extension inspection failed");
+      setMessage(
+        error instanceof Error ? error.message : "Extension inspection failed",
+      );
     } finally {
       setBusyAction(null);
     }
@@ -334,34 +449,53 @@ export default function SettingsPage() {
         inspectionId: inspection.id,
         acknowledged,
         acceptPermissions: permissionConsent,
-        acceptSignerChange: signerConsent
+        acceptSignerChange: signerConsent,
       });
       await loadInstalled();
       await loadRuntime();
       setInspection(null);
       setPermissionConsent(false);
       setSignerConsent(false);
-      setMessage(inspection.mediaKind === "MANGA" ? "Extension installed, verified, and synchronized to the local manga runtime." : "Extension installed and queued for the contained Aniyomi runtime.");
+      setMessage(
+        inspection.mediaKind === "MANGA"
+          ? "Extension installed, verified, and synchronized to the local manga runtime."
+          : inspection.mediaKind === "NOVEL"
+            ? "Novel source installed and loaded into the isolated JavaScript runtime."
+            : "Extension installed and queued for the contained Aniyomi runtime.",
+      );
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Extension installation failed");
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Extension installation failed",
+      );
     } finally {
       setBusyAction(null);
     }
   }
 
-  async function setExtensionEnabled(item: InstalledExtension, enabled: boolean) {
+  async function setExtensionEnabled(
+    item: InstalledExtension,
+    enabled: boolean,
+  ) {
     setBusyAction(item.packageName);
     try {
       await bridgeRequest("/v1/extensions/state", {
         mediaKind: item.mediaKind,
         packageName: item.packageName,
-        enabled
+        enabled,
       });
       await loadInstalled();
       await loadRuntime();
-      setMessage(`${item.displayName} ${enabled ? "enabled and synchronized" : "disabled and removed from its runtime"}.`);
+      setMessage(
+        `${item.displayName} ${enabled ? "enabled and synchronized" : "disabled and removed from its runtime"}.`,
+      );
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Extension state update failed");
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Extension state update failed",
+      );
     } finally {
       setBusyAction(null);
     }
@@ -376,14 +510,18 @@ export default function SettingsPage() {
     try {
       await bridgeRequest("/v1/extensions/remove", {
         mediaKind: item.mediaKind,
-        packageName: item.packageName
+        packageName: item.packageName,
       });
       await loadInstalled();
       await loadRuntime();
       setPendingRemoval(null);
-      setMessage(`${item.displayName} removed from this Bridge and its runtime.`);
+      setMessage(
+        `${item.displayName} removed from this Bridge and its runtime.`,
+      );
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Extension removal failed");
+      setMessage(
+        error instanceof Error ? error.message : "Extension removal failed",
+      );
     } finally {
       setBusyAction(null);
     }
@@ -393,32 +531,112 @@ export default function SettingsPage() {
     setBusyAction("anilist-export");
     try {
       const library = await api<LibraryResponse>("/library");
-      const entries = library.items.filter((entry) => entry.work.source.kind === "ANILIST").map((entry) => ({ anilistId: entry.work.source.externalId, title: entry.work.title, status: entry.status, favorite: entry.favorite, rating: entry.rating, notes: entry.notes, progress: entry.progress }));
-      const blob = new Blob([JSON.stringify({ format: "hao-anilist-library-v1", exportedAt: new Date().toISOString(), entries }, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = `hao-anilist-${new Date().toISOString().slice(0, 10)}.json`; link.click(); URL.revokeObjectURL(url);
+      const entries = library.items
+        .filter((entry) => entry.work.source.kind === "ANILIST")
+        .map((entry) => ({
+          anilistId: entry.work.source.externalId,
+          title: entry.work.title,
+          status: entry.status,
+          favorite: entry.favorite,
+          rating: entry.rating,
+          notes: entry.notes,
+          progress: entry.progress,
+        }));
+      const blob = new Blob(
+        [
+          JSON.stringify(
+            {
+              format: "hao-anilist-library-v1",
+              exportedAt: new Date().toISOString(),
+              entries,
+            },
+            null,
+            2,
+          ),
+        ],
+        { type: "application/json" },
+      );
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `hao-anilist-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
       setMessage(`Exported ${entries.length} AniList-linked titles.`);
-    } catch (error) { setMessage(error instanceof Error ? error.message : "AniList export failed."); } finally { setBusyAction(null); }
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "AniList export failed.",
+      );
+    } finally {
+      setBusyAction(null);
+    }
   }
 
   async function importAniListBackup(file: File | undefined) {
     if (!file) return;
-    setBusyAction("anilist-import"); setMessage("Importing AniList-linked titles…");
+    setBusyAction("anilist-import");
+    setMessage("Importing AniList-linked titles…");
     try {
       const payload = JSON.parse(await file.text()) as { entries?: unknown };
-      if (!Array.isArray(payload.entries)) throw new Error("Choose a HAO AniList backup JSON file.");
+      if (!Array.isArray(payload.entries))
+        throw new Error("Choose a HAO AniList backup JSON file.");
       let imported = 0;
       for (const raw of payload.entries.slice(0, 500)) {
         if (!raw || typeof raw !== "object") continue;
-        const item = raw as Record<string, unknown>; const anilistId = String(item.anilistId ?? "");
+        const item = raw as Record<string, unknown>;
+        const anilistId = String(item.anilistId ?? "");
         if (!/^\d+$/.test(anilistId)) continue;
-        const result = await api<{ work: { id: string } }>(`/works/anilist/${encodeURIComponent(anilistId)}`);
-        await api("/library", { method: "PUT", body: JSON.stringify({ workId: result.work.id, status: ["PLANNING","WATCHING_READING","ON_HOLD","COMPLETED","DROPPED"].includes(String(item.status)) ? item.status : "PLANNING", favorite: item.favorite === true, rating: typeof item.rating === "number" ? item.rating : null, notes: typeof item.notes === "string" ? item.notes : "" }) });
+        const result = await api<{ work: { id: string } }>(
+          `/works/anilist/${encodeURIComponent(anilistId)}`,
+        );
+        await api("/library", {
+          method: "PUT",
+          body: JSON.stringify({
+            workId: result.work.id,
+            status: [
+              "PLANNING",
+              "WATCHING_READING",
+              "ON_HOLD",
+              "COMPLETED",
+              "DROPPED",
+            ].includes(String(item.status))
+              ? item.status
+              : "PLANNING",
+            favorite: item.favorite === true,
+            rating: typeof item.rating === "number" ? item.rating : null,
+            notes: typeof item.notes === "string" ? item.notes : "",
+          }),
+        });
         const progress = item.progress as Record<string, unknown> | null;
-        if (progress && typeof progress.completedUnits === "number") await api("/progress", { method: "PUT", body: JSON.stringify({ workId: result.work.id, releaseItemId: null, completedUnits: progress.completedUnits, positionSeconds: typeof progress.positionSeconds === "number" ? progress.positionSeconds : null, positionPercent: typeof progress.positionPercent === "number" ? progress.positionPercent : null }) });
+        if (progress && typeof progress.completedUnits === "number")
+          await api("/progress", {
+            method: "PUT",
+            body: JSON.stringify({
+              workId: result.work.id,
+              releaseItemId: null,
+              completedUnits: progress.completedUnits,
+              positionSeconds:
+                typeof progress.positionSeconds === "number"
+                  ? progress.positionSeconds
+                  : null,
+              positionPercent:
+                typeof progress.positionPercent === "number"
+                  ? progress.positionPercent
+                  : null,
+            }),
+          });
         imported += 1;
       }
-      setMessage(`Imported ${imported} AniList-linked titles into your HAO library.`);
-    } catch (error) { setMessage(error instanceof Error ? error.message : "AniList import failed."); } finally { setBusyAction(null); }
+      setMessage(
+        `Imported ${imported} AniList-linked titles into your HAO library.`,
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "AniList import failed.",
+      );
+    } finally {
+      setBusyAction(null);
+    }
   }
 
   return (
@@ -426,20 +644,71 @@ export default function SettingsPage() {
       <div className="page-intro">
         <span className="eyebrow">MAKE HAO YOURS</span>
         <h1>Sources & devices</h1>
-        <p>Your library stays independent. Sources can change without taking your history with them.</p>
+        <p>
+          Your library stays independent. Sources can change without taking your
+          history with them.
+        </p>
       </div>
       <section className="settings-section">
         <h2>Content connections</h2>
         <div className="settings-grid">
-          <Source icon={<Film />} title="Jellyfin" copy="Stream from your personal media server." action="Connect" />
-          <Source icon={<Link2 />} title="Direct media" copy="Add an authorized HTTPS HLS or MP4 URL." action="Add URL" />
-          <Source icon={<BookOpen />} title="EPUB library" copy="Upload books to your private encrypted storage." action="Upload" />
-          <Source icon={<Cloud />} title="AniList" copy="Catalog metadata and discovery." action="Active" active />
+          <Source
+            icon={<Film />}
+            title="Jellyfin"
+            copy="Stream from your personal media server."
+            action="Connect"
+          />
+          <Source
+            icon={<Link2 />}
+            title="Direct media"
+            copy="Add an authorized HTTPS HLS or MP4 URL."
+            action="Add URL"
+          />
+          <Source
+            icon={<BookOpen />}
+            title="EPUB library"
+            copy="Upload books to your private encrypted storage."
+            action="Upload"
+          />
+          <Source
+            icon={<Cloud />}
+            title="AniList"
+            copy="Catalog metadata and discovery."
+            action="Active"
+            active
+          />
         </div>
       </section>
       <section className="settings-section admin-card anilist-sync-card">
-        <div><span className="eyebrow">ANILIST LIBRARY PORTABILITY</span><h2>Import or export your library</h2><p>Move AniList-linked titles, ratings, statuses, and progress without sharing an AniList password or token with HAO.</p></div>
-        <div className="anilist-sync-actions"><button className="button ghost" disabled={busyAction !== null} onClick={() => void exportAniListBackup()}><Download /> Export JSON</button><label className="button primary"><Cloud /> Import JSON<input type="file" accept="application/json,.json" disabled={busyAction !== null} onChange={(event) => { void importAniListBackup(event.target.files?.[0]); event.currentTarget.value = ""; }}/></label></div>
+        <div>
+          <span className="eyebrow">ANILIST LIBRARY PORTABILITY</span>
+          <h2>Import or export your library</h2>
+          <p>
+            Move AniList-linked titles, ratings, statuses, and progress without
+            sharing an AniList password or token with HAO.
+          </p>
+        </div>
+        <div className="anilist-sync-actions">
+          <button
+            className="button ghost"
+            disabled={busyAction !== null}
+            onClick={() => void exportAniListBackup()}
+          >
+            <Download /> Export JSON
+          </button>
+          <label className="button primary">
+            <Cloud /> Import JSON
+            <input
+              type="file"
+              accept="application/json,.json"
+              disabled={busyAction !== null}
+              onChange={(event) => {
+                void importAniListBackup(event.target.files?.[0]);
+                event.currentTarget.value = "";
+              }}
+            />
+          </label>
+        </div>
       </section>
 
       {activeBridge?.scope === "beta" ? (
@@ -447,7 +716,11 @@ export default function SettingsPage() {
           <div>
             <span className="eyebrow">INCLUDED WITH YOUR BETA ACCESS</span>
             <h2>Approved sources are ready</h2>
-            <p>Your administrator manages this shared HAO Bridge. You do not need Java, a desktop app, repositories, or extension APKs on your device.</p>
+            <p>
+              Your administrator manages this shared HAO Bridge. You do not need
+              Java, a desktop app, repositories, or extension APKs on your
+              device.
+            </p>
             <div className="warning-box compact">
               <ShieldAlert />
               <div>
@@ -467,29 +740,62 @@ export default function SettingsPage() {
           <div>
             <span className="eyebrow">USER-OWNED RUNTIME</span>
             <h2>HAO Bridge Desktop</h2>
-            <p>Inspect and store extensions on a device you control. Third-party APKs never execute in HAO’s cloud.</p>
+            <p>
+              Inspect and store extensions on a device you control. Third-party
+              APKs never execute in HAO’s cloud.
+            </p>
             <div className="repo-form">
-              <input aria-label="Bridge endpoint" value={bridgeEndpoint} onChange={(event) => setBridgeEndpoint(event.target.value)} placeholder="https://bridge.example.com" />
-              <input aria-label="Bridge device name" value={deviceName} onChange={(event) => setDeviceName(event.target.value)} placeholder="My HAO Bridge" />
+              <input
+                aria-label="Bridge endpoint"
+                value={bridgeEndpoint}
+                onChange={(event) => setBridgeEndpoint(event.target.value)}
+                placeholder="https://bridge.example.com"
+              />
+              <input
+                aria-label="Bridge device name"
+                value={deviceName}
+                onChange={(event) => setDeviceName(event.target.value)}
+                placeholder="My HAO Bridge"
+              />
             </div>
             <label className="bridge-admin-token">
               <span>Bridge administrator token</span>
-              <input type="password" autoComplete="off" value={adminToken} onChange={(event) => setAdminToken(event.target.value)} placeholder="Required when management protection is enabled" />
+              <input
+                type="password"
+                autoComplete="off"
+                value={adminToken}
+                onChange={(event) => setAdminToken(event.target.value)}
+                placeholder="Required when management protection is enabled"
+              />
             </label>
             {managementLocked && (
-              <button className="button ghost" disabled={!adminToken.trim() || busyAction !== null} onClick={() => void refreshManagement()}>
+              <button
+                className="button ghost"
+                disabled={!adminToken.trim() || busyAction !== null}
+                onClick={() => void refreshManagement()}
+              >
                 <RefreshCw /> Unlock management
               </button>
             )}
-            <button className="button primary" disabled={busyAction !== null} onClick={() => void pair()}>
+            <button
+              className="button primary"
+              disabled={busyAction !== null}
+              onClick={() => void pair()}
+            >
               <Server />
               {personalBridge ? "Pair again" : "Pair Bridge"}
             </button>
           </div>
           <div className="bridge-visual">
             <HardDrive />
-            <span>{personalBridge ? personalBridge.name : "Bridge offline"}</span>
-            <small>{personalBridge ? personalBridge.endpoint : "Windows · macOS · Linux"}</small>
+            <span>
+              {personalBridge ? personalBridge.name : "Bridge offline"}
+            </span>
+            <small>
+              {personalBridge
+                ? personalBridge.endpoint
+                : "Windows · macOS · Linux"}
+            </small>
           </div>
         </section>
       )}
@@ -500,32 +806,79 @@ export default function SettingsPage() {
             <div>
               <span className="eyebrow">MANGA EXECUTION</span>
               <h2>Suwayomi runtime</h2>
-              <p>{managementLocked ? "Enter the administrator token above to view and control this runtime." : mangaRuntime?.message ?? "Checking the local manga runtime…"}</p>
+              <p>
+                {managementLocked
+                  ? "Enter the administrator token above to view and control this runtime."
+                  : (mangaRuntime?.message ??
+                    "Checking the local manga runtime…")}
+              </p>
             </div>
-            <span className={mangaRuntime?.running ? "runtime-badge running" : "runtime-badge"}>
+            <span
+              className={
+                mangaRuntime?.running
+                  ? "runtime-badge running"
+                  : "runtime-badge"
+              }
+            >
               <i />
-              {managementLocked ? "Locked" : mangaRuntime?.running ? "Running" : "Stopped"}
+              {managementLocked
+                ? "Locked"
+                : mangaRuntime?.running
+                  ? "Running"
+                  : "Stopped"}
             </span>
           </div>
           <div className="runtime-stats">
             <span>
-               <b>{managementLocked ? "—" : mangaRuntime?.sourceCount ?? 0}</b> sources
+              <b>{managementLocked ? "—" : (mangaRuntime?.sourceCount ?? 0)}</b>{" "}
+              sources
             </span>
             <span>
-               <b>{managementLocked ? "—" : mangaRuntime?.installedExtensionCount ?? 0}</b> synchronized extensions
+              <b>
+                {managementLocked
+                  ? "—"
+                  : (mangaRuntime?.installedExtensionCount ?? 0)}
+              </b>{" "}
+              synchronized extensions
             </span>
             <span>
-               <b>{managementLocked ? "Locked" : mangaRuntime?.managed ? "Automatic" : "External"}</b> lifecycle
+              <b>
+                {managementLocked
+                  ? "Locked"
+                  : mangaRuntime?.managed
+                    ? "Automatic"
+                    : "External"}
+              </b>{" "}
+              lifecycle
             </span>
           </div>
           <div className="runtime-actions">
-            <button className="button primary" disabled={managementLocked || busyAction !== null || mangaRuntime?.running === true || mangaRuntime?.managed === false} onClick={() => void startRuntime()}>
+            <button
+              className="button primary"
+              disabled={
+                managementLocked ||
+                busyAction !== null ||
+                mangaRuntime?.running === true ||
+                mangaRuntime?.managed === false
+              }
+              onClick={() => void startRuntime()}
+            >
               <Power />
               {busyAction === "runtime-start" ? "Starting…" : "Start runtime"}
             </button>
-            <button className="button ghost" disabled={managementLocked || busyAction !== null || !mangaRuntime?.running} onClick={() => void syncRuntime()}>
+            <button
+              className="button ghost"
+              disabled={
+                managementLocked ||
+                busyAction !== null ||
+                !mangaRuntime?.running
+              }
+              onClick={() => void syncRuntime()}
+            >
               <RefreshCw />
-              {busyAction === "runtime-sync" ? "Synchronizing…" : "Sync extensions"}
+              {busyAction === "runtime-sync"
+                ? "Synchronizing…"
+                : "Sync extensions"}
             </button>
           </div>
         </section>
@@ -537,7 +890,10 @@ export default function SettingsPage() {
             <div>
               <span className="eyebrow">ANIME EXECUTION</span>
               <h2>Isolated anime host</h2>
-              <p>Compatible Aniyomi APKs run in a constrained local JVM with signed-package checks, network allowlisting, and process limits.</p>
+              <p>
+                Compatible Aniyomi APKs run in a constrained local JVM with
+                signed-package checks, network allowlisting, and process limits.
+              </p>
             </div>
             <ShieldCheck />
           </div>
@@ -546,9 +902,17 @@ export default function SettingsPage() {
               .filter((runtime) => runtime.kind === "ANIME")
               .map((runtime) => (
                 <div className="health-row" key={runtime.id}>
-                  <span className={runtime.available ? "health-dot good" : "health-dot"} />
+                  <span
+                    className={
+                      runtime.available ? "health-dot good" : "health-dot"
+                    }
+                  />
                   <div>
-                    <b>{runtime.id === "aniyomi-fixture-host" ? "Contained anime host" : "Aniyomi APK compatibility"}</b>
+                    <b>
+                      {runtime.id === "aniyomi-fixture-host"
+                        ? "Contained anime host"
+                        : "Aniyomi APK compatibility"}
+                    </b>
                     <small>{runtime.message}</small>
                   </div>
                   <span>{runtime.available ? "ready" : "unavailable"}</span>
@@ -563,8 +927,20 @@ export default function SettingsPage() {
           <span className="eyebrow">EXTENSION REPOSITORIES</span>
           <h2>Add repository</h2>
           <div className="repo-form">
-            <input type="url" value={repo} onChange={(event) => setRepo(event.target.value)} onBlur={() => setRepo(normalizedRepositoryUrl)} placeholder="https://…/index.min.json" />
-            <select aria-label="Repository type" value={mediaKind} onChange={(event) => selectRepositoryKind(event.target.value as MediaKind)}>
+            <input
+              type="url"
+              value={repo}
+              onChange={(event) => setRepo(event.target.value)}
+              onBlur={() => setRepo(normalizedRepositoryUrl)}
+              placeholder="https://…/index.min.json"
+            />
+            <select
+              aria-label="Repository type"
+              value={mediaKind}
+              onChange={(event) =>
+                selectRepositoryKind(event.target.value as MediaKind)
+              }
+            >
               <option value="MANGA">Manga · Mihon</option>
               <option value="ANIME">Anime · Aniyomi</option>
               <option value="NOVEL">Light novels · Mangayomi</option>
@@ -576,12 +952,29 @@ export default function SettingsPage() {
               <b>Before you continue</b>
               <p>{DISCLAIMER}</p>
               <label>
-                <input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} />
-                <span>I understand and accept responsibility for this repository.</span>
+                <input
+                  type="checkbox"
+                  checked={acknowledged}
+                  onChange={(event) => setAcknowledged(event.target.checked)}
+                />
+                <span>
+                  I understand and accept responsibility for this repository.
+                </span>
               </label>
             </div>
           </div>
-          <button className="button primary" disabled={busyAction !== null || !activeBridge || !acknowledged || !normalizedRepositoryUrl.startsWith("https://")} onClick={() => void previewRepository(normalizedRepositoryUrl, mediaKind, true)}>
+          <button
+            className="button primary"
+            disabled={
+              busyAction !== null ||
+              !activeBridge ||
+              !acknowledged ||
+              !normalizedRepositoryUrl.startsWith("https://")
+            }
+            onClick={() =>
+              void previewRepository(normalizedRepositoryUrl, mediaKind, true)
+            }
+          >
             <Plus />
             {busyAction === "repository" ? "Working…" : "Validate and add"}
           </button>
@@ -596,14 +989,22 @@ export default function SettingsPage() {
               <h3>Enabled repositories</h3>
               {repositories.map((item) => (
                 <div className="health-row" key={item.id}>
-                  <span className={item.enabled ? "health-dot good" : "health-dot"} />
+                  <span
+                    className={item.enabled ? "health-dot good" : "health-dot"}
+                  />
                   <div>
                     <b>{item.name}</b>
                     <small>
                       {item.mediaKind.toLowerCase()} · {item.url}
                     </small>
                   </div>
-                  <button className="button ghost compact" disabled={!acknowledged || busyAction !== null} onClick={() => void previewRepository(item.url, item.mediaKind, false)}>
+                  <button
+                    className="button ghost compact"
+                    disabled={!acknowledged || busyAction !== null}
+                    onClick={() =>
+                      void previewRepository(item.url, item.mediaKind, false)
+                    }
+                  >
                     Browse
                   </button>
                 </div>
@@ -616,16 +1017,28 @@ export default function SettingsPage() {
               <div className="extension-heading">
                 <div>
                   <h3>{preview.name}</h3>
-                  <p>{preview.packages.length} repository entries. Mature entries are hidden by default.</p>
+                  <p>
+                    {preview.packages.length} repository entries. Mature entries
+                    are hidden by default.
+                  </p>
                 </div>
                 <span>{preview.mediaKind.toLowerCase()}</span>
               </div>
               <div className="extension-toolbar">
                 <label>
                   <Search />
-                  <input aria-label="Search extension packages" value={packageQuery} onChange={(event) => setPackageQuery(event.target.value)} placeholder="Search packages or languages" />
+                  <input
+                    aria-label="Search extension packages"
+                    value={packageQuery}
+                    onChange={(event) => setPackageQuery(event.target.value)}
+                    placeholder="Search packages or languages"
+                  />
                 </label>
-                <select aria-label="Maturity filter" value={maturityFilter} onChange={(event) => setMaturityFilter(event.target.value)}>
+                <select
+                  aria-label="Maturity filter"
+                  value={maturityFilter}
+                  onChange={(event) => setMaturityFilter(event.target.value)}
+                >
                   <option value="GENERAL">General only</option>
                   <option value="MATURE">Mature only</option>
                   <option value="ADULT">Adult only</option>
@@ -642,19 +1055,50 @@ export default function SettingsPage() {
                     <div className="extension-meta">
                       <span>{item.version}</span>
                       <span>{item.language ?? "unknown"}</span>
-                      {item.runtime && item.runtime !== "ANDROID_APK" && <span>{item.runtime.replace("MANGAYOMI_", "").toLowerCase()}</span>}
-                      <span className={`maturity ${packageMaturity(item).toLowerCase()}`}>{packageMaturity(item).toLowerCase()}</span>
+                      {item.runtime && item.runtime !== "ANDROID_APK" && (
+                        <span>
+                          {item.runtime.replace("MANGAYOMI_", "").toLowerCase()}
+                        </span>
+                      )}
+                      <span
+                        className={`maturity ${packageMaturity(item).toLowerCase()}`}
+                      >
+                        {packageMaturity(item).toLowerCase()}
+                      </span>
                     </div>
-                    <button className="button ghost compact" title={item.compatibilityMessage} disabled={busyAction !== null || item.runtimeAvailable === false} onClick={() => void inspectPackage(item)}>
+                    <button
+                      className="button ghost compact"
+                      title={item.compatibilityMessage}
+                      disabled={
+                        busyAction !== null || item.runtimeAvailable === false
+                      }
+                      onClick={() => void inspectPackage(item)}
+                    >
                       <Download />
-                      {busyAction === item.pkg ? "Inspecting…" : item.runtimeAvailable === false ? "Runtime pending" : "Review"}
+                      {busyAction === item.pkg
+                        ? "Inspecting…"
+                        : item.runtimeAvailable === false
+                          ? "Runtime pending"
+                          : "Review"}
                     </button>
-                    {item.compatibilityMessage && <small className="extension-compatibility">{item.compatibilityMessage}</small>}
+                    {item.compatibilityMessage && (
+                      <small className="extension-compatibility">
+                        {item.compatibilityMessage}
+                      </small>
+                    )}
                   </div>
                 ))}
               </div>
-              {visiblePackages.length === 0 && <p className="extension-empty">No packages match these filters.</p>}
-              {preview.warnings.slice(1).map((warning) => <p className="extension-empty" key={warning}>{warning}</p>)}
+              {visiblePackages.length === 0 && (
+                <p className="extension-empty">
+                  No packages match these filters.
+                </p>
+              )}
+              {preview.warnings.slice(1).map((warning) => (
+                <p className="extension-empty" key={warning}>
+                  {warning}
+                </p>
+              ))}
             </div>
           )}
 
@@ -665,7 +1109,8 @@ export default function SettingsPage() {
                 <div>
                   <h3>Review {inspection.displayName}</h3>
                   <p>
-                    {formatBytes(inspection.byteSize)} · version {inspection.version} · {inspection.maturity.toLowerCase()}
+                    {formatBytes(inspection.byteSize)} · version{" "}
+                    {inspection.version} · {inspection.maturity.toLowerCase()}
                   </p>
                 </div>
               </div>
@@ -674,7 +1119,11 @@ export default function SettingsPage() {
                   <ShieldAlert />
                   <div>
                     <b>Signing identity changed</b>
-                    <p>The new signer does not match the installed version. Install only if the repository maintainer announced this change.</p>
+                    <p>
+                      The new signer does not match the installed version.
+                      Install only if the repository maintainer announced this
+                      change.
+                    </p>
                   </div>
                 </div>
               )}
@@ -683,7 +1132,10 @@ export default function SettingsPage() {
                   <ShieldAlert />
                   <div>
                     <b>Declared permissions changed</b>
-                    <p>Review the complete list again. Newly declared permissions are highlighted below.</p>
+                    <p>
+                      Review the complete list again. Newly declared permissions
+                      are highlighted below.
+                    </p>
                   </div>
                 </div>
               )}
@@ -702,13 +1154,26 @@ export default function SettingsPage() {
                 </div>
               </dl>
               <div className="permission-review">
-                <h4>Declared Android permissions ({inspection.permissions.length})</h4>
+                <h4>
+                  Declared Android permissions ({inspection.permissions.length})
+                </h4>
                 {inspection.permissions.length === 0 ? (
                   <p>No Android permissions declared.</p>
                 ) : (
                   <ul>
                     {inspection.permissions.map((permission) => (
-                      <li className={isSensitivePermission(permission) || (inspection.permissionsChanged && !inspection.previousPermissions.includes(permission)) ? "sensitive" : ""} key={permission}>
+                      <li
+                        className={
+                          isSensitivePermission(permission) ||
+                          (inspection.permissionsChanged &&
+                            !inspection.previousPermissions.includes(
+                              permission,
+                            ))
+                            ? "sensitive"
+                            : ""
+                        }
+                        key={permission}
+                      >
                         {permission}
                       </li>
                     ))}
@@ -716,16 +1181,40 @@ export default function SettingsPage() {
                 )}
               </div>
               <label className="install-consent">
-                <input type="checkbox" checked={permissionConsent} onChange={(event) => setPermissionConsent(event.target.checked)} />
-                <span>I reviewed and accept these permissions. Store this APK locally without executing it.</span>
+                <input
+                  type="checkbox"
+                  checked={permissionConsent}
+                  onChange={(event) =>
+                    setPermissionConsent(event.target.checked)
+                  }
+                />
+                <span>
+                  I reviewed and accept these permissions. Store this APK
+                  locally without executing it.
+                </span>
               </label>
               {inspection.signerChanged && (
                 <label className="install-consent danger">
-                  <input type="checkbox" checked={signerConsent} onChange={(event) => setSignerConsent(event.target.checked)} />
-                  <span>I independently verified and accept the new signing identity.</span>
+                  <input
+                    type="checkbox"
+                    checked={signerConsent}
+                    onChange={(event) => setSignerConsent(event.target.checked)}
+                  />
+                  <span>
+                    I independently verified and accept the new signing
+                    identity.
+                  </span>
                 </label>
               )}
-              <button className="button primary" disabled={busyAction !== null || !permissionConsent || (inspection.signerChanged && !signerConsent)} onClick={() => void installInspected()}>
+              <button
+                className="button primary"
+                disabled={
+                  busyAction !== null ||
+                  !permissionConsent ||
+                  (inspection.signerChanged && !signerConsent)
+                }
+                onClick={() => void installInspected()}
+              >
                 <Download />
                 {busyAction === "install" ? "Installing…" : "Install locally"}
               </button>
@@ -736,22 +1225,46 @@ export default function SettingsPage() {
             <div className="admin-card installed-extensions">
               <h3>Installed on this Bridge</h3>
               {installedExtensions.map((item) => (
-                <div className="extension-row" key={`${item.mediaKind}:${item.packageName}`}>
+                <div
+                  className="extension-row"
+                  key={`${item.mediaKind}:${item.packageName}`}
+                >
                   <div>
                     <b>{item.displayName}</b>
                     <small>
-                      {item.version} · {item.permissions.length} permissions · signer {item.signerFingerprint.slice(0, 12)}…
+                      {item.version} · {item.permissions.length} permissions ·
+                      signer {item.signerFingerprint.slice(0, 12)}…
                     </small>
                   </div>
-                  <span className={item.enabled ? "installed-state enabled" : "installed-state"}>{item.enabled ? "enabled" : "disabled"}</span>
+                  <span
+                    className={
+                      item.enabled
+                        ? "installed-state enabled"
+                        : "installed-state"
+                    }
+                  >
+                    {item.enabled ? "enabled" : "disabled"}
+                  </span>
                   <div className="extension-actions">
-                    <button className="button ghost compact" disabled={busyAction !== null} onClick={() => void setExtensionEnabled(item, !item.enabled)}>
+                    <button
+                      className="button ghost compact"
+                      disabled={busyAction !== null}
+                      onClick={() =>
+                        void setExtensionEnabled(item, !item.enabled)
+                      }
+                    >
                       <Power />
                       {item.enabled ? "Disable" : "Enable"}
                     </button>
-                    <button className="button ghost compact danger" disabled={busyAction !== null} onClick={() => void removeExtension(item)}>
+                    <button
+                      className="button ghost compact danger"
+                      disabled={busyAction !== null}
+                      onClick={() => void removeExtension(item)}
+                    >
                       <Trash2 />
-                      {pendingRemoval === item.packageName ? "Confirm remove" : "Remove"}
+                      {pendingRemoval === item.packageName
+                        ? "Confirm remove"
+                        : "Remove"}
                     </button>
                   </div>
                 </div>
@@ -764,7 +1277,19 @@ export default function SettingsPage() {
   );
 }
 
-function Source({ icon, title, copy, action, active }: { icon: React.ReactNode; title: string; copy: string; action: string; active?: boolean }) {
+function Source({
+  icon,
+  title,
+  copy,
+  action,
+  active,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  copy: string;
+  action: string;
+  active?: boolean;
+}) {
   return (
     <article className="source-card">
       <span className="source-icon">{icon}</span>
@@ -783,8 +1308,12 @@ function packageMaturity(item: ExtensionPackage) {
   return !item.nsfw ? "GENERAL" : item.nsfw === 1 ? "MATURE" : "ADULT";
 }
 function formatBytes(bytes: number) {
-  return bytes < 1024 * 1024 ? `${Math.ceil(bytes / 1024)} KiB` : `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+  return bytes < 1024 * 1024
+    ? `${Math.ceil(bytes / 1024)} KiB`
+    : `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
 }
 function isSensitivePermission(permission: string) {
-  return /(CAMERA|MICROPHONE|RECORD_AUDIO|LOCATION|CONTACTS|SMS|PHONE|CALL_LOG|INSTALL_PACKAGES|QUERY_ALL_PACKAGES|READ_MEDIA|EXTERNAL_STORAGE)/i.test(permission);
+  return /(CAMERA|MICROPHONE|RECORD_AUDIO|LOCATION|CONTACTS|SMS|PHONE|CALL_LOG|INSTALL_PACKAGES|QUERY_ALL_PACKAGES|READ_MEDIA|EXTERNAL_STORAGE)/i.test(
+    permission,
+  );
 }

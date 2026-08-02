@@ -34,7 +34,7 @@ class RepositoryService {
         val host = java.net.URI(request.url).host ?: "Extension repository"
         val warnings = if (request.mediaKind == MediaKind.NOVEL) listOf(
             DISCLAIMER,
-            "Mangayomi JavaScript and Dart sources are listed for review only in this Bridge build. They cannot execute until the isolated novel runtime is installed."
+            "Mangayomi JavaScript sources run in HAO's isolated novel host. Dart sources remain unavailable in this Bridge build."
         ) else listOf(DISCLAIMER)
         return RepositoryPreview(host, request.url, request.mediaKind, packages, warnings)
     }
@@ -66,9 +66,9 @@ class RepositoryService {
             language = item.text("lang"),
             nsfw = item["isNsfw"]?.jsonPrimitive?.intOrNull ?: if (item["isNsfw"]?.jsonPrimitive?.booleanOrNull == true) 2 else 0,
             runtime = runtime,
-            runtimeAvailable = false,
+            runtimeAvailable = runtime == "MANGAYOMI_JAVASCRIPT",
             compatibilityMessage = when (runtime) {
-                "MANGAYOMI_JAVASCRIPT" -> "JavaScript source recognized; isolated execution is not enabled yet."
+                "MANGAYOMI_JAVASCRIPT" -> "Ready for review and isolated JavaScript execution."
                 "MANGAYOMI_DART" -> "Dart sources are not supported by this Bridge build."
                 else -> "Unknown Mangayomi source language."
             },

@@ -24,6 +24,8 @@ dependencies {
     implementation("io.reactivex:rxjava:1.3.8")
     implementation("com.squareup.okhttp3:okhttp:5.3.0")
     implementation("org.jsoup:jsoup:1.16.1")
+    implementation("org.graalvm.polyglot:polyglot:24.2.1")
+    implementation("org.graalvm.polyglot:js-community:24.2.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
     implementation("net.java.dev.jna:jna-platform:5.17.0")
     compileOnly("com.google.android:android:4.1.1.4")

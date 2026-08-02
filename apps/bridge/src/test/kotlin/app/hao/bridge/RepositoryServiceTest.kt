@@ -33,8 +33,8 @@ class RepositoryServiceTest {
         assertEquals(1, preview.packages.size)
         assertEquals("MANGAYOMI_JAVASCRIPT", preview.packages.single().runtime)
         assertEquals("", preview.packages.single().apk)
-        assertEquals(false, preview.packages.single().runtimeAvailable)
-        assertTrue(preview.warnings.last().contains("listed for review only"))
+        assertEquals(true, preview.packages.single().runtimeAvailable)
+        assertTrue(preview.warnings.last().contains("isolated novel host"))
     }
 
     @Test

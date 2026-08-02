@@ -21,7 +21,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.zip.ZipFile
 
 class ExtensionManager {
-    private data class PendingInspection(val inspection: ExtensionInspection, val path: Path, val expiresAt: Instant)
+    private data class PendingInspection(val inspection: ExtensionInspection, val path: Path, val expiresAt: Instant, val packageInfo: ExtensionPackage? = null)
     private data class AnalyzedApk(val packageName: String, val versionName: String, val signerFingerprint: String, val permissions: List<String>)
 
     private val client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8)).followRedirects(HttpClient.Redirect.NEVER).build()
@@ -30,6 +30,7 @@ class ExtensionManager {
 
     fun inspect(request: InspectExtensionRequest, storageRoot: Path): ExtensionInspection {
         require(request.acknowledged) { "The third-party extension disclaimer must be acknowledged" }
+        if (request.mediaKind == MediaKind.NOVEL) return inspectNovelScript(request, storageRoot)
         require(request.packageInfo.runtime == "ANDROID_APK" && request.packageInfo.runtimeAvailable) {
             request.packageInfo.compatibilityMessage ?: "This extension runtime is not available"
         }
@@ -75,7 +76,7 @@ class ExtensionManager {
                 maturity = maturity(request.packageInfo.nsfw),
                 expiresAt = expiresAt.toString(),
             )
-            pending[inspectionId] = PendingInspection(inspection, stagedApk, expiresAt)
+            pending[inspectionId] = PendingInspection(inspection, stagedApk, expiresAt, request.packageInfo)
             return inspection
         } catch (error: Exception) {
             Files.deleteIfExists(stagedApk)
@@ -99,7 +100,7 @@ class ExtensionManager {
 
         val directory = packageDirectory(storageRoot, staged.inspection.mediaKind, staged.inspection.packageName)
         Files.createDirectories(directory)
-        val target = directory.resolve(APK_FILE)
+        val target = directory.resolve(if (staged.inspection.mediaKind == MediaKind.NOVEL) SCRIPT_FILE else APK_FILE)
         try {
             Files.move(staged.path, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
         } catch (_: AtomicMoveNotSupportedException) {
@@ -119,6 +120,10 @@ class ExtensionManager {
             localPath = target.toAbsolutePath().toString(),
             installedAt = Instant.now().toString(),
             enabled = true,
+            runtime = staged.packageInfo?.runtime ?: "ANDROID_APK",
+            sourceCodeUrl = staged.packageInfo?.sourceCodeUrl,
+            baseUrl = staged.packageInfo?.baseUrl,
+            language = staged.packageInfo?.language,
         )
         writeInstalled(directory, installed)
         pending.remove(request.inspectionId)
@@ -216,6 +221,68 @@ class ExtensionManager {
         return total
     }
 
+    private fun inspectNovelScript(request: InspectExtensionRequest, storageRoot: Path): ExtensionInspection {
+        val info = request.packageInfo
+        require(info.runtime == "MANGAYOMI_JAVASCRIPT" && info.runtimeAvailable) {
+            info.compatibilityMessage ?: "This novel extension runtime is not available"
+        }
+        validatePackageName(info.pkg)
+        val sourceUri = Security.validateRemoteHttps(info.sourceCodeUrl?.trim() ?: throw IllegalArgumentException("Novel source code URL is missing"))
+        val baseUri = Security.validateRemoteHttps(info.baseUrl?.trim() ?: throw IllegalArgumentException("Novel base URL is missing"))
+        cleanupExpired(storageRoot)
+        val inspectionId = UUID.randomUUID().toString()
+        val stagingRoot = storageRoot.resolve(".staging").normalize()
+        require(stagingRoot.startsWith(storageRoot.normalize())) { "Invalid staging path" }
+        Files.createDirectories(stagingRoot)
+        val stagedScript = stagingRoot.resolve("$inspectionId.js")
+        try {
+            val byteSize = downloadScript(sourceUri, stagedScript)
+            val source = Files.readString(stagedScript)
+            require(source.contains("class DefaultExtension") && source.contains("mangayomiSources")) { "The JavaScript file is not a compatible Mangayomi source" }
+            require(!source.contains("Java.type") && !source.contains("Polyglot.")) { "The JavaScript source requests forbidden host access" }
+            val previous = readInstalled(storageRoot, MediaKind.NOVEL, info.pkg)
+            val publisherIdentity = "${sourceUri.scheme}://${sourceUri.host}${sourceUri.path.substringBeforeLast('/', "")}".encodeToByteArray()
+            val fingerprint = Security.sha256(publisherIdentity)
+            val permissions = listOf("network:${baseUri.host.lowercase()}", "source:${sourceUri.host.lowercase()}").distinct().sorted()
+            val expiresAt = Instant.now().plus(INSPECTION_TTL)
+            val inspection = ExtensionInspection(
+                id = inspectionId,
+                packageName = info.pkg,
+                displayName = "Mangayomi: ${info.name}",
+                mediaKind = MediaKind.NOVEL,
+                version = info.version,
+                sha256 = Security.sha256(stagedScript),
+                signerFingerprint = fingerprint,
+                previousSignerFingerprint = previous?.signerFingerprint,
+                signerChanged = previous != null && previous.signerFingerprint != fingerprint,
+                permissions = permissions,
+                previousPermissions = previous?.permissions ?: emptyList(),
+                permissionsChanged = previous != null && previous.permissions != permissions,
+                byteSize = byteSize,
+                maturity = maturity(info.nsfw),
+                expiresAt = expiresAt.toString(),
+            )
+            pending[inspectionId] = PendingInspection(inspection, stagedScript, expiresAt, info)
+            return inspection
+        } catch (error: Exception) {
+            Files.deleteIfExists(stagedScript)
+            if (error is IllegalArgumentException) throw error
+            throw IllegalArgumentException("Novel extension inspection failed: ${error.message ?: "invalid JavaScript"}", error)
+        }
+    }
+
+    private fun downloadScript(uri: URI, target: Path): Long {
+        val response = client.send(
+            HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(20)).header("Accept", "text/javascript, application/javascript, text/plain").GET().build(),
+            HttpResponse.BodyHandlers.ofByteArray(),
+        )
+        require(response.statusCode() == 200) { "Novel source download returned HTTP ${response.statusCode()}" }
+        require(response.body().isNotEmpty()) { "Novel source is empty" }
+        require(response.body().size <= MAX_SCRIPT_BYTES) { "Novel source exceeds the 1 MiB limit" }
+        Files.write(target, response.body(), StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
+        return response.body().size.toLong()
+    }
+
     private fun validateApkArchive(path: Path) {
         ZipFile(path.toFile()).use { apk ->
             require(apk.getEntry("AndroidManifest.xml") != null) { "APK is missing AndroidManifest.xml" }
@@ -296,7 +363,9 @@ class ExtensionManager {
         private val PACKAGE_NAME = Regex("[A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)+")
         private val INSPECTION_TTL = Duration.ofMinutes(10)
         private const val MAX_APK_BYTES = 50L * 1024L * 1024L
+        private const val MAX_SCRIPT_BYTES = 1024 * 1024
         private const val APK_FILE = "extension.apk"
+        private const val SCRIPT_FILE = "extension.js"
         private const val METADATA_FILE = "metadata.json"
     }
 }
