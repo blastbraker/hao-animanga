@@ -44,4 +44,15 @@ class RepositoryServiceTest {
             service.parseIndex(body, RepositoryRequest("https://example.com/novel_index.json", MediaKind.NOVEL, true))
         }
     }
+
+    @Test
+    fun `repairs the known RoyalRoad JavaScript source URL`() {
+        val body = """[{"name":"RoyalRoad","id":"626511881","baseUrl":"https://www.royalroad.com","lang":"en","sourceCodeUrl":"https://raw.githubusercontent.com/m2k3a/mangayomi-extensions/main/javascript/","version":"0.0.1","sourceCodeLanguage":1,"itemType":2,"isNsfw":0}]""".encodeToByteArray()
+        val preview = service.parseIndex(body, RepositoryRequest("https://example.com/novel_index.json", MediaKind.NOVEL, true))
+
+        assertEquals(
+            "https://raw.githubusercontent.com/m2k3a/mangayomi-extensions/main/javascript/novel/src/en/RoyalRoad.js",
+            preview.packages.single().sourceCodeUrl,
+        )
+    }
 }

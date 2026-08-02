@@ -21,7 +21,7 @@ object NovelHostServer {
             }
         }
         app.exception(IllegalArgumentException::class.java) { error, ctx ->
-            System.err.println("Novel host rejected a request: ${error.message ?: error.javaClass.simpleName}")
+            System.err.println("Novel host rejected a request: ${safeFailureSummary(error)}")
             ctx.status(400).json(ErrorResponse("INVALID", error.message ?: "Invalid novel source request"))
         }
         app.exception(Exception::class.java) { error, ctx ->
@@ -42,5 +42,14 @@ object NovelHostServer {
         app.get("/v1/novels/{novelId}/chapters") { ctx -> ctx.json(runtime.chapters(ctx.pathParam("novelId"))) }
         app.get("/v1/chapters/{chapterId}") { ctx -> ctx.json(runtime.chapter(ctx.pathParam("chapterId"))) }
         return app
+    }
+
+    private fun safeFailureSummary(error: Throwable): String {
+        val root = generateSequence(error) { it.cause }.last()
+        val message = (root.message ?: root.javaClass.simpleName)
+            .replace(Regex("https?://\\S+"), "<url>")
+            .replace(Regex("(?i)(authorization|cookie|token)=[^\\s,;]+"), "\$1=<redacted>")
+            .take(500)
+        return "${root.javaClass.simpleName}: $message"
     }
 }

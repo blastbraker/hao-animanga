@@ -49,7 +49,8 @@ class RepositoryService {
         if (item["itemType"]?.jsonPrimitive?.intOrNull != 2) return@mapNotNull null
         val id = item.text("id") ?: return@mapNotNull null
         val name = item.text("name") ?: return@mapNotNull null
-        val sourceCodeUrl = item.text("sourceCodeUrl") ?: return@mapNotNull null
+        val declaredSourceCodeUrl = item.text("sourceCodeUrl") ?: return@mapNotNull null
+        val sourceCodeUrl = KNOWN_NOVEL_SOURCE_URL_FIXES[id] ?: declaredSourceCodeUrl
         val baseUrl = item.text("baseUrl") ?: return@mapNotNull null
         if (!isPublicHttpsReference(sourceCodeUrl) || !isPublicHttpsReference(baseUrl)) return@mapNotNull null
         val language = item["sourceCodeLanguage"]?.jsonPrimitive?.intOrNull
@@ -97,4 +98,12 @@ class RepositoryService {
     }
 
     private fun JsonObject.text(key: String): String? = this[key]?.jsonPrimitive?.content?.trim()?.takeIf(String::isNotEmpty)
+
+    companion object {
+        // The upstream index currently points this JavaScript RoyalRoad entry at
+        // the repository's javascript/ directory instead of its actual source file.
+        private val KNOWN_NOVEL_SOURCE_URL_FIXES = mapOf(
+            "626511881" to "https://raw.githubusercontent.com/m2k3a/mangayomi-extensions/main/javascript/novel/src/en/RoyalRoad.js",
+        )
+    }
 }

@@ -37,6 +37,7 @@ import java.time.Instant
 import java.util.Base64
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicReference
@@ -51,6 +52,7 @@ class NovelScriptRuntime(
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val extensions = ExtensionManager()
     private val codec = NovelPointerCodec(secret)
+    private val detailCache = ConcurrentHashMap<String, CachedNovelDetail>()
 
     fun sources(): List<NovelSource> = installedSources().map { installed ->
         NovelSource(
@@ -94,7 +96,7 @@ class NovelScriptRuntime(
     fun detail(novelId: String): NovelSummary {
         val pointer = codec.decode(novelId)
         val installed = source(pointer.sourceId)
-        val detail = withEngine(installed) { it.invokeObject("getDetail", listOf(pointer.url)) }
+        val detail = cachedDetail(novelId, pointer, installed)
         return NovelSummary(
             id = novelId,
             sourceId = pointer.sourceId,
@@ -110,7 +112,7 @@ class NovelScriptRuntime(
     fun chapters(novelId: String): List<NovelChapter> {
         val pointer = codec.decode(novelId)
         val installed = source(pointer.sourceId)
-        val detail = withEngine(installed) { it.invokeObject("getDetail", listOf(pointer.url)) }
+        val detail = cachedDetail(novelId, pointer, installed)
         val chapters = detail["chapters"]?.jsonArray ?: JsonArray(emptyList())
         return chapters.take(MAX_CHAPTERS).mapIndexedNotNull { index, item ->
             val record = item as? JsonObject ?: return@mapIndexedNotNull null
@@ -147,6 +149,23 @@ class NovelScriptRuntime(
 
     private fun source(sourceId: String): InstalledPackage = installedSources().find { it.packageName == sourceId }
         ?: throw IllegalArgumentException("Novel source is not installed or enabled")
+
+    private fun cachedDetail(novelId: String, pointer: NovelPointer, installed: InstalledPackage): JsonObject {
+        val now = Instant.now()
+        val cached = detailCache[novelId]
+        if (cached != null && cached.expiresAt.isAfter(now)) return cached.value
+        val updated = detailCache.compute(novelId) { _, current ->
+            if (current != null && current.expiresAt.isAfter(Instant.now())) current
+            else CachedNovelDetail(
+                withEngine(installed) { it.invokeObject("getDetail", listOf(pointer.url)) },
+                Instant.now().plus(DETAIL_CACHE_TTL),
+            )
+        } ?: throw IllegalArgumentException("Novel detail could not be cached")
+        if (detailCache.size > DETAIL_CACHE_MAX_ENTRIES) {
+            detailCache.entries.minByOrNull { it.value.expiresAt }?.let { detailCache.remove(it.key, it.value) }
+        }
+        return updated.value
+    }
 
     private fun <T> withEngine(installed: InstalledPackage, operation: (MangayomiJavascriptEngine) -> T): T {
         val root = extensionRoot.toAbsolutePath().normalize()
@@ -202,7 +221,9 @@ class NovelScriptRuntime(
         private const val MAX_DESCRIPTION_CHARS = 20_000
         private const val MAX_HTML_CHARS = 2_000_000
         private const val MAX_SANITIZED_HTML_CHARS = 1_000_000
-        private const val OPERATION_TIMEOUT_SECONDS = 25L
+        private const val OPERATION_TIMEOUT_SECONDS = 50L
+        private const val DETAIL_CACHE_MAX_ENTRIES = 8
+        private val DETAIL_CACHE_TTL: Duration = Duration.ofMinutes(10)
     }
 }
 
@@ -229,7 +250,8 @@ private class MangayomiJavascriptEngine(
         bindings.putMember("Document", DocumentConstructor(network))
         bindings.putMember("SharedPreferences", SharedPreferencesConstructor())
         context.eval("js", PRELUDE)
-        context.eval("js", normalizeAsyncSource(sourceCode))
+        context.eval("js", normalizeMangayomiJavascriptSource(sourceCode))
+        if (installed.packageName == NOVEL_FIRE_PACKAGE) context.eval("js", NOVEL_FIRE_DETAIL_COMPAT)
         val sourceJson = kotlinx.serialization.json.buildJsonObject {
             put("name", JsonPrimitive(installed.displayName.removePrefix("Mangayomi: ")))
             put("lang", JsonPrimitive(installed.language ?: "unknown"))
@@ -272,16 +294,68 @@ private class MangayomiJavascriptEngine(
 
     companion object {
         private val ALLOWED_METHODS = setOf("getPopular", "getLatestUpdates", "search", "getDetail", "getHtmlContent")
-        private val ASYNC = Regex("\\basync\\s+")
-        private val AWAIT = Regex("\\bawait\\s+")
+        private const val NOVEL_FIRE_PACKAGE = "mangayomi.novel.327690672"
         private const val PRELUDE = """
             class MProvider {
               constructor() { this.source = {}; }
               get headers() { return this.getHeaders ? this.getHeaders(this.source.baseUrl || "") : {}; }
             }
         """
-
-        private fun normalizeAsyncSource(source: String): String = source.replace(ASYNC, "").replace(AWAIT, "")
+        private const val NOVEL_FIRE_DETAIL_COMPAT = """
+            DefaultExtension.prototype.getDetail = function(url) {
+              const client = new Client();
+              const headers = this.getHeaders(url);
+              const doc = new Document(client.get(url, headers).body);
+              const chaptersUrl = url + "/chapters";
+              const firstChapterDoc = new Document(client.get(chaptersUrl, headers).body);
+              const chapterTitles = {};
+              const collectChapters = function(chapterDoc) {
+                for (const element of chapterDoc.select("ul.chapter-list li a")) {
+                  const numberElement = element.selectFirst("span.chapter-no");
+                  if (!numberElement) continue;
+                  const number = numberElement.text.trim();
+                  const titleElement = element.selectFirst("strong.chapter-title");
+                  chapterTitles[number] = titleElement ? titleElement.text.trim() : "Chapter " + number;
+                }
+              };
+              collectChapters(firstChapterDoc);
+              const countMeta = firstChapterDoc.selectFirst('meta[name="description"]');
+              const countMatch = countMeta ? countMeta.attr("content").match(/A total of\s+([\d,]+)\s+chapters/i) : null;
+              let total = countMatch ? Number(countMatch[1].replace(/,/g, "")) : Object.keys(chapterTitles).length;
+              if (total > 100) {
+                const lastPage = Math.ceil(total / 100);
+                collectChapters(new Document(client.get(chaptersUrl + "?page=" + lastPage, headers).body));
+              }
+              const chapters = [];
+              for (let number = total; number >= 1; number -= 1) {
+                chapters.push({
+                  name: chapterTitles[String(number)] || "Chapter " + number,
+                  url: url + "/chapter-" + number,
+                  scanlator: ""
+                });
+              }
+              const title = doc.selectFirst("div.main-head h1.novel-title");
+              const image = doc.selectFirst("figure.cover img");
+              const description = doc.selectFirst('meta[itemprop="description"]');
+              const author = doc.selectFirst('span[itemprop="author"]');
+              const keywords = doc.selectFirst('meta[itemprop="keywords"]');
+              const statusElement = doc.selectFirst("div.header-stats span strong");
+              const genres = keywords ? keywords.attr("content").split(",").map(value => value.trim()).filter(value => {
+                const normalized = value.toLowerCase();
+                return normalized !== "novel" && normalized !== "webnovel";
+              }) : [];
+              return {
+                name: title ? title.text : "Untitled novel",
+                link: url,
+                imageUrl: image ? image.attr("src") : "",
+                description: description ? description.attr("content") : "",
+                author: author ? author.text : "",
+                genre: genres,
+                status: statusElement && statusElement.text.toLowerCase().includes("ongoing") ? 1 : 0,
+                chapters: chapters
+              };
+            };
+        """
         private fun jsString(value: String): String = buildString {
             append('"')
             value.forEach { character ->
@@ -331,6 +405,7 @@ private class SharedPreferencesConstructor : ProxyInstantiable {
 private class JsoupProxy(private val element: Element) : ProxyObject {
     override fun getMember(key: String): Any? = when (key) {
         "text" -> element.text()
+        "className" -> element.className()
         "innerHtml" -> element.html()
         "outerHtml" -> element.outerHtml()
         "getSrc" -> element.absUrl("src").ifBlank { element.attr("src") }
@@ -340,10 +415,24 @@ private class JsoupProxy(private val element: Element) : ProxyObject {
         "selectFirst" -> ProxyExecutable { args -> element.selectFirst(args.firstOrNull()?.asString() ?: "")?.let(::JsoupProxy) }
         else -> null
     }
-    override fun getMemberKeys(): Any = arrayOf("text", "innerHtml", "outerHtml", "getSrc", "getHref", "attr", "select", "selectFirst")
+    override fun getMemberKeys(): Any = arrayOf("text", "className", "innerHtml", "outerHtml", "getSrc", "getHref", "attr", "select", "selectFirst")
     override fun hasMember(key: String) = key in (getMemberKeys() as Array<*>)
     override fun putMember(key: String, value: Value?) = Unit
 }
+
+internal fun normalizeMangayomiJavascriptSource(source: String): String = source
+    .replace(Regex("\\basync\\s+"), "")
+    .replace(Regex("\\bawait\\s+"), "")
+    // RoyalRoad 0.0.1 uses an over-broad descendant selector that includes
+    // layout divs without fiction links. Restrict it to the result rows.
+    .replace(Regex("div#result\\s+div,\\s*div\\.fiction-list\\s+div"), "div.fiction-list-item")
+    // Some sources dereference a missing final-page pagination link.
+    .replace(
+        "const nextHref = nextButton.attr(\"href\");",
+        "const nextHref = nextButton ? nextButton.attr(\"href\") : \"\";",
+    )
+
+private data class CachedNovelDetail(val value: JsonObject, val expiresAt: Instant)
 
 private class NovelNetworkClient(private val dataRoot: Path) {
     private val client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8)).followRedirects(HttpClient.Redirect.NEVER).build()

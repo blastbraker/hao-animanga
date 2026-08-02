@@ -32,7 +32,7 @@ class NovelHostClient(port: Int, private val token: String) {
     fun chapter(chapterId: String): NovelChapterContent = decode(getText("chapters/${segment(chapterId)}"))
 
     private inline fun <reified T> decode(value: String): T = json.decodeFromString(value)
-    private fun getText(path: String, timeout: Duration = Duration.ofSeconds(35)): String {
+    private fun getText(path: String, timeout: Duration = Duration.ofSeconds(55)): String {
         val response = http.send(request(path).timeout(timeout).GET().build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
         if (response.statusCode() !in 200..299) throw NovelHostRequestException(response.statusCode())
         return response.body()

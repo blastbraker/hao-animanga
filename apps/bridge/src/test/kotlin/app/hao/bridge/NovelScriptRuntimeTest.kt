@@ -41,6 +41,23 @@ class NovelScriptRuntimeTest {
         assertFailsWith<IllegalArgumentException> { runtime.detail(id.dropLast(1) + if (id.last() == 'a') 'b' else 'a') }
     }
 
+    @Test
+    fun `normalizes the broken RoyalRoad catalog selector`() {
+        val source = "const novels = doc.select(\"div#result  div, div.fiction-list  div\");"
+        val normalized = normalizeMangayomiJavascriptSource(source)
+
+        assertTrue(normalized.contains("doc.select(\"div.fiction-list-item\")"))
+        assertFalse(normalized.contains("div#result  div"))
+    }
+
+    @Test
+    fun `guards missing Mangayomi pagination links`() {
+        val source = "const nextHref = nextButton.attr(\"href\");"
+        val normalized = normalizeMangayomiJavascriptSource(source)
+
+        assertTrue(normalized.contains("nextButton ? nextButton.attr(\"href\") : \"\""))
+    }
+
     private fun fixtureRuntime(): NovelScriptRuntime {
         val root = temporary.resolve("extensions")
         val directory = root.resolve("novel/mangayomi.novel.fixture")
