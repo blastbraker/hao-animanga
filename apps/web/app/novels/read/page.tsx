@@ -106,6 +106,7 @@ export default function NovelReaderPage() {
   const visibleChapters = filteredChapters.slice(0, chapterLimit);
   const chapterGroups = useMemo(() => groupNovelChapters(visibleChapters), [visibleChapters]);
   const firstUnread = chapters.find((chapter) => !readChapterIds.has(chapter.id)) ?? null;
+  const lastReadPosition = chapters.reduce((latest, chapter, index) => readChapterIds.has(chapter.id) ? Math.max(latest, index) : latest, -1);
   const novelKey = novel ? novelStorageKey(novel.sourceId, novel.id) : "";
 
   useEffect(() => setChapterLimit(120), [chapterQuery]);
@@ -181,7 +182,7 @@ export default function NovelReaderPage() {
         setReadChapterIds(new Set(readState[key] ?? []));
         setBookmarks(parseNovelBookmarks(window.localStorage.getItem(NOVEL_BOOKMARKS_KEY)).filter((item) => item.novelKey === key));
         const savedPosition = Number(
-          window.localStorage.getItem(`hao:novel-position:${chapterId}`) || "0",
+          window.localStorage.getItem(`hao:novel-position:${normalizedContent.chapterId}`) || "0",
         );
         window.requestAnimationFrame(() =>
           window.scrollTo({
@@ -194,7 +195,7 @@ export default function NovelReaderPage() {
         );
         void addToLibrary(
           normalizedNovel,
-          normalizedChapters.find((chapter) => chapter.id === chapterId),
+          normalizedChapters.find((chapter) => chapter.id === normalizedContent.chapterId),
         ).catch(() => undefined);
         recordActivity({
           id: `novel:${normalizedNovel.sourceId}:${normalizedNovel.id}`,
@@ -728,7 +729,7 @@ export default function NovelReaderPage() {
               const position = chapters.indexOf(chapter);
               const active = chapter.id === content.chapterId;
               const read = readChapterIds.has(chapter.id);
-              const hasReadingHistory = readChapterIds.size > 0;
+              const isNew = lastReadPosition >= 0 && position > lastReadPosition;
               return (
                 <a
                   key={chapter.id}
@@ -742,7 +743,7 @@ export default function NovelReaderPage() {
                 >
                   <span>{position + 1}</span>
                   <strong>{chapter.title}</strong>
-                  <small>{active ? "Reading" : read ? "Read" : hasReadingHistory ? "New" : "Unread"}</small>
+                  <small>{active ? "Reading" : read ? "Read" : isNew ? "New" : "Unread"}</small>
                 </a>
               );
             })}</section>)}
