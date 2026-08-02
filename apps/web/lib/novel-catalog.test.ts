@@ -20,22 +20,4 @@ describe("blended novel rankings", () => {
       "source:s4",
     ]);
   });
-
-  it("keeps the original rank from each catalog", () => {
-    expect(
-      blendNovelRankings(
-        ["a1", "a2", "a3", "a4"],
-        ["s1", "s2", "s3", "s4"],
-      ).map(({ kind, rank }) => `${kind}:${rank}`),
-    ).toEqual([
-      "anilist:1",
-      "anilist:2",
-      "anilist:3",
-      "source:1",
-      "source:2",
-      "source:3",
-      "anilist:4",
-      "source:4",
-    ]);
-  });
 });

@@ -423,6 +423,10 @@ private class JsoupProxy(private val element: Element) : ProxyObject {
 internal fun normalizeMangayomiJavascriptSource(source: String): String = source
     .replace(Regex("\\basync\\s+"), "")
     .replace(Regex("\\bawait\\s+"), "")
+    // Mangayomi sources commonly interpolate the raw search term into a URL.
+    // Browser runtimes encode it implicitly, while java.net.URI correctly
+    // rejects spaces and Unicode that have not been percent-encoded.
+    .replace("\${query}", "\${encodeURIComponent(query)}")
     // RoyalRoad 0.0.1 uses an over-broad descendant selector that includes
     // layout divs without fiction links. Restrict it to the result rows.
     .replace(Regex("div#result\\s+div,\\s*div\\.fiction-list\\s+div"), "div.fiction-list-item")

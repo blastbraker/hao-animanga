@@ -51,6 +51,15 @@ class NovelScriptRuntimeTest {
     }
 
     @Test
+    fun `encodes novel search terms before placing them in source urls`() {
+        val source = "let url = `https://example.com/search?keyword=\${query}&page=\${page}`;"
+        val normalized = normalizeMangayomiJavascriptSource(source)
+
+        assertTrue(normalized.contains("keyword=\${encodeURIComponent(query)}"))
+        assertTrue(normalized.contains("page=\${page}"))
+    }
+
+    @Test
     fun `guards missing Mangayomi pagination links`() {
         val source = "const nextHref = nextButton.attr(\"href\");"
         val normalized = normalizeMangayomiJavascriptSource(source)

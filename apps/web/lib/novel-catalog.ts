@@ -1,6 +1,5 @@
 export type BlendedNovelItem<TAniList, TSource> =
-  | { kind: "anilist"; item: TAniList; rank: number }
-  | { kind: "source"; item: TSource; rank: number };
+  { kind: "anilist"; item: TAniList } | { kind: "source"; item: TSource };
 
 export function blendNovelRankings<TAniList, TSource>(
   anilist: readonly TAniList[],
@@ -15,11 +14,11 @@ export function blendNovelRankings<TAniList, TSource>(
   const length = Math.max(anilist.length, source.length);
 
   for (let offset = 0; offset < length; offset += groupSize) {
-    anilist.slice(offset, offset + groupSize).forEach((item, index) => {
-      blended.push({ kind: "anilist", item, rank: offset + index + 1 });
+    anilist.slice(offset, offset + groupSize).forEach((item) => {
+      blended.push({ kind: "anilist", item });
     });
-    source.slice(offset, offset + groupSize).forEach((item, index) => {
-      blended.push({ kind: "source", item, rank: offset + index + 1 });
+    source.slice(offset, offset + groupSize).forEach((item) => {
+      blended.push({ kind: "source", item });
     });
   }
 

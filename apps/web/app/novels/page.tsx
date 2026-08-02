@@ -31,6 +31,10 @@ import {
 } from "../../lib/novel-response";
 import { filterNovelChapters } from "../../lib/novel-reader";
 import { blendNovelRankings } from "../../lib/novel-catalog";
+import {
+  confidentSourceMatch,
+  sourceFallbackOrder,
+} from "../../lib/source-match";
 
 const GENRES = ["Fantasy", "Romance", "Adventure", "Drama", "Comedy"] as const;
 type Shelf = "POPULAR" | "RELEASING" | "NEW";
@@ -74,6 +78,12 @@ export default function NovelsPage() {
   const selectedSource = useMemo(
     () => sources.find((source) => source.id === sourceId) ?? null,
     [sourceId, sources],
+  );
+  const openedSource = useMemo(
+    () =>
+      sources.find((source) => source.id === selected?.sourceId) ??
+      selectedSource,
+    [selected, selectedSource, sources],
   );
   const filteredChapters = useMemo(
     () => filterNovelChapters(chapters, chapterQuery),
@@ -244,6 +254,57 @@ export default function NovelsPage() {
     } finally {
       setSourceBusy("");
     }
+  }
+
+  async function openAnilistNovel(work: Work) {
+    if (!bridge) return;
+    setSourceBusy(`Finding readable chapters for ${work.title}...`);
+    setSourceError("");
+    setSelected(null);
+    setChapters([]);
+
+    const visibleMatch = confidentSourceMatch(work, sourceItems);
+    if (visibleMatch) {
+      await openNovel(visibleMatch);
+      return;
+    }
+
+    const queries = [...new Set([work.title, ...work.alternateTitles])]
+      .map((title) => title.trim())
+      .filter(Boolean)
+      .slice(0, 3);
+
+    for (const source of sourceFallbackOrder(sources, sourceId)) {
+      for (const sourceQuery of queries) {
+        const parameters = new URLSearchParams({
+          sourceId: source.id,
+          mode: "search",
+          query: sourceQuery,
+          page: "1",
+        });
+        try {
+          const result = normalizeNovelSearch(
+            await bridgeJson<unknown>(
+              bridge,
+              `/v1/novel/catalog?${parameters.toString()}`,
+            ),
+          );
+          const match = confidentSourceMatch(work, result.items);
+          if (match) {
+            await openNovel(match);
+            return;
+          }
+        } catch {
+          // A failed source must not prevent the remaining installed sources
+          // from being checked for this title.
+        }
+      }
+    }
+
+    setSourceBusy("");
+    setSourceError(
+      `No readable installed match was found for ${work.title}. Try another title or source.`,
+    );
   }
 
   function readerHref(chapter: NovelChapter) {
@@ -461,24 +522,35 @@ export default function NovelsPage() {
                   <div className="catalog-grid novel-blended-grid">
                     {blendedItems.map((entry) =>
                       entry.kind === "anilist" ? (
-                        <div
-                          className="novel-ranked-card"
+                        <button
+                          className="novel-source-card"
                           key={`anilist:${entry.item.id}`}
+                          onClick={() => void openAnilistNovel(entry.item)}
                         >
-                          <span className="novel-ranking-chip anilist">
-                            AniList #{entry.rank}
+                          {entry.item.coverUrl ? (
+                            <img
+                              src={entry.item.coverUrl}
+                              alt=""
+                              loading="lazy"
+                            />
+                          ) : (
+                            <span className="novel-cover-placeholder">
+                              <BookOpenText />
+                            </span>
+                          )}
+                          <span>
+                            <b>{entry.item.title}</b>
+                            <small>
+                              Find chapters <ChevronRight />
+                            </small>
                           </span>
-                          <MediaCard work={entry.item} />
-                        </div>
+                        </button>
                       ) : (
                         <button
                           key={`source:${entry.item.id}`}
-                          className="novel-source-card novel-ranked-card"
+                          className="novel-source-card"
                           onClick={() => void openNovel(entry.item)}
                         >
-                          <span className="novel-ranking-chip source">
-                            {selectedSource?.name ?? "Source"} #{entry.rank}
-                          </span>
                           {entry.item.imageUrl ? (
                             <img
                               src={entry.item.imageUrl}
@@ -533,7 +605,7 @@ export default function NovelsPage() {
                     </span>
                   )}
                   <div>
-                    <span className="eyebrow">{selectedSource?.name}</span>
+                    <span className="eyebrow">{openedSource?.name}</span>
                     <h2>{selected.title}</h2>
                     {selected.author && (
                       <p className="novel-author">by {selected.author}</p>

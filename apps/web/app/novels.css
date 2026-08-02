@@ -276,35 +276,6 @@
 .novel-blended-grid {
   grid-template-columns: repeat(6, minmax(0, 1fr));
 }
-.novel-ranked-card {
-  position: relative;
-  min-width: 0;
-}
-.novel-ranking-chip {
-  position: absolute;
-  z-index: 3;
-  top: 9px;
-  right: 9px;
-  max-width: calc(100% - 18px);
-  overflow: hidden;
-  padding: 5px 7px;
-  color: #f6f7fa;
-  font-size: 8px;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 6px;
-  background: rgba(7, 8, 13, 0.88);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
-}
-.novel-ranking-chip.anilist {
-  color: var(--cyan);
-}
-.novel-ranking-chip.source {
-  color: #ffd0ca;
-}
 .novel-source-status {
   margin: 14px 0;
   padding: 13px 16px;
