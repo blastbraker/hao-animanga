@@ -29,6 +29,7 @@ import {
   type NovelSource,
   type NovelSummary,
 } from "../../lib/novel-response";
+import { filterNovelChapters } from "../../lib/novel-reader";
 
 const GENRES = ["Fantasy", "Romance", "Adventure", "Drama", "Comedy"] as const;
 type Shelf = "POPULAR" | "RELEASING" | "NEW";
@@ -66,11 +67,16 @@ export default function NovelsPage() {
   const [sourceError, setSourceError] = useState("");
   const [selected, setSelected] = useState<NovelSummary | null>(null);
   const [chapters, setChapters] = useState<NovelChapter[]>([]);
+  const [chapterQuery, setChapterQuery] = useState("");
   const [visibleChapters, setVisibleChapters] = useState(60);
 
   const selectedSource = useMemo(
     () => sources.find((source) => source.id === sourceId) ?? null,
     [sourceId, sources],
+  );
+  const filteredChapters = useMemo(
+    () => filterNovelChapters(chapters, chapterQuery),
+    [chapterQuery, chapters],
   );
 
   const load = useCallback(async () => {
@@ -215,6 +221,7 @@ export default function NovelsPage() {
     setSourceBusy(`Loading ${item.title}…`);
     setSourceError("");
     setVisibleChapters(60);
+    setChapterQuery("");
     try {
       const encoded = encodeURIComponent(item.id);
       const [detailPayload, chapterPayload] = await Promise.all([
@@ -399,6 +406,7 @@ export default function NovelsPage() {
                   onClick={() => {
                     setSelected(null);
                     setChapters([]);
+                    setChapterQuery("");
                   }}
                 >
                   ← Back to source
@@ -433,25 +441,46 @@ export default function NovelsPage() {
                 <div className="novel-chapter-list">
                   <div>
                     <h3>Chapters</h3>
-                    <small>{chapters.length} available</small>
+                    <small>
+                      {chapterQuery
+                        ? `${filteredChapters.length.toLocaleString()} of ${chapters.length.toLocaleString()}`
+                        : `${chapters.length.toLocaleString()} available`}
+                    </small>
                   </div>
-                  {chapters.slice(0, visibleChapters).map((chapter) => (
+                  <label className="novel-chapter-filter">
+                    <Search />
+                    <input
+                      type="search"
+                      value={chapterQuery}
+                      placeholder="Search chapter title or number…"
+                      onChange={(event) => {
+                        setChapterQuery(event.target.value);
+                        setVisibleChapters(60);
+                      }}
+                    />
+                  </label>
+                  {filteredChapters.slice(0, visibleChapters).map((chapter) => (
                     <Link href={readerHref(chapter)} key={chapter.id}>
                       <span>{chapter.index + 1}</span>
                       <b>{chapter.title}</b>
                       <ChevronRight />
                     </Link>
                   ))}
-                  {chapters.length > visibleChapters && (
+                  {filteredChapters.length > visibleChapters && (
                     <button
                       onClick={() => setVisibleChapters((value) => value + 100)}
                     >
-                      Show {Math.min(100, chapters.length - visibleChapters)}{" "}
+                      Show{" "}
+                      {Math.min(100, filteredChapters.length - visibleChapters)}{" "}
                       more chapters
                     </button>
                   )}
-                  {!sourceBusy && chapters.length === 0 && (
-                    <p>No readable chapters were returned by this source.</p>
+                  {!sourceBusy && filteredChapters.length === 0 && (
+                    <p>
+                      {chapterQuery
+                        ? `No chapters match “${chapterQuery}”.`
+                        : "No readable chapters were returned by this source."}
+                    </p>
                   )}
                 </div>
               </div>

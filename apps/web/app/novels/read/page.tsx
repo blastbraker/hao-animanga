@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type { Work } from "@hao/domain";
 import {
@@ -8,12 +8,15 @@ import {
   BookMarked,
   ChevronLeft,
   ChevronRight,
+  List,
   Minus,
   Moon,
   Plus,
+  Search,
   Settings2,
   Sun,
   TriangleAlert,
+  X,
 } from "lucide-react";
 import {
   api,
@@ -31,6 +34,10 @@ import {
   type NovelChapterContent,
   type NovelSummary,
 } from "../../../lib/novel-response";
+import {
+  filterNovelChapters,
+  novelChapterNavigation,
+} from "../../../lib/novel-reader";
 
 type Theme = "paper" | "sepia" | "dark";
 
@@ -40,24 +47,32 @@ export default function NovelReaderPage() {
   const [chapters, setChapters] = useState<NovelChapter[]>([]);
   const [content, setContent] = useState<NovelChapterContent | null>(null);
   const [busy, setBusy] = useState("Opening chapter…");
+  const [chapterBusy, setChapterBusy] = useState(false);
   const [error, setError] = useState("");
   const [fontSize, setFontSize] = useState(19);
   const [lineHeight, setLineHeight] = useState(1.85);
   const [theme, setTheme] = useState<Theme>("paper");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [chapterBrowserOpen, setChapterBrowserOpen] = useState(false);
+  const [chapterQuery, setChapterQuery] = useState("");
+  const [chapterLimit, setChapterLimit] = useState(120);
   const [progress, setProgress] = useState(0);
   const workId = useRef<string | null>(null);
 
-  const currentPosition = useMemo(
-    () => chapters.findIndex((chapter) => chapter.id === content?.chapterId),
+  const navigation = useMemo(
+    () => novelChapterNavigation(chapters, content?.chapterId),
     [chapters, content?.chapterId],
   );
-  const previousChapter =
-    currentPosition > 0 ? chapters[currentPosition - 1] : null;
-  const nextChapter =
-    currentPosition >= 0 && currentPosition < chapters.length - 1
-      ? chapters[currentPosition + 1]
-      : null;
+  const currentPosition = navigation.currentIndex;
+  const previousChapter = navigation.previous;
+  const nextChapter = navigation.next;
+  const filteredChapters = useMemo(
+    () => filterNovelChapters(chapters, chapterQuery),
+    [chapterQuery, chapters],
+  );
+  const visibleChapters = filteredChapters.slice(0, chapterLimit);
+
+  useEffect(() => setChapterLimit(120), [chapterQuery]);
 
   useEffect(() => {
     document.body.classList.add("novel-reader-immersive");
@@ -211,16 +226,114 @@ export default function NovelReaderPage() {
     }
   }, [fontSize, lineHeight, theme]);
 
+  const chapterHref = useCallback(
+    (chapter: NovelChapter) => {
+      const parameters = new URLSearchParams({
+        sourceId: chapter.sourceId,
+        novelId: chapter.novelId,
+        chapterId: chapter.id,
+        title: novel?.title ?? "Novel",
+      });
+      return `/novels/read?${parameters.toString()}`;
+    },
+    [novel?.title],
+  );
+
+  const openChapter = useCallback(
+    async (
+      chapter: NovelChapter,
+      historyMode: "push" | "replace" | "none" = "push",
+    ) => {
+      if (!bridge || chapter.id === content?.chapterId || chapterBusy) return;
+      setChapterBusy(true);
+      setError("");
+      if (content)
+        window.localStorage.setItem(
+          `hao:novel-position:${content.chapterId}`,
+          String(progress),
+        );
+      try {
+        const payload = await bridgeJson<unknown>(
+          bridge,
+          `/v1/novel/chapters/${encodeURIComponent(chapter.id)}`,
+        );
+        const normalized = normalizeNovelChapterContent(payload);
+        if (!normalized)
+          throw new Error("This source returned invalid novel chapter data.");
+        setContent(normalized);
+        setChapterBrowserOpen(false);
+        const href = chapterHref(chapter);
+        if (historyMode === "push") window.history.pushState({}, "", href);
+        if (historyMode === "replace")
+          window.history.replaceState({}, "", href);
+        const savedPosition = Number(
+          window.localStorage.getItem(`hao:novel-position:${chapter.id}`) ||
+            "0",
+        );
+        setProgress(savedPosition);
+        window.requestAnimationFrame(() =>
+          window.scrollTo({
+            top: Math.max(
+              0,
+              (document.documentElement.scrollHeight - window.innerHeight) *
+                Math.min(1, savedPosition / 100),
+            ),
+            behavior: "auto",
+          }),
+        );
+        if (novel)
+          recordActivity({
+            id: `novel:${novel.sourceId}:${novel.id}`,
+            kind: "read",
+            title: novel.title,
+            detail: normalized.title,
+            href,
+            sourceName: "Novel extension",
+            progressPercent: savedPosition,
+          });
+      } catch (cause) {
+        setError(
+          bridgeErrorMessage(cause, "This chapter could not be opened."),
+        );
+      } finally {
+        setChapterBusy(false);
+      }
+    },
+    [bridge, chapterBusy, chapterHref, content, novel, progress],
+  );
+
   useEffect(() => {
     function keyboard(event: KeyboardEvent) {
-      if (event.key === "ArrowLeft" && previousChapter)
-        window.location.assign(chapterHref(previousChapter));
-      if (event.key === "ArrowRight" && nextChapter)
-        window.location.assign(chapterHref(nextChapter));
+      if (
+        event.target instanceof HTMLInputElement ||
+        event.target instanceof HTMLSelectElement ||
+        event.target instanceof HTMLTextAreaElement
+      )
+        return;
+      if (event.key === "ArrowLeft" && previousChapter) {
+        event.preventDefault();
+        void openChapter(previousChapter);
+      }
+      if (event.key === "ArrowRight" && nextChapter) {
+        event.preventDefault();
+        void openChapter(nextChapter);
+      }
     }
     window.addEventListener("keydown", keyboard);
     return () => window.removeEventListener("keydown", keyboard);
-  }, [nextChapter, previousChapter]);
+  }, [nextChapter, openChapter, previousChapter]);
+
+  useEffect(() => {
+    function restoreFromHistory() {
+      const chapterId = new URLSearchParams(window.location.search).get(
+        "chapterId",
+      );
+      const chapter = chapters.find((item) => item.id === chapterId);
+      if (chapter) void openChapter(chapter, "none");
+    }
+    window.addEventListener("popstate", restoreFromHistory);
+    return () => window.removeEventListener("popstate", restoreFromHistory);
+  }, [chapters, openChapter]);
 
   async function addToLibrary(item: NovelSummary, chapter?: NovelChapter) {
     const imported = await api<{ work: Work }>("/works/import-extension", {
@@ -267,16 +380,6 @@ export default function NovelReaderPage() {
       });
   }
 
-  function chapterHref(chapter: NovelChapter) {
-    const parameters = new URLSearchParams({
-      sourceId: chapter.sourceId,
-      novelId: chapter.novelId,
-      chapterId: chapter.id,
-      title: novel?.title ?? "Novel",
-    });
-    return `/novels/read?${parameters.toString()}`;
-  }
-
   if (busy)
     return (
       <div className="novel-reader-loading">
@@ -303,10 +406,24 @@ export default function NovelReaderPage() {
           <ArrowLeft />
         </Link>
         <button
+          aria-label="Browse chapters"
+          title="Browse chapters"
+          className={chapterBrowserOpen ? "active" : ""}
+          onClick={() => {
+            setSettingsOpen(false);
+            setChapterBrowserOpen((value) => !value);
+          }}
+        >
+          <List />
+        </button>
+        <button
           aria-label="Reader settings"
           title="Reader settings"
           className={settingsOpen ? "active" : ""}
-          onClick={() => setSettingsOpen((value) => !value)}
+          onClick={() => {
+            setChapterBrowserOpen(false);
+            setSettingsOpen((value) => !value);
+          }}
         >
           <Settings2 />
         </button>
@@ -375,6 +492,74 @@ export default function NovelReaderPage() {
           </label>
         </section>
       )}
+      {chapterBrowserOpen && (
+        <section
+          className="novel-chapter-browser"
+          aria-label="Search and choose a chapter"
+        >
+          <header>
+            <div>
+              <strong>Chapters</strong>
+              <span>{chapters.length.toLocaleString()} available</span>
+            </div>
+            <button
+              aria-label="Close chapter browser"
+              onClick={() => setChapterBrowserOpen(false)}
+            >
+              <X />
+            </button>
+          </header>
+          <label className="novel-chapter-search">
+            <Search />
+            <input
+              autoFocus
+              type="search"
+              value={chapterQuery}
+              placeholder="Search title or chapter number…"
+              onChange={(event) => setChapterQuery(event.target.value)}
+            />
+          </label>
+          <div className="novel-chapter-browser-results">
+            {visibleChapters.map((chapter) => {
+              const position = chapters.indexOf(chapter);
+              const active = chapter.id === content.chapterId;
+              return (
+                <a
+                  key={chapter.id}
+                  href={chapterHref(chapter)}
+                  className={active ? "active" : ""}
+                  aria-current={active ? "page" : undefined}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    void openChapter(chapter);
+                  }}
+                >
+                  <span>{position + 1}</span>
+                  <strong>{chapter.title}</strong>
+                  {active && <small>Reading</small>}
+                </a>
+              );
+            })}
+            {visibleChapters.length === 0 && (
+              <p>No chapters match “{chapterQuery}”.</p>
+            )}
+            {visibleChapters.length < filteredChapters.length && (
+              <button onClick={() => setChapterLimit((value) => value + 200)}>
+                Show 200 more
+              </button>
+            )}
+          </div>
+          <footer>
+            Showing {visibleChapters.length.toLocaleString()} of{" "}
+            {filteredChapters.length.toLocaleString()}
+          </footer>
+        </section>
+      )}
+      {chapterBusy && (
+        <div className="novel-reader-chapter-loading" role="status">
+          Opening chapter…
+        </div>
+      )}
       <header className="novel-reader-heading">
         <span>{novel.title}</span>
         <b>{content.title}</b>
@@ -388,7 +573,14 @@ export default function NovelReaderPage() {
       </article>
       <nav className="novel-reader-navigation" aria-label="Chapter navigation">
         {previousChapter ? (
-          <Link href={chapterHref(previousChapter)}>
+          <Link
+            href={chapterHref(previousChapter)}
+            aria-disabled={chapterBusy}
+            onClick={(event) => {
+              event.preventDefault();
+              void openChapter(previousChapter);
+            }}
+          >
             <ChevronLeft /> Previous chapter
           </Link>
         ) : (
@@ -398,7 +590,14 @@ export default function NovelReaderPage() {
           {currentPosition + 1} of {chapters.length}
         </span>
         {nextChapter ? (
-          <Link href={chapterHref(nextChapter)}>
+          <Link
+            href={chapterHref(nextChapter)}
+            aria-disabled={chapterBusy}
+            onClick={(event) => {
+              event.preventDefault();
+              void openChapter(nextChapter);
+            }}
+          >
             Next chapter <ChevronRight />
           </Link>
         ) : (

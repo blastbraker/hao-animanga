@@ -327,7 +327,7 @@ private class MangayomiJavascriptEngine(
                 collectChapters(new Document(client.get(chaptersUrl + "?page=" + lastPage, headers).body));
               }
               const chapters = [];
-              for (let number = total; number >= 1; number -= 1) {
+              for (let number = 1; number <= total; number += 1) {
                 chapters.push({
                   name: chapterTitles[String(number)] || "Chapter " + number,
                   url: url + "/chapter-" + number,
