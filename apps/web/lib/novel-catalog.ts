@@ -24,3 +24,54 @@ export function blendNovelRankings<TAniList, TSource>(
 
   return blended;
 }
+
+export function novelSourceSearchQueries(work: {
+  title: string;
+  alternateTitles: readonly string[];
+}): string[] {
+  const queries: string[] = [];
+  const seen = new Set<string>();
+  const add = (value: string) => {
+    const query = value.trim().replace(/\s+/g, " ");
+    const key = normalizeTitle(query);
+    if (query.length >= 3 && key && !seen.has(key)) {
+      seen.add(key);
+      queries.push(query);
+    }
+  };
+
+  for (const title of [work.title, ...work.alternateTitles]) {
+    add(title);
+    const colon = title.indexOf(":");
+    if (colon > 0) {
+      add(title.slice(0, colon));
+      add(title.slice(colon + 1));
+    }
+    add(title.replace(/\s*\([^)]{1,24}\)\s*$/, ""));
+  }
+
+  return queries;
+}
+
+export function confidentNovelSourceMatch<T extends { title: string }>(
+  work: { title: string; alternateTitles: readonly string[] },
+  items: readonly T[],
+): T | null {
+  const targetSignatures = new Set(
+    [work.title, ...work.alternateTitles].flatMap(titleSignatures),
+  );
+  return (
+    items.find((item) =>
+      titleSignatures(item.title).some((signature) =>
+        targetSignatures.has(signature),
+      ),
+    ) ?? null
+  );
+}
+
+function titleSignatures(title: string): string[] {
+  const normalized = normalizeTitle(title);
+  const tokens = normalized.split(" ").filter(Boolean);
+  return normalized ? [normalized, [...tokens].sort().join(" ")] : [];
+}
+import { normalizeTitle } from "@hao/domain";

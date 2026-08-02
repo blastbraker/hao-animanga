@@ -30,11 +30,12 @@ import {
   type NovelSummary,
 } from "../../lib/novel-response";
 import { filterNovelChapters } from "../../lib/novel-reader";
-import { blendNovelRankings } from "../../lib/novel-catalog";
 import {
-  confidentSourceMatch,
-  sourceFallbackOrder,
-} from "../../lib/source-match";
+  blendNovelRankings,
+  confidentNovelSourceMatch,
+  novelSourceSearchQueries,
+} from "../../lib/novel-catalog";
+import { sourceFallbackOrder } from "../../lib/source-match";
 
 const GENRES = ["Fantasy", "Romance", "Adventure", "Drama", "Comedy"] as const;
 type Shelf = "POPULAR" | "RELEASING" | "NEW";
@@ -263,16 +264,13 @@ export default function NovelsPage() {
     setSelected(null);
     setChapters([]);
 
-    const visibleMatch = confidentSourceMatch(work, sourceItems);
+    const visibleMatch = confidentNovelSourceMatch(work, sourceItems);
     if (visibleMatch) {
       await openNovel(visibleMatch);
       return;
     }
 
-    const queries = [...new Set([work.title, ...work.alternateTitles])]
-      .map((title) => title.trim())
-      .filter(Boolean)
-      .slice(0, 3);
+    const queries = novelSourceSearchQueries(work).slice(0, 6);
 
     for (const source of sourceFallbackOrder(sources, sourceId)) {
       for (const sourceQuery of queries) {
@@ -289,7 +287,7 @@ export default function NovelsPage() {
               `/v1/novel/catalog?${parameters.toString()}`,
             ),
           );
-          const match = confidentSourceMatch(work, result.items);
+          const match = confidentNovelSourceMatch(work, result.items);
           if (match) {
             await openNovel(match);
             return;
