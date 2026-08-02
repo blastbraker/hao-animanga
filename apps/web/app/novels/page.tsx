@@ -30,6 +30,7 @@ import {
   type NovelSummary,
 } from "../../lib/novel-response";
 import { filterNovelChapters } from "../../lib/novel-reader";
+import { blendNovelRankings } from "../../lib/novel-catalog";
 
 const GENRES = ["Fantasy", "Romance", "Adventure", "Drama", "Comedy"] as const;
 type Shelf = "POPULAR" | "RELEASING" | "NEW";
@@ -77,6 +78,10 @@ export default function NovelsPage() {
   const filteredChapters = useMemo(
     () => filterNovelChapters(chapters, chapterQuery),
     [chapterQuery, chapters],
+  );
+  const blendedItems = useMemo(
+    () => blendNovelRankings(items, sourceItems, 3),
+    [items, sourceItems],
   );
 
   const load = useCallback(async () => {
@@ -303,7 +308,11 @@ export default function NovelsPage() {
                 ? "SHARED BETA BRIDGE"
                 : "YOUR HAO BRIDGE"}
             </span>
-            <h2 id="source-novels-heading">Read from your sources</h2>
+            <h2 id="source-novels-heading">Light novel rankings</h2>
+            <p className="novel-ranking-intro">
+              Three AniList favorites, then three readable titles from your
+              selected source.
+            </p>
           </div>
           {selectedSource && (
             <span>
@@ -354,6 +363,60 @@ export default function NovelsPage() {
                 <Search /> Search
               </button>
             </div>
+            <div className="novel-discovery-controls">
+              <div className="novel-search">
+                <label>
+                  <Search />
+                  <input
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    onKeyDown={(event) =>
+                      event.key === "Enter" && setSubmittedQuery(query.trim())
+                    }
+                    placeholder="Search AniList light novels..."
+                  />
+                </label>
+                <button
+                  className="button primary"
+                  onClick={() => setSubmittedQuery(query.trim())}
+                >
+                  <Search /> Search AniList
+                </button>
+              </div>
+              <div className="novel-filter-bar">
+                <div className="novel-shelves" aria-label="Novel shelf">
+                  {(
+                    [
+                      ["POPULAR", "Popular"],
+                      ["RELEASING", "Releasing"],
+                      ["NEW", "New this year"],
+                    ] as const
+                  ).map(([value, label]) => (
+                    <button
+                      key={value}
+                      className={shelf === value ? "active" : ""}
+                      aria-pressed={shelf === value}
+                      onClick={() => setShelf(value)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <label>
+                  <Settings2 />
+                  <select
+                    aria-label="Novel genre"
+                    value={genre}
+                    onChange={(event) => setGenre(event.target.value)}
+                  >
+                    <option value="">All genres</option>
+                    {GENRES.map((value) => (
+                      <option key={value}>{value}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            </div>
             {sourceBusy && (
               <p className="novel-source-status" role="status">
                 {sourceBusy}
@@ -364,41 +427,91 @@ export default function NovelsPage() {
                 {sourceError}
               </p>
             )}
-            {!sourceBusy &&
-              !selected &&
-              (sourceItems.length ? (
-                <div className="novel-source-grid">
-                  {sourceItems.map((item) => (
-                    <button
-                      key={item.id}
-                      className="novel-source-card"
-                      onClick={() => void openNovel(item)}
-                    >
-                      {item.imageUrl ? (
-                        <img src={item.imageUrl} alt="" loading="lazy" />
-                      ) : (
-                        <span className="novel-cover-placeholder">
-                          <BookOpenText />
-                        </span>
-                      )}
-                      <span>
-                        <b>{item.title}</b>
-                        <small>
-                          Open chapters <ChevronRight />
-                        </small>
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                !sourceError && (
-                  <div className="empty-state">
-                    <LibraryBig />
-                    <h2>No novels returned</h2>
-                    <p>Try searching this source or selecting another one.</p>
+            {!selected && (
+              <>
+                <div className="discover-results-heading novel-blended-heading">
+                  <div>
+                    <span className="eyebrow">BLENDED DISCOVERY</span>
+                    <h2>
+                      {submittedQuery || sourceMode === "search"
+                        ? "Combined search results"
+                        : "Popular across AniList and your source"}
+                    </h2>
                   </div>
-                )
-              ))}
+                  <span>
+                    {items.length} AniList / {sourceItems.length}{" "}
+                    {selectedSource?.name ?? "source"}
+                  </span>
+                </div>
+                {loading && !blendedItems.length ? (
+                  <div className="empty-state">Opening the shelves...</div>
+                ) : error && !sourceItems.length ? (
+                  <div className="empty-state">
+                    <BookOpenText />
+                    <h2>Catalog unavailable</h2>
+                    <p>{error}</p>
+                    <button
+                      className="button ghost"
+                      onClick={() => void load()}
+                    >
+                      Retry
+                    </button>
+                  </div>
+                ) : blendedItems.length ? (
+                  <div className="catalog-grid novel-blended-grid">
+                    {blendedItems.map((entry) =>
+                      entry.kind === "anilist" ? (
+                        <div
+                          className="novel-ranked-card"
+                          key={`anilist:${entry.item.id}`}
+                        >
+                          <span className="novel-ranking-chip anilist">
+                            AniList #{entry.rank}
+                          </span>
+                          <MediaCard work={entry.item} />
+                        </div>
+                      ) : (
+                        <button
+                          key={`source:${entry.item.id}`}
+                          className="novel-source-card novel-ranked-card"
+                          onClick={() => void openNovel(entry.item)}
+                        >
+                          <span className="novel-ranking-chip source">
+                            {selectedSource?.name ?? "Source"} #{entry.rank}
+                          </span>
+                          {entry.item.imageUrl ? (
+                            <img
+                              src={entry.item.imageUrl}
+                              alt=""
+                              loading="lazy"
+                            />
+                          ) : (
+                            <span className="novel-cover-placeholder">
+                              <BookOpenText />
+                            </span>
+                          )}
+                          <span>
+                            <b>{entry.item.title}</b>
+                            <small>
+                              Read chapters <ChevronRight />
+                            </small>
+                          </span>
+                        </button>
+                      ),
+                    )}
+                  </div>
+                ) : (
+                  !sourceBusy &&
+                  !sourceError && (
+                    <div className="empty-state">
+                      <LibraryBig />
+                      <h2>No light novels returned</h2>
+                      <p>Try another ranking, search, genre, or source.</p>
+                    </div>
+                  )
+                )}
+              </>
+            )}
             {selected && (
               <div className="novel-detail-panel">
                 <button
@@ -503,102 +616,104 @@ export default function NovelsPage() {
         )}
       </section>
 
-      <section
-        className="novel-catalog"
-        aria-labelledby="novel-catalog-heading"
-      >
-        <div className="novel-search">
-          <label>
-            <Search />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              onKeyDown={(event) =>
-                event.key === "Enter" && setSubmittedQuery(query.trim())
-              }
-              placeholder="Search light novels…"
-            />
-          </label>
-          <button
-            className="button primary"
-            onClick={() => setSubmittedQuery(query.trim())}
-          >
-            <Search /> Search
-          </button>
-        </div>
-        <div className="novel-filter-bar">
-          <div className="novel-shelves" aria-label="Novel shelf">
-            {(
-              [
-                ["POPULAR", "Popular"],
-                ["RELEASING", "Releasing"],
-                ["NEW", "New this year"],
-              ] as const
-            ).map(([value, label]) => (
-              <button
-                key={value}
-                className={shelf === value ? "active" : ""}
-                aria-pressed={shelf === value}
-                onClick={() => setShelf(value)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          <label>
-            <Settings2 />
-            <select
-              aria-label="Novel genre"
-              value={genre}
-              onChange={(event) => setGenre(event.target.value)}
+      {!sourceBusy && !sources.length && (
+        <section
+          className="novel-catalog"
+          aria-labelledby="novel-catalog-heading"
+        >
+          <div className="novel-search">
+            <label>
+              <Search />
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={(event) =>
+                  event.key === "Enter" && setSubmittedQuery(query.trim())
+                }
+                placeholder="Search light novels…"
+              />
+            </label>
+            <button
+              className="button primary"
+              onClick={() => setSubmittedQuery(query.trim())}
             >
-              <option value="">All genres</option>
-              {GENRES.map((value) => (
-                <option key={value}>{value}</option>
-              ))}
-            </select>
-          </label>
-        </div>
-        <div className="discover-results-heading">
-          <div>
-            <span className="eyebrow">ANILIST NOVEL DISCOVERY</span>
-            <h2 id="novel-catalog-heading">
-              {submittedQuery
-                ? `Results for “${submittedQuery}”`
-                : shelf === "POPULAR"
-                  ? "Popular light novels"
-                  : shelf === "RELEASING"
-                    ? "Currently releasing"
-                    : "New this year"}
-            </h2>
-          </div>
-          {!loading && <span>{items.length} titles</span>}
-        </div>
-        {loading ? (
-          <div className="empty-state">Opening the shelves…</div>
-        ) : error ? (
-          <div className="empty-state">
-            <BookOpenText />
-            <h2>Catalog unavailable</h2>
-            <p>{error}</p>
-            <button className="button ghost" onClick={() => void load()}>
-              Retry
+              <Search /> Search
             </button>
           </div>
-        ) : items.length ? (
-          <div className="catalog-grid">
-            {items.map((work) => (
-              <MediaCard key={work.id} work={work} />
-            ))}
+          <div className="novel-filter-bar">
+            <div className="novel-shelves" aria-label="Novel shelf">
+              {(
+                [
+                  ["POPULAR", "Popular"],
+                  ["RELEASING", "Releasing"],
+                  ["NEW", "New this year"],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  className={shelf === value ? "active" : ""}
+                  aria-pressed={shelf === value}
+                  onClick={() => setShelf(value)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <label>
+              <Settings2 />
+              <select
+                aria-label="Novel genre"
+                value={genre}
+                onChange={(event) => setGenre(event.target.value)}
+              >
+                <option value="">All genres</option>
+                {GENRES.map((value) => (
+                  <option key={value}>{value}</option>
+                ))}
+              </select>
+            </label>
           </div>
-        ) : (
-          <div className="empty-state">
-            <Search />
-            <h2>No light novels found</h2>
-            <p>Try another title, shelf, or genre.</p>
+          <div className="discover-results-heading">
+            <div>
+              <span className="eyebrow">ANILIST NOVEL DISCOVERY</span>
+              <h2 id="novel-catalog-heading">
+                {submittedQuery
+                  ? `Results for “${submittedQuery}”`
+                  : shelf === "POPULAR"
+                    ? "Popular light novels"
+                    : shelf === "RELEASING"
+                      ? "Currently releasing"
+                      : "New this year"}
+              </h2>
+            </div>
+            {!loading && <span>{items.length} titles</span>}
           </div>
-        )}
-      </section>
+          {loading ? (
+            <div className="empty-state">Opening the shelves…</div>
+          ) : error ? (
+            <div className="empty-state">
+              <BookOpenText />
+              <h2>Catalog unavailable</h2>
+              <p>{error}</p>
+              <button className="button ghost" onClick={() => void load()}>
+                Retry
+              </button>
+            </div>
+          ) : items.length ? (
+            <div className="catalog-grid">
+              {items.map((work) => (
+                <MediaCard key={work.id} work={work} />
+              ))}
+            </div>
+          ) : (
+            <div className="empty-state">
+              <Search />
+              <h2>No light novels found</h2>
+              <p>Try another title, shelf, or genre.</p>
+            </div>
+          )}
+        </section>
+      )}
       <aside className="novel-source-note">
         <ShieldCheck />
         <div>

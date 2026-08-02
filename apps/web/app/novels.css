@@ -188,6 +188,13 @@
 .novel-extension-catalog > .discover-results-heading {
   margin-bottom: 20px;
 }
+.novel-ranking-intro {
+  max-width: 620px;
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
 .novel-extension-catalog .eyebrow svg {
   width: 14px;
 }
@@ -248,6 +255,55 @@
 }
 .novel-source-modes button:disabled {
   opacity: 0.35;
+}
+.novel-discovery-controls {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  background: rgba(255, 255, 255, 0.018);
+}
+.novel-discovery-controls .novel-filter-bar {
+  margin: 12px 0 0;
+}
+.novel-blended-heading {
+  margin: 34px 0 20px;
+}
+.novel-blended-heading h2 {
+  margin: 0;
+  font: 700 28px var(--font-display);
+}
+.novel-blended-grid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+.novel-ranked-card {
+  position: relative;
+  min-width: 0;
+}
+.novel-ranking-chip {
+  position: absolute;
+  z-index: 3;
+  top: 9px;
+  right: 9px;
+  max-width: calc(100% - 18px);
+  overflow: hidden;
+  padding: 5px 7px;
+  color: #f6f7fa;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  background: rgba(7, 8, 13, 0.88);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+}
+.novel-ranking-chip.anilist {
+  color: var(--cyan);
+}
+.novel-ranking-chip.source {
+  color: #ffd0ca;
 }
 .novel-source-status {
   margin: 14px 0;
@@ -811,6 +867,9 @@
   .novel-source-grid {
     grid-template-columns: repeat(4, 1fr);
   }
+  .novel-blended-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
 }
 @media (max-width: 900px) {
   .novels-hero {
@@ -861,6 +920,10 @@
     grid-column: auto;
   }
   .novel-source-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 13px;
+  }
+  .novel-blended-grid {
     grid-template-columns: repeat(2, 1fr);
     gap: 13px;
   }
