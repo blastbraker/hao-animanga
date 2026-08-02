@@ -11,6 +11,12 @@ export type EpisodeGuideItem = {
   metadataUrl: string | null;
 };
 
+export type IntroSkipInterval = {
+  startTime: number;
+  endTime: number;
+  source: "aniskip";
+};
+
 type AniListEpisodeMedia = {
   idMal?: number | null;
   title?: { english?: string | null; romaji?: string | null } | null;
@@ -39,12 +45,47 @@ const EMPTY_PREVIEW = { summary: null, thumbnailUrl: null, metadataUrl: null } a
 export class EpisodeGuideProvider {
   private readonly cache = new Map<number, { expiresAt: number; maxEpisode: number; complete: boolean; items: EpisodeGuideItem[] }>();
   private readonly previewCache = new Map<string, { expiresAt: number; items: EpisodeGuideItem[] }>();
+  private readonly introCache = new Map<string, { expiresAt: number; interval: IntroSkipInterval | null }>();
 
   constructor(
     private readonly anilistEndpoint = process.env.ANILIST_API_URL ?? "https://graphql.anilist.co",
     private readonly jikanEndpoint = process.env.JIKAN_API_URL ?? "https://api.jikan.moe/v4",
     private readonly tvMazeEndpoint = process.env.TVMAZE_API_URL ?? "https://api.tvmaze.com",
+    private readonly aniSkipEndpoint = process.env.ANISKIP_API_URL ?? "https://api.aniskip.com/v2",
   ) {}
+
+  async getIntroSkip(anilistExternalId: string, rawEpisodeNumber: number, rawDuration: number, signal?: AbortSignal): Promise<ProviderResult<IntroSkipInterval | null>> {
+    const anilistId = Number(anilistExternalId);
+    const episodeNumber = Number(rawEpisodeNumber);
+    const duration = Number(rawDuration);
+    if (!Number.isSafeInteger(anilistId) || anilistId <= 0 || !Number.isFinite(episodeNumber) || episodeNumber <= 0 || episodeNumber > 10_000 || !Number.isFinite(duration) || duration < 60 || duration > 14_400) {
+      return { ok: false, error: { code: "INVALID", message: "Intro lookup parameters are invalid", retryable: false } };
+    }
+    const key = `${anilistId}:${episodeNumber}:${Math.round(duration)}`;
+    const cached = this.introCache.get(key);
+    if (cached && cached.expiresAt > Date.now()) return { ok: true, data: cached.interval, cached: true };
+    try {
+      const anilistResponse = await fetch(this.anilistEndpoint, requestInit({ query: EPISODE_MEDIA_QUERY, variables: { id: anilistId } }, signal));
+      if (!anilistResponse.ok) return { ok: false, error: { code: anilistResponse.status === 429 ? "RATE_LIMITED" : "UNAVAILABLE", message: `AniList returned ${anilistResponse.status}`, retryable: true } };
+      const anilistBody = await anilistResponse.json() as { data?: { Media?: AniListEpisodeMedia | null } };
+      const malId = anilistBody.data?.Media?.idMal;
+      if (!malId) return { ok: true, data: null };
+      const url = new URL(`${this.aniSkipEndpoint.replace(/\/$/, "")}/skip-times/${malId}/${episodeNumber}`);
+      url.searchParams.append("types[]", "op");
+      url.searchParams.append("types[]", "mixed-op");
+      url.searchParams.set("episodeLength", duration.toFixed(3));
+      const response = await fetch(url, {
+        ...(signal ? { signal } : {}),
+        headers: { accept: "application/json", "user-agent": "HAO-PWA/1.0 (skip intro metadata)" },
+      });
+      if (!response.ok) return { ok: true, data: null };
+      const interval = parseIntroSkipResponse(await response.json(), duration);
+      this.introCache.set(key, { expiresAt: Date.now() + 24 * 60 * 60 * 1_000, interval });
+      return { ok: true, data: interval };
+    } catch (error) {
+      return { ok: false, error: { code: "UNAVAILABLE", message: error instanceof Error ? error.message : "Intro metadata request failed", retryable: true } };
+    }
+  }
 
   async get(anilistExternalId: string, requestedMaxEpisode: number, signal?: AbortSignal): Promise<ProviderResult<EpisodeGuideItem[]>> {
     const anilistId = Number(anilistExternalId);
@@ -155,6 +196,21 @@ export class EpisodeGuideProvider {
     }
     return [];
   }
+}
+
+export function parseIntroSkipResponse(value: unknown, duration: number): IntroSkipInterval | null {
+  if (!value || typeof value !== "object" || !("found" in value) || value.found !== true || !("results" in value) || !Array.isArray(value.results)) return null;
+  const candidates = value.results.flatMap((item): Array<{ startTime: number; endTime: number; type: string }> => {
+    if (!item || typeof item !== "object" || !("interval" in item) || !item.interval || typeof item.interval !== "object") return [];
+    const interval = item.interval as Record<string, unknown>;
+    const startTime = Number(interval.startTime);
+    const endTime = Number(interval.endTime);
+    const type = "skipType" in item ? String(item.skipType) : "";
+    if (!["op", "mixed-op"].includes(type) || !Number.isFinite(startTime) || !Number.isFinite(endTime) || startTime < 0 || endTime <= startTime || endTime - startTime < 15 || endTime - startTime > 180 || endTime > duration + 5) return [];
+    return [{ startTime, endTime, type }];
+  }).sort((left, right) => (left.type === "op" ? -1 : 1) - (right.type === "op" ? -1 : 1) || right.endTime - right.startTime - (left.endTime - left.startTime));
+  const selected = candidates[0];
+  return selected ? { startTime: selected.startTime, endTime: selected.endTime, source: "aniskip" } : null;
 }
 
 function mergeEpisodeMetadata(jikan: EpisodeGuideItem[], previews: EpisodeGuideItem[]): EpisodeGuideItem[] {

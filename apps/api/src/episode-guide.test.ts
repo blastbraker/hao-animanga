@@ -1,9 +1,26 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { EpisodeGuideProvider } from "./episode-guide";
+import { EpisodeGuideProvider, parseIntroSkipResponse } from "./episode-guide";
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe("episode guide metadata", () => {
+  it("accepts only plausible opening intervals", () => {
+    expect(parseIntroSkipResponse({ found: true, results: [{ skipType: "op", interval: { startTime: 72.5, endTime: 162.5 } }] }, 1_420)).toEqual({ startTime: 72.5, endTime: 162.5, source: "aniskip" });
+    expect(parseIntroSkipResponse({ found: true, results: [{ skipType: "ed", interval: { startTime: 1_320, endTime: 1_410 } }] }, 1_420)).toBeNull();
+    expect(parseIntroSkipResponse({ found: true, results: [{ skipType: "op", interval: { startTime: 0, endTime: 500 } }] }, 1_420)).toBeNull();
+  });
+
+  it("maps AniList to MAL before requesting intro metadata", async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("anilist")) return new Response(JSON.stringify({ data: { Media: { idMal: 21 } } }), { status: 200 });
+      return new Response(JSON.stringify({ found: true, results: [{ skipType: "op", interval: { startTime: 40, endTime: 130 } }] }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await new EpisodeGuideProvider("https://anilist.test/graphql", "https://jikan.test/v4", "https://tvmaze.test", "https://aniskip.test/v2").getIntroSkip("30013", 4, 1_420);
+    expect(result).toMatchObject({ ok: true, data: { startTime: 40, endTime: 130, source: "aniskip" } });
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("/skip-times/21/4");
+  });
   it("maps AniList to MAL and returns filler metadata", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
       const url = String(input);

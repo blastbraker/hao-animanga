@@ -19,6 +19,7 @@ import { browseEpisodes, type EpisodeOrder } from "../../../lib/episode-browser"
 import { enrichEpisodes, episodeGroupLabel, type EpisodeGuideMetadata } from "../../../lib/episode-metadata";
 import { nextPlaybackSpeed, normalizePlaybackSpeed, PLAYBACK_SPEEDS } from "../../../lib/playback-speed";
 import { nextHlsRecoveryAction, supportsNativeHls } from "../../../lib/hls-recovery";
+import { isIntroSkipVisible, normalizeIntroSkipInterval, type IntroSkipInterval } from "../../../lib/intro-skip";
 
 type AnimeSourceSummary = {
   id: string;
@@ -163,6 +164,7 @@ export default function PlayerPage() {
   const [subtitleBackground, setSubtitleBackground] = useState("dark");
   const [busy, setBusy] = useState("Connecting to HAO Bridge…");
   const [error, setError] = useState("");
+  const [introSkip, setIntroSkip] = useState<IntroSkipInterval | null>(null);
 
   const anime = useMemo(() => catalog.find((item) => item.id === animeId), [animeId, catalog]);
   const displayEpisodes = useMemo(() => enrichEpisodes(episodes, episodeGuide), [episodeGuide, episodes]);
@@ -213,6 +215,22 @@ export default function PlayerPage() {
   }, [anime?.id, anime?.title, episodes.length, sourceId]);
 
   useEffect(() => {
+    if (workId || !anime?.title) return;
+    let cancelled = false;
+    const parameters = new URLSearchParams({ q: anime.title, kind: "ANIME", pageSize: "8" });
+    void api<{ items: Work[] }>(`/search?${parameters.toString()}`)
+      .then(async (result) => {
+        if (cancelled) return;
+        const match = confidentSourceMatch({ title: anime.title, alternateTitles: [] }, result.items.filter((item) => item.source.kind === "ANILIST"));
+        if (!match) return;
+        setWorkId(match.id);
+        await hydrateCanonicalPlayback(match.id);
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [anime?.id, anime?.title, workId]);
+
+  useEffect(() => {
     if (!maximumEpisode) { setEpisodeGuide([]); return; }
     const path = workId && canonicalWork?.source.kind === "ANILIST"
       ? `/works/${workId}/episode-guide?maxEpisode=${maximumEpisode}`
@@ -226,6 +244,17 @@ export default function PlayerPage() {
       .catch(() => { if (!cancelled) setEpisodeGuide([]); });
     return () => { cancelled = true; };
   }, [anime?.title, canonicalWork?.source.kind, maximumEpisode, workId]);
+
+  useEffect(() => {
+    setIntroSkip(null);
+    if (!workId || canonicalWork?.source.kind !== "ANILIST" || !episode || duration < 60) return;
+    let cancelled = false;
+    const parameters = new URLSearchParams({ episode: String(episode.number), duration: duration.toFixed(3) });
+    void api<{ interval: unknown }>(`/works/${workId}/intro-skip?${parameters.toString()}`)
+      .then((result) => { if (!cancelled) setIntroSkip(normalizeIntroSkipInterval(result.interval, duration)); })
+      .catch(() => { if (!cancelled) setIntroSkip(null); });
+    return () => { cancelled = true; };
+  }, [canonicalWork?.source.kind, duration, episode?.id, episode?.number, workId]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -1184,6 +1213,16 @@ export default function PlayerPage() {
     setCurrentTime(seconds);
   }
 
+  function skipIntro() {
+    const video = videoRef.current;
+    if (!video || !introSkip || !isIntroSkipVisible(introSkip, video.currentTime)) return;
+    video.currentTime = Math.min(video.duration || introSkip.endTime, introSkip.endTime + 0.05);
+    setCurrentTime(video.currentTime);
+    setControlsVisible(true);
+    setProgressStatus("Intro skipped");
+    void persistProgress(false);
+  }
+
   function toggleMute() {
     const next = !muted;
     setMuted(next);
@@ -1277,6 +1316,7 @@ export default function PlayerPage() {
   }
 
   const playedPercent = duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0;
+  const showSkipIntro = isIntroSkipVisible(introSkip, currentTime);
   const activeSourceName = sources.find((item) => item.id === sourceId)?.name ?? anime?.provider ?? "HAO source";
   const posterUrl = workCoverUrl ?? (anime ? `${bridge}/v1/anime/${encodeURIComponent(anime.id)}/thumbnail` : undefined);
 
@@ -1343,6 +1383,7 @@ export default function PlayerPage() {
         {stream && <div className="player-title-overlay"><div><b>{anime?.title ?? "Anime"}</b><span>{episode ? episodeDisplayLabel(episode) : "Select an episode"}</span></div><span className="player-quality-badge">{stream.quality ?? "AUTO"}</span></div>}
         {stream && !isPlaying && !isBuffering && <button className="player-center-action" aria-label="Play" onClick={() => void togglePlayback()}><Play fill="currentColor" /></button>}
         {stream && isBuffering && <div className="player-buffering" role="status"><LoaderCircle className="spin" /><span>Buffering</span></div>}
+        {stream && showSkipIntro && <button className="skip-intro-button" onClick={skipIntro}><SkipForward /><span>Skip intro</span></button>}
 
         {stream && (
           <div className="custom-player-controls" aria-label="Playback controls">

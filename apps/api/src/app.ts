@@ -197,6 +197,15 @@ export function buildApp() {
     return { items: result.data, source: "myanimelist-via-jikan+tvmaze", cached: result.cached === true };
   });
 
+  app.get<{ Params: { id: string }; Querystring: { episode?: string; duration?: string } }>("/v1/works/:id/intro-skip", async (request, reply) => {
+    const work = (await repository?.getWork(request.params.id)) ?? workStore.get(request.params.id);
+    if (!work) return reply.code(404).send({ code: "NOT_FOUND", message: "Title not found", retryable: false });
+    if (work.kind !== "ANIME" || work.source.kind !== "ANILIST") return { interval: null, source: "unavailable" };
+    const result = await episodeGuides.getIntroSkip(work.source.externalId, Number(request.query.episode), Number(request.query.duration));
+    if (!result.ok) return reply.code(result.error.code === "INVALID" ? 400 : 503).send({ ...result.error });
+    return { interval: result.data, source: "aniskip", cached: result.cached === true };
+  });
+
   app.get<{ Querystring: { title?: string; year?: string; maxEpisode?: string } }>("/v1/episode-guide/previews", async (request, reply) => {
     const requestedMaximum = Number(request.query.maxEpisode ?? 100);
     const maxEpisode = Number.isFinite(requestedMaximum) ? requestedMaximum : 100;
