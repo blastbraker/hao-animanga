@@ -4,6 +4,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -28,16 +29,52 @@ class RepositoryService {
     internal fun parseIndex(body: ByteArray, request: RepositoryRequest): RepositoryPreview {
         require(body.size <= 5 * 1024 * 1024) { "Repository index exceeds 5 MiB" }
         val root = json.parseToJsonElement(body.decodeToString())
-        val entries = collectPackageObjects(root)
-        val packages = entries.take(2_000).mapNotNull { element ->
-            val item = element.jsonObject
-            val pkg = item.text("pkg") ?: return@mapNotNull null
-            val apk = item.text("apk") ?: return@mapNotNull null
-            ExtensionPackage(item.text("name") ?: pkg, pkg, apk, item.text("version") ?: "unknown", item.text("lang"), item["nsfw"]?.jsonPrimitive?.intOrNull)
-        }
+        val packages = if (request.mediaKind == MediaKind.NOVEL) parseNovelPackages(root) else parseApkPackages(root)
         require(packages.isNotEmpty()) { "No compatible extension packages were found" }
         val host = java.net.URI(request.url).host ?: "Extension repository"
-        return RepositoryPreview(host, request.url, request.mediaKind, packages, listOf(DISCLAIMER))
+        val warnings = if (request.mediaKind == MediaKind.NOVEL) listOf(
+            DISCLAIMER,
+            "Mangayomi JavaScript and Dart sources are listed for review only in this Bridge build. They cannot execute until the isolated novel runtime is installed."
+        ) else listOf(DISCLAIMER)
+        return RepositoryPreview(host, request.url, request.mediaKind, packages, warnings)
+    }
+
+    private fun parseApkPackages(root: JsonElement): List<ExtensionPackage> = collectPackageObjects(root).take(2_000).mapNotNull { item ->
+        val pkg = item.text("pkg") ?: return@mapNotNull null
+        val apk = item.text("apk") ?: return@mapNotNull null
+        ExtensionPackage(item.text("name") ?: pkg, pkg, apk, item.text("version") ?: "unknown", item.text("lang"), item["nsfw"]?.jsonPrimitive?.intOrNull)
+    }
+
+    private fun parseNovelPackages(root: JsonElement): List<ExtensionPackage> = collectNovelObjects(root).take(2_000).mapNotNull { item ->
+        if (item["itemType"]?.jsonPrimitive?.intOrNull != 2) return@mapNotNull null
+        val id = item.text("id") ?: return@mapNotNull null
+        val name = item.text("name") ?: return@mapNotNull null
+        val sourceCodeUrl = item.text("sourceCodeUrl") ?: return@mapNotNull null
+        val baseUrl = item.text("baseUrl") ?: return@mapNotNull null
+        if (!isPublicHttpsReference(sourceCodeUrl) || !isPublicHttpsReference(baseUrl)) return@mapNotNull null
+        val language = item["sourceCodeLanguage"]?.jsonPrimitive?.intOrNull
+        val runtime = when (language) {
+            1 -> "MANGAYOMI_JAVASCRIPT"
+            0 -> "MANGAYOMI_DART"
+            else -> "MANGAYOMI_UNKNOWN"
+        }
+        ExtensionPackage(
+            name = name,
+            pkg = "mangayomi.novel.$id",
+            apk = "",
+            version = item.text("version") ?: "unknown",
+            language = item.text("lang"),
+            nsfw = item["isNsfw"]?.jsonPrimitive?.intOrNull ?: if (item["isNsfw"]?.jsonPrimitive?.booleanOrNull == true) 2 else 0,
+            runtime = runtime,
+            runtimeAvailable = false,
+            compatibilityMessage = when (runtime) {
+                "MANGAYOMI_JAVASCRIPT" -> "JavaScript source recognized; isolated execution is not enabled yet."
+                "MANGAYOMI_DART" -> "Dart sources are not supported by this Bridge build."
+                else -> "Unknown Mangayomi source language."
+            },
+            sourceCodeUrl = sourceCodeUrl,
+            baseUrl = baseUrl,
+        )
     }
 
     private fun collectPackageObjects(element: JsonElement): List<JsonObject> = when (element) {
@@ -46,5 +83,18 @@ class RepositoryService {
         else -> emptyList()
     }
 
-    private fun JsonObject.text(key: String): String? = this[key]?.jsonPrimitive?.content
+    private fun collectNovelObjects(element: JsonElement): List<JsonObject> = when (element) {
+        is JsonArray -> element.flatMap(::collectNovelObjects)
+        is JsonObject -> if (element.containsKey("sourceCodeUrl") && element.containsKey("itemType")) listOf(element) else element.values.flatMap(::collectNovelObjects)
+        else -> emptyList()
+    }
+
+    private fun isPublicHttpsReference(raw: String): Boolean = try {
+        val uri = java.net.URI(raw)
+        uri.scheme == "https" && uri.host != null && uri.userInfo == null
+    } catch (_: Exception) {
+        false
+    }
+
+    private fun JsonObject.text(key: String): String? = this[key]?.jsonPrimitive?.content?.trim()?.takeIf(String::isNotEmpty)
 }

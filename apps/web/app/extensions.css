@@ -69,3 +69,4 @@
   .inspection-facts > div { grid-template-columns: 1fr; gap: 4px; }
 }
 .anilist-sync-card{display:flex;align-items:center;justify-content:space-between;gap:28px}.anilist-sync-card>div:first-child{max-width:680px}.anilist-sync-card p{color:var(--muted);line-height:1.6}.anilist-sync-actions{display:flex;gap:9px;flex:none}.anilist-sync-actions label{cursor:pointer}.anilist-sync-actions input{display:none}@media(max-width:760px){.anilist-sync-card{align-items:stretch;flex-direction:column}.anilist-sync-actions{display:grid}.anilist-sync-actions>*{width:100%}}
+.extension-compatibility{grid-column:1/-1;color:var(--muted);line-height:1.5}

@@ -6,7 +6,7 @@ import { api, bridgeJson, type LibraryResponse } from "../../lib/api";
 
 const DISCLAIMER = "Third-party repositories and extensions are not created, reviewed, hosted, endorsed, supported, or controlled by HAO. Their developers and content providers are unaffiliated with HAO. Availability, safety, and legality are not guaranteed. You are responsible for using only content you are authorized to access and for complying with applicable laws and provider terms.";
 
-type MediaKind = "ANIME" | "MANGA";
+type MediaKind = "ANIME" | "MANGA" | "NOVEL";
 type BridgeDevice = {
   id: string;
   name: string;
@@ -33,6 +33,11 @@ type ExtensionPackage = {
   version: string;
   language?: string;
   nsfw?: number;
+  runtime?: "ANDROID_APK" | "MANGAYOMI_JAVASCRIPT" | "MANGAYOMI_DART" | "MANGAYOMI_UNKNOWN";
+  runtimeAvailable?: boolean;
+  compatibilityMessage?: string;
+  sourceCodeUrl?: string;
+  baseUrl?: string;
 };
 type RepositoryPreview = {
   name: string;
@@ -118,6 +123,14 @@ export default function SettingsPage() {
   const sharedBridge = bridges.find((bridge) => bridge.scope === "beta" && !bridge.revokedAt) ?? null;
   const activeBridge = personalBridge ?? sharedBridge;
   const normalizedRepositoryUrl = repo.trim();
+  function selectRepositoryKind(kind: MediaKind) {
+    setMediaKind(kind);
+    setPreview(null);
+    setInspection(null);
+    if (kind === "NOVEL") setRepo("https://raw.githubusercontent.com/m2k3a/mangayomi-extensions/refs/heads/main/novel_index.json");
+    else if (kind === "ANIME") setRepo("https://raw.githubusercontent.com/yuzono/anime-repo/repo/index.min.json");
+    else setRepo("https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json");
+  }
   const visiblePackages = useMemo(() => {
     if (!preview) return [];
     const query = packageQuery.trim().toLowerCase();
@@ -551,9 +564,10 @@ export default function SettingsPage() {
           <h2>Add repository</h2>
           <div className="repo-form">
             <input type="url" value={repo} onChange={(event) => setRepo(event.target.value)} onBlur={() => setRepo(normalizedRepositoryUrl)} placeholder="https://…/index.min.json" />
-            <select aria-label="Repository type" value={mediaKind} onChange={(event) => setMediaKind(event.target.value as MediaKind)}>
+            <select aria-label="Repository type" value={mediaKind} onChange={(event) => selectRepositoryKind(event.target.value as MediaKind)}>
               <option value="MANGA">Manga · Mihon</option>
               <option value="ANIME">Anime · Aniyomi</option>
+              <option value="NOVEL">Light novels · Mangayomi</option>
             </select>
           </div>
           <div className="warning-box">
@@ -602,7 +616,7 @@ export default function SettingsPage() {
               <div className="extension-heading">
                 <div>
                   <h3>{preview.name}</h3>
-                  <p>{preview.packages.length} compatible packages. Mature packages are hidden by default.</p>
+                  <p>{preview.packages.length} repository entries. Mature entries are hidden by default.</p>
                 </div>
                 <span>{preview.mediaKind.toLowerCase()}</span>
               </div>
@@ -628,16 +642,19 @@ export default function SettingsPage() {
                     <div className="extension-meta">
                       <span>{item.version}</span>
                       <span>{item.language ?? "unknown"}</span>
+                      {item.runtime && item.runtime !== "ANDROID_APK" && <span>{item.runtime.replace("MANGAYOMI_", "").toLowerCase()}</span>}
                       <span className={`maturity ${packageMaturity(item).toLowerCase()}`}>{packageMaturity(item).toLowerCase()}</span>
                     </div>
-                    <button className="button ghost compact" disabled={busyAction !== null} onClick={() => void inspectPackage(item)}>
+                    <button className="button ghost compact" title={item.compatibilityMessage} disabled={busyAction !== null || item.runtimeAvailable === false} onClick={() => void inspectPackage(item)}>
                       <Download />
-                      {busyAction === item.pkg ? "Inspecting…" : "Review"}
+                      {busyAction === item.pkg ? "Inspecting…" : item.runtimeAvailable === false ? "Runtime pending" : "Review"}
                     </button>
+                    {item.compatibilityMessage && <small className="extension-compatibility">{item.compatibilityMessage}</small>}
                   </div>
                 ))}
               </div>
               {visiblePackages.length === 0 && <p className="extension-empty">No packages match these filters.</p>}
+              {preview.warnings.slice(1).map((warning) => <p className="extension-empty" key={warning}>{warning}</p>)}
             </div>
           )}
 

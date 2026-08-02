@@ -24,7 +24,7 @@ fun main() {
     )
     val suwayomiManager = SuwayomiManager.default(suwayomi)
     val animeHost = AnimeHostManager.default()
-    val runtimes = listOf(SuwayomiRuntime(suwayomiManager), AnimeHostExtensionRuntime(animeHost), AniyomiCompatibilityRuntime(animeHost))
+    val runtimes = listOf(SuwayomiRuntime(suwayomiManager), AnimeHostExtensionRuntime(animeHost), AniyomiCompatibilityRuntime(animeHost), MangayomiNovelRuntime())
     val port = System.getenv("HAO_BRIDGE_PORT")?.toIntOrNull() ?: 4568
     val adminToken = System.getenv("HAO_BRIDGE_ADMIN_TOKEN")?.trim()?.takeIf { it.isNotEmpty() }
     require(adminToken == null || adminToken.length >= 32) { "HAO_BRIDGE_ADMIN_TOKEN must contain at least 32 characters" }

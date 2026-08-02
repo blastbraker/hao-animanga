@@ -7,7 +7,19 @@ import kotlinx.serialization.Serializable
 @Serializable data class PairResponse(val deviceId: String, val publicKey: String, val pairedAt: String)
 @Serializable data class RepositoryRequest(val url: String, val mediaKind: MediaKind, val acknowledged: Boolean)
 @Serializable data class RepositoryPreview(val name: String, val url: String, val mediaKind: MediaKind, val packages: List<ExtensionPackage>, val warnings: List<String>)
-@Serializable data class ExtensionPackage(val name: String, val pkg: String, val apk: String, val version: String, val language: String? = null, val nsfw: Int? = null)
+@Serializable data class ExtensionPackage(
+    val name: String,
+    val pkg: String,
+    val apk: String,
+    val version: String,
+    val language: String? = null,
+    val nsfw: Int? = null,
+    val runtime: String = "ANDROID_APK",
+    val runtimeAvailable: Boolean = true,
+    val compatibilityMessage: String? = null,
+    val sourceCodeUrl: String? = null,
+    val baseUrl: String? = null,
+)
 @Serializable data class InspectExtensionRequest(val repositoryUrl: String, val mediaKind: MediaKind, val packageInfo: ExtensionPackage, val acknowledged: Boolean)
 @Serializable data class ExtensionInspection(
     val id: String,
@@ -49,7 +61,7 @@ import kotlinx.serialization.Serializable
     val installedAt: String,
     val enabled: Boolean,
 )
-@Serializable enum class MediaKind { ANIME, MANGA }
+@Serializable enum class MediaKind { ANIME, MANGA, NOVEL }
 @Serializable data class ErrorResponse(val code: String, val message: String, val retryable: Boolean = false)
 
 @Serializable data class MangaRuntimeStatus(

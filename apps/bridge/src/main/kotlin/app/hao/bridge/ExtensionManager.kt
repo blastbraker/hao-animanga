@@ -30,6 +30,9 @@ class ExtensionManager {
 
     fun inspect(request: InspectExtensionRequest, storageRoot: Path): ExtensionInspection {
         require(request.acknowledged) { "The third-party extension disclaimer must be acknowledged" }
+        require(request.packageInfo.runtime == "ANDROID_APK" && request.packageInfo.runtimeAvailable) {
+            request.packageInfo.compatibilityMessage ?: "This extension runtime is not available"
+        }
         validatePackageName(request.packageInfo.pkg)
         require(request.packageInfo.apk.endsWith(".apk", ignoreCase = true)) { "Repository package must reference an APK" }
 

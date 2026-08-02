@@ -380,7 +380,7 @@ export class HaoRepository {
     Array<{
       id: string;
       bridgeId: string;
-      mediaKind: "ANIME" | "MANGA";
+      mediaKind: "ANIME" | "MANGA" | "NOVEL";
       url: string;
       name: string;
       signerFingerprint: string | null;
@@ -393,7 +393,7 @@ export class HaoRepository {
       {
         id: string;
         bridge_id: string;
-        media_kind: "ANIME" | "MANGA";
+        media_kind: "ANIME" | "MANGA" | "NOVEL";
         url: string;
         name: string;
         signer_fingerprint: string | null;
@@ -423,7 +423,7 @@ export class HaoRepository {
     userId: string,
     input: {
       bridgeId: string;
-      mediaKind: "ANIME" | "MANGA";
+      mediaKind: "ANIME" | "MANGA" | "NOVEL";
       url: string;
       name: string;
     }

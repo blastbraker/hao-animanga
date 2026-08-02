@@ -36,10 +36,10 @@ export type AnimeDetails = {
   malUrl: string | null;
 };
 
-const SEARCH_QUERY = `query Search($page: Int, $perPage: Int, $search: String, $type: MediaType, $genre: String, $year: Int, $status: MediaStatus, $isAdult: Boolean) {
+const SEARCH_QUERY = `query Search($page: Int, $perPage: Int, $search: String, $type: MediaType, $format: MediaFormat, $genre: String, $year: Int, $status: MediaStatus, $isAdult: Boolean) {
   Page(page: $page, perPage: $perPage) {
     pageInfo { hasNextPage }
-    media(search: $search, type: $type, genre: $genre, seasonYear: $year, status: $status, isAdult: $isAdult, sort: [TRENDING_DESC, POPULARITY_DESC]) {
+    media(search: $search, type: $type, format: $format, genre: $genre, seasonYear: $year, status: $status, isAdult: $isAdult, sort: [TRENDING_DESC, POPULARITY_DESC]) {
       id type format title { romaji english native } synonyms description(asHtml: false)
       coverImage { extraLarge large } bannerImage seasonYear startDate { year } status genres isAdult averageScore countryOfOrigin
     }
@@ -191,6 +191,7 @@ export class AniListProvider implements CatalogProvider {
             perPage: filters.pageSize,
             search: filters.query || undefined,
             type: requestedType,
+            format: filters.kind === "LIGHT_NOVEL" ? "NOVEL" : undefined,
             genre: filters.genre,
             year: filters.year,
             status: filters.status,

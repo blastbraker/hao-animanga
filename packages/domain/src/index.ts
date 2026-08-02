@@ -18,6 +18,7 @@ export const SourceKindSchema = z.enum([
   "DIRECT_MEDIA",
   "MIHON_EXTENSION",
   "ANIYOMI_EXTENSION",
+  "MANGAYOMI_EXTENSION",
   "EPUB",
 ]);
 export type SourceKind = z.infer<typeof SourceKindSchema>;
@@ -63,7 +64,7 @@ export type LibraryEntry = z.infer<typeof LibraryEntrySchema>;
 
 export const RepositorySchema = z.object({
   id: z.string().uuid(),
-  mediaKind: z.enum(["ANIME", "MANGA"]),
+  mediaKind: z.enum(["ANIME", "MANGA", "NOVEL"]),
   url: z.string().url().refine((url) => url.startsWith("https://"), "HTTPS is required"),
   name: z.string().min(1),
   acknowledgedAt: z.string().datetime().nullable(),

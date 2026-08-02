@@ -16,6 +16,12 @@ interface ExtensionRuntime {
     fun status(): RuntimeStatus
 }
 
+class MangayomiNovelRuntime : ExtensionRuntime {
+    override val id = "mangayomi-novel"
+    override val kind = MediaKind.NOVEL
+    override fun status() = RuntimeStatus(id, kind, false, "Repository inspection is ready; isolated JavaScript execution is not enabled yet")
+}
+
 class SuwayomiRuntime(private val manager: SuwayomiManager?) : ExtensionRuntime {
     override val id = "suwayomi"
     override val kind = MediaKind.MANGA

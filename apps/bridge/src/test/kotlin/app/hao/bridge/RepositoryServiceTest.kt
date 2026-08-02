@@ -25,4 +25,23 @@ class RepositoryServiceTest {
             service.parseIndex("[]".encodeToByteArray(), RepositoryRequest("https://example.com/index.json", MediaKind.MANGA, true))
         }
     }
+
+    @Test
+    fun `parses Mangayomi novel sources without treating scripts as APKs`() {
+        val body = """[{"name":"Novel Fixture","id":"42","baseUrl":"https://novels.example","lang":"en","sourceCodeUrl":"https://raw.example/novel.js","version":"1","sourceCodeLanguage":1,"itemType":2,"isNsfw":0},{"name":"Manga Fixture","id":"43","baseUrl":"https://manga.example","sourceCodeUrl":"https://raw.example/manga.js","sourceCodeLanguage":1,"itemType":0}]""".encodeToByteArray()
+        val preview = service.parseIndex(body, RepositoryRequest("https://example.com/novel_index.json", MediaKind.NOVEL, true))
+        assertEquals(1, preview.packages.size)
+        assertEquals("MANGAYOMI_JAVASCRIPT", preview.packages.single().runtime)
+        assertEquals("", preview.packages.single().apk)
+        assertEquals(false, preview.packages.single().runtimeAvailable)
+        assertTrue(preview.warnings.last().contains("listed for review only"))
+    }
+
+    @Test
+    fun `drops novel sources with unsafe code URLs`() {
+        val body = """[{"name":"Unsafe","id":"1","baseUrl":"https://novels.example","sourceCodeUrl":"http://example.com/novel.js","sourceCodeLanguage":1,"itemType":2}]""".encodeToByteArray()
+        assertFailsWith<IllegalArgumentException> {
+            service.parseIndex(body, RepositoryRequest("https://example.com/novel_index.json", MediaKind.NOVEL, true))
+        }
+    }
 }

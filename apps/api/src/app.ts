@@ -6,6 +6,7 @@ import rateLimit from "@fastify/rate-limit";
 import Fastify from "fastify";
 import { createDatabase, HaoRepository } from "@hao/database";
 import { ImportExtensionWorkSchema, SearchQuerySchema, UpdateProgressSchema, UpsertLibraryEntrySchema } from "@hao/domain";
+import type { Work } from "@hao/domain";
 import type { SearchFilters } from "@hao/providers";
 import { AniListProvider } from "./anilist.js";
 import { EpisodeGuideProvider } from "./episode-guide.js";
@@ -49,7 +50,7 @@ export function buildApp() {
     Array<{
       id: string;
       bridgeId: string;
-      mediaKind: "ANIME" | "MANGA";
+      mediaKind: "ANIME" | "MANGA" | "NOVEL";
       url: string;
       name: string;
       signerFingerprint: null;
@@ -373,23 +374,25 @@ export function buildApp() {
       const manifest = inspectEpub(buffer);
       const id = randomUUID();
       const sha256 = createHash("sha256").update(buffer).digest("hex");
+      const title = manifest.title?.trim() || file.filename.replace(/\.epub$/i, "").trim() || "Uploaded light novel";
+      const uploadedWork: Work = {
+        id: randomUUID(),
+        kind: "LIGHT_NOVEL" as const,
+        title,
+        alternateTitles: [],
+        synopsis: manifest.creator ? `Uploaded EPUB by ${manifest.creator}.` : "Uploaded EPUB",
+        coverUrl: null,
+        bannerUrl: null,
+        year: null,
+        status: null,
+        genres: [],
+        maturityRating: null,
+        averageScore: null,
+        source: { kind: "EPUB" as const, externalId: sha256 }
+      };
+      let work: Work = uploadedWork;
       if (repository) {
-        const title = file.filename.replace(/\.epub$/i, "").trim() || "Uploaded light novel";
-        const work = await repository.upsertWork({
-          id: randomUUID(),
-          kind: "LIGHT_NOVEL",
-          title,
-          alternateTitles: [],
-          synopsis: "",
-          coverUrl: null,
-          bannerUrl: null,
-          year: null,
-          status: null,
-          genres: [],
-          maturityRating: null,
-          averageScore: null,
-          source: { kind: "EPUB", externalId: sha256 }
-        });
+        work = await repository.upsertWork(uploadedWork);
         const safeName = file.filename.replace(/[^a-zA-Z0-9._-]+/g, "_");
         const storageKey = `${request.user.id}/${id}/${safeName}`;
         await uploadEpub(storageKey, buffer);
@@ -405,13 +408,15 @@ export function buildApp() {
           manifest
         });
       }
+      workStore.set(work.id, work);
       return reply.code(202).send({
         id,
         filename: file.filename,
         byteSize: buffer.length,
         sha256,
         status: "ready",
-        manifest
+        manifest,
+        work
       });
     } catch (error) {
       return reply.code(400).send({
@@ -620,7 +625,7 @@ export function buildApp() {
       name?: unknown;
       acknowledged?: unknown;
     };
-    if (typeof body.bridgeId !== "string" || (body.mediaKind !== "ANIME" && body.mediaKind !== "MANGA") || typeof body.url !== "string" || typeof body.name !== "string" || !body.name.trim() || body.acknowledged !== true)
+    if (typeof body.bridgeId !== "string" || (body.mediaKind !== "ANIME" && body.mediaKind !== "MANGA" && body.mediaKind !== "NOVEL") || typeof body.url !== "string" || typeof body.name !== "string" || !body.name.trim() || body.acknowledged !== true)
       return reply.code(400).send({
         code: "INVALID",
         message: "Bridge, repository, media type, and disclaimer acknowledgement are required",
@@ -637,7 +642,7 @@ export function buildApp() {
       });
     }
     const now = new Date().toISOString();
-    const selectedMediaKind: "ANIME" | "MANGA" = body.mediaKind;
+    const selectedMediaKind: "ANIME" | "MANGA" | "NOVEL" = body.mediaKind;
     if (repository) {
       const id = await repository.upsertExtensionRepository(request.user.id, {
         bridgeId: body.bridgeId,

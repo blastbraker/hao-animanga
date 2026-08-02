@@ -9,6 +9,21 @@ const media = (id: number, title: string, year: number) => ({
 
 afterEach(() => vi.unstubAllGlobals());
 
+describe("AniList light novel discovery", () => {
+  it("requests the NOVEL format instead of filtering a mixed manga page", async () => {
+    const novel = { ...media(20, "Spice and Wolf", 2006), type: "MANGA", format: "NOVEL" };
+    const fetchMock = vi.fn(async (_url, init) => {
+      const request = JSON.parse(String(init?.body)) as { variables: Record<string, unknown> };
+      expect(request.variables).toMatchObject({ type: "MANGA", format: "NOVEL" });
+      return new Response(JSON.stringify({ data: { Page: { pageInfo: { hasNextPage: false }, media: [novel] } } }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await new AniListProvider("https://example.test/graphql").search({ query: "", kind: "LIGHT_NOVEL", page: 1, pageSize: 20 });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.data.items).toMatchObject([{ kind: "LIGHT_NOVEL", title: "Spice and Wolf" }]);
+  });
+});
+
 describe("AniList anime seasons", () => {
   it("walks the complete TV prequel and sequel chain in year order", async () => {
     const nodes = new Map([

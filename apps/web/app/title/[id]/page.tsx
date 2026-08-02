@@ -114,6 +114,14 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
 
   useEffect(() => {
     if (!work) return;
+    if (work.kind === "LIGHT_NOVEL") {
+      setAvailabilityBusy(false);
+      setAvailabilityError("");
+      setAnimeAvailability([]);
+      setMangaAvailability([]);
+      setBridge("");
+      return;
+    }
     let cancelled = false;
     void api<LibraryResponse>("/library")
       .then((library) => {
@@ -178,7 +186,7 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
         : primaryManga.chapters.find((chapter) => chapter.number === completedUnits || chapter.index === completedUnits);
       return mangaReaderHref(primaryManga.source.id, primaryManga.item.id, resumeChapter?.index, work.id);
     }
-    return work.kind === "ANIME" ? "/player/anime" : "/reader";
+    return work.kind === "ANIME" ? "/player/anime" : work.kind === "LIGHT_NOVEL" ? "/novels" : "/reader";
   }, [libraryEntry?.progress?.completedUnits, primaryAnime, primaryManga, resumeEpisodeNumber, work]);
 
   if (error)
@@ -233,7 +241,7 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
     }
   }
 
-  const mediaLabel = work.kind === "ANIME" ? "anime" : "manga";
+  const mediaLabel = work.kind === "ANIME" ? "anime" : work.kind === "LIGHT_NOVEL" ? "novel" : "manga";
   return (
     <div className="title-page">
       <div
@@ -273,6 +281,8 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
                 {work.kind === "ANIME" ? <Play fill="currentColor" /> : <BookOpen />}
                 Open on {primaryAnime?.source.name ?? primaryManga?.source.displayName}
               </Link>
+            ) : work.kind === "LIGHT_NOVEL" ? (
+              <Link className="button primary" href="/novels"><BookOpen />Open novel library</Link>
             ) : (
               <button className="button primary" disabled>
                 {work.kind === "ANIME" ? <Play /> : <BookOpen />}Not in installed sources
@@ -302,7 +312,7 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
         <div className="section-head">
           <div>
             <span className="eyebrow">AVAILABLE FROM YOUR SOURCES</span>
-            <h2>{work.kind === "ANIME" ? "Episodes" : "Chapters"}</h2>
+            <h2>{work.kind === "ANIME" ? "Episodes" : work.kind === "LIGHT_NOVEL" ? "Reading options" : "Chapters"}</h2>
           </div>
           <div className="availability-tools">
             {work.kind === "ANIME" && animeAvailability.length > 1 && (
@@ -310,7 +320,7 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
                 {animeAvailability.map((availability) => <option key={availability.source.id} value={availability.source.id}>{availability.source.name} · {availability.source.language.toUpperCase()}</option>)}
               </select>
             )}
-            {work.kind !== "ANIME" && mangaAvailability.length > 1 && (
+            {(work.kind === "MANGA" || work.kind === "MANHWA") && mangaAvailability.length > 1 && (
               <select aria-label="Manga source" value={primaryManga?.source.id ?? ""} onChange={(event) => setActiveMangaSourceId(event.target.value)}>
                 {mangaAvailability.map((availability) => <option key={availability.source.id} value={availability.source.id}>{availability.source.displayName} · {availability.source.language.toUpperCase()}</option>)}
               </select>
@@ -337,8 +347,15 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
           </div>
         )}
         {!availabilityBusy && !availabilityError && work.kind === "ANIME" && primaryAnime && <AnimeSourcePanel availability={primaryAnime} workTitle={work.title} workId={work.id} />}
-        {!availabilityBusy && !availabilityError && work.kind !== "ANIME" && primaryManga && <MangaSourcePanel availability={primaryManga} workId={work.id} />}
-        {!availabilityBusy && !availabilityError && !animeAvailability.length && !mangaAvailability.length && (
+        {!availabilityBusy && !availabilityError && (work.kind === "MANGA" || work.kind === "MANHWA") && primaryManga && <MangaSourcePanel availability={primaryManga} workId={work.id} />}
+        {!availabilityBusy && !availabilityError && work.kind === "LIGHT_NOVEL" && (
+          <div className="source-empty novel-availability">
+            <BookOpen />
+            <div><b>{work.source.kind === "EPUB" ? "Private EPUB ready" : "Choose how you want to read"}</b><span>{work.source.kind === "EPUB" ? "This book is safely stored in your HAO library. Chapter rendering and synchronized positions are the next reader milestone." : "Upload an EPUB now, or add a Mangayomi novel repository in Settings. Third-party source code stays on your Bridge."}</span></div>
+            <Link href="/novels">Open Light Novels →</Link>
+          </div>
+        )}
+        {!availabilityBusy && !availabilityError && work.kind !== "LIGHT_NOVEL" && !animeAvailability.length && !mangaAvailability.length && (
           <div className="source-empty">
             <b>No confident installed match was found.</b>
             <span>This exact title, movie, or season is not currently available from your enabled sources. HAO will not open a similar title or a different release.</span>

@@ -3,7 +3,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { User } from "@supabase/supabase-js";
-import { Activity, BookOpen, Compass, Home, Library, PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck } from "lucide-react";
+import { Activity, BookOpen, BookText, Compass, Home, Library, PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck } from "lucide-react";
 import { API_URL, api } from "../lib/api";
 import { getSupabaseBrowser, hasSupabaseBrowserConfig } from "../lib/supabase";
 import { OPEN_BETA_ONBOARDING_EVENT } from "../lib/onboarding";
@@ -17,7 +17,8 @@ const nav = [
   { href: "/discover", label: "Discover", icon: Compass },
   { href: "/library", label: "Library", icon: Library },
   { href: "/activity", label: "Activity", icon: Activity },
-  { href: "/reader", label: "Reader", icon: BookOpen },
+  { href: "/reader", label: "Manga", icon: BookOpen },
+  { href: "/novels", label: "Novels", icon: BookText },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {

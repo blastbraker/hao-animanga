@@ -135,12 +135,25 @@ describe("API", () => {
       }
     });
     expect(saved.statusCode).toBe(201);
+    const novelRepository = await app.inject({
+      method: "POST",
+      url: "/v1/repositories",
+      headers: { "x-user-id": user },
+      payload: {
+        bridgeId: "20000000-0000-4000-8000-000000000001",
+        mediaKind: "NOVEL",
+        url: "https://example.com/novels/index.json",
+        name: "Fixture novel repository",
+        acknowledged: true
+      }
+    });
+    expect(novelRepository.statusCode).toBe(201);
     const repositories = await app.inject({
       method: "GET",
       url: "/v1/repositories",
       headers: { "x-user-id": user }
     });
-    expect(repositories.json().items).toHaveLength(1);
+    expect(repositories.json().items).toHaveLength(2);
   });
 
   it("gives a member shared Bridge access without administrator privileges", async () => {
