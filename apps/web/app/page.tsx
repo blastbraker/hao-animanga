@@ -2,12 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import type { Work } from "@hao/domain";
+import type { ProfilePreferences, Work } from "@hao/domain";
 import { ArrowRight, BookOpen, CircleAlert, Clapperboard, LoaderCircle, Play, RefreshCw, Server, Settings, Sparkles, X } from "lucide-react";
 import { api, bridgeErrorMessage, bridgeJson, getActiveBridge, type DiscoverResponse, type LibraryResponse } from "../lib/api";
 import { CONTINUE_WATCHING_STORAGE_KEY, DISMISSED_CONTINUE_STORAGE_KEY, parseContinueWatching, parseDismissedWorkIds, playbackPercent } from "../lib/playback-progress";
 import { NOVEL_RESUMES_KEY, parseNovelResumes } from "../lib/novel-state";
 import { MediaCard } from "../components/media-card";
+import { cacheProfilePreferences, isWorkAllowed } from "../lib/profile-preferences";
 
 type AnimeSource = {
   id: string;
@@ -112,8 +113,16 @@ export default function HomePage() {
   const sourceCount = animeSources.length + mangaSources.length;
 
   useEffect(() => {
-    void api<DiscoverResponse>("/discover")
-      .then(setData)
+    void Promise.all([api<DiscoverResponse>("/discover"), api<ProfilePreferences>("/profile")])
+      .then(([discovery, preferences]) => {
+        cacheProfilePreferences(preferences);
+        setData({
+          ...discovery,
+          featured: discovery.featured.filter((work) => isWorkAllowed(work, preferences)),
+          trending: discovery.trending.filter((work) => isWorkAllowed(work, preferences)),
+          updated: discovery.updated.filter((work) => isWorkAllowed(work, preferences)),
+        });
+      })
       .catch(() => undefined);
     void loadContinueItems();
     void connectRepositories();

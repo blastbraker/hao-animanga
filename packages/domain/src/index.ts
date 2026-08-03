@@ -50,6 +50,51 @@ export const ProgressSchema = z.object({
 });
 export type Progress = z.infer<typeof ProgressSchema>;
 
+export const MaturityLevelSchema = z.enum(["GENERAL", "TEEN", "MATURE", "ADULT"]);
+export type MaturityLevel = z.infer<typeof MaturityLevelSchema>;
+
+export const ProfilePreferencesSchema = z.object({
+  displayName: z.string().trim().min(1).max(80),
+  maturityCeiling: MaturityLevelSchema.default("MATURE"),
+  hideUnrated: z.boolean().default(false),
+  readerSettings: z.record(z.string(), z.unknown()).default({}),
+  updatedAt: z.string().datetime(),
+});
+export type ProfilePreferences = z.infer<typeof ProfilePreferencesSchema>;
+
+export const UpdateProfilePreferencesSchema = z.object({
+  displayName: z.string().trim().min(1).max(80),
+  maturityCeiling: MaturityLevelSchema.default("MATURE"),
+  hideUnrated: z.boolean().default(false),
+  readerSettings: z.record(z.string(), z.unknown()).default({}),
+});
+
+export const ReadingStateSchema = z.object({
+  contentKey: z.string().trim().min(1).max(500),
+  mediaKind: z.enum(["ANIME", "MANGA", "NOVEL", "EPUB"]),
+  workId: z.string().uuid().nullable().default(null),
+  title: z.string().max(500).default(""),
+  releaseLabel: z.string().max(500).default(""),
+  positionPercent: z.number().min(0).max(100).nullable().default(null),
+  completed: z.boolean().default(false),
+  state: z.record(z.string(), z.unknown()).default({}),
+  clientUpdatedAt: z.string().datetime(),
+  serverUpdatedAt: z.string().datetime().optional(),
+});
+export type ReadingState = z.infer<typeof ReadingStateSchema>;
+
+export const UpsertReadingStateSchema = ReadingStateSchema.omit({ serverUpdatedAt: true });
+
+export const HaoBackupSchema = z.object({
+  format: z.literal("hao-account-backup-v1"),
+  exportedAt: z.string().datetime(),
+  profile: ProfilePreferencesSchema,
+  library: z.array(z.unknown()).max(10_000),
+  lists: z.array(z.unknown()).max(1_000),
+  readingStates: z.array(ReadingStateSchema).max(20_000),
+});
+export type HaoBackup = z.infer<typeof HaoBackupSchema>;
+
 export const LibraryEntrySchema = z.object({
   id: z.string().uuid(),
   work: WorkSchema,

@@ -58,6 +58,7 @@ import {
   type NovelBookmark,
 } from "../../../lib/novel-state";
 import { confidentSourceMatch, sourceFallbackOrder } from "../../../lib/source-match";
+import { getCloudReadingState, saveCloudReadingState } from "../../../lib/cloud-reading";
 
 type Theme = "paper" | "sepia" | "dark";
 
@@ -178,12 +179,25 @@ export default function NovelReaderPage() {
         setChapters(normalizedChapters);
         setContent(normalizedContent);
         const key = novelStorageKey(normalizedNovel.sourceId, normalizedNovel.id);
-        const readState = parseNovelReadState(window.localStorage.getItem(NOVEL_READ_KEY));
-        setReadChapterIds(new Set(readState[key] ?? []));
-        setBookmarks(parseNovelBookmarks(window.localStorage.getItem(NOVEL_BOOKMARKS_KEY)).filter((item) => item.novelKey === key));
-        const savedPosition = Number(
+        const cloud = await getCloudReadingState(`novel:${key}`);
+        const cloudSettings = cloud?.state.readerSettings;
+        if (cloudSettings && typeof cloudSettings === "object" && !Array.isArray(cloudSettings)) {
+          const settings = cloudSettings as Record<string, unknown>;
+          if (typeof settings.fontSize === "number") setFontSize(Math.max(16, Math.min(28, settings.fontSize)));
+          if (typeof settings.lineHeight === "number") setLineHeight(Math.max(1.45, Math.min(2.3, settings.lineHeight)));
+          if (settings.theme === "paper" || settings.theme === "sepia" || settings.theme === "dark") setTheme(settings.theme);
+        }
+        const localReadState = parseNovelReadState(window.localStorage.getItem(NOVEL_READ_KEY));
+        const cloudReadIds = Array.isArray(cloud?.state.readChapterIds) ? cloud.state.readChapterIds.filter((id): id is string => typeof id === "string") : null;
+        const mergedReadIds = cloudReadIds ?? localReadState[key] ?? [];
+        const localBookmarks = parseNovelBookmarks(window.localStorage.getItem(NOVEL_BOOKMARKS_KEY)).filter((item) => item.novelKey === key);
+        const cloudBookmarks = Array.isArray(cloud?.state.bookmarks) ? cloud.state.bookmarks as NovelBookmark[] : null;
+        setReadChapterIds(new Set(mergedReadIds));
+        setBookmarks(cloudBookmarks ?? localBookmarks);
+        const localPosition = Number(
           window.localStorage.getItem(`hao:novel-position:${normalizedContent.chapterId}`) || "0",
         );
+        const savedPosition = cloud?.state.chapterId === normalizedContent.chapterId && typeof cloud.positionPercent === "number" ? cloud.positionPercent : localPosition;
         window.requestAnimationFrame(() =>
           window.scrollTo({
             top: Math.max(
@@ -242,12 +256,15 @@ export default function NovelReaderPage() {
         );
         const chapter = chapters.find((item) => item.id === content!.chapterId);
         if (novel && chapter) saveResume(novel, chapter, percent, workId.current);
+        let nextReadChapterIds = readChapterIds;
         if (novel && chapter && percent >= 90) {
           const key = novelStorageKey(novel.sourceId, novel.id);
           const state = markNovelChapterRead(parseNovelReadState(window.localStorage.getItem(NOVEL_READ_KEY)), key, chapter.id);
           window.localStorage.setItem(NOVEL_READ_KEY, JSON.stringify(state));
-          setReadChapterIds(new Set(state[key] ?? []));
+          nextReadChapterIds = new Set(state[key] ?? []);
+          setReadChapterIds(nextReadChapterIds);
         }
+        if (novel && chapter) void syncDetailedNovelState(novel, chapter, percent, nextReadChapterIds, bookmarks);
         if (workId.current && chapter)
           void api("/progress", {
             method: "PUT",
@@ -267,7 +284,7 @@ export default function NovelReaderPage() {
       window.removeEventListener("scroll", onScroll);
       window.clearTimeout(timer);
     };
-  }, [chapters, content, novel]);
+  }, [bookmarks, chapters, content, novel, readChapterIds]);
 
   useEffect(() => {
     try {
@@ -278,6 +295,8 @@ export default function NovelReaderPage() {
     } catch {
       /* Reader controls still work for this session. */
     }
+    const chapter = chapters.find((item) => item.id === content?.chapterId);
+    if (novel && chapter) void syncDetailedNovelState(novel, chapter, progress, readChapterIds, bookmarks);
   }, [fontSize, lineHeight, theme, ttsRate, ttsVoice, ttsSleep]);
 
   function markRead(chapterId: string) {
@@ -314,7 +333,10 @@ export default function NovelReaderPage() {
     };
     const all = updateNovelBookmarks(parseNovelBookmarks(window.localStorage.getItem(NOVEL_BOOKMARKS_KEY)), bookmark);
     window.localStorage.setItem(NOVEL_BOOKMARKS_KEY, JSON.stringify(all));
-    setBookmarks(all.filter((item) => item.novelKey === novelKey));
+    const nextBookmarks = all.filter((item) => item.novelKey === novelKey);
+    setBookmarks(nextBookmarks);
+    const chapter = chapters.find((item) => item.id === content.chapterId);
+    if (chapter) void syncDetailedNovelState(novel, chapter, progress, readChapterIds, nextBookmarks);
     setSelectedPassage("");
     setBookmarkNote("");
   }
@@ -322,7 +344,10 @@ export default function NovelReaderPage() {
   function removeBookmark(id: string) {
     const all = parseNovelBookmarks(window.localStorage.getItem(NOVEL_BOOKMARKS_KEY)).filter((item) => item.id !== id);
     window.localStorage.setItem(NOVEL_BOOKMARKS_KEY, JSON.stringify(all));
-    setBookmarks(all.filter((item) => item.novelKey === novelKey));
+    const nextBookmarks = all.filter((item) => item.novelKey === novelKey);
+    setBookmarks(nextBookmarks);
+    const chapter = chapters.find((item) => item.id === content?.chapterId);
+    if (novel && chapter) void syncDetailedNovelState(novel, chapter, progress, readChapterIds, nextBookmarks);
   }
 
   function stopSpeaking() {
@@ -490,6 +515,35 @@ export default function NovelReaderPage() {
     window.addEventListener("popstate", restoreFromHistory);
     return () => window.removeEventListener("popstate", restoreFromHistory);
   }, [chapters, openChapter]);
+
+  function syncDetailedNovelState(
+    item: NovelSummary,
+    chapter: NovelChapter,
+    positionPercent: number,
+    readIds: Set<string>,
+    savedBookmarks: NovelBookmark[],
+  ) {
+    const key = novelStorageKey(item.sourceId, item.id);
+    return saveCloudReadingState({
+      contentKey: `novel:${key}`,
+      mediaKind: "NOVEL",
+      workId: workId.current,
+      title: item.title,
+      releaseLabel: chapter.title,
+      positionPercent,
+      completed: positionPercent >= 95,
+      state: {
+        sourceId: item.sourceId,
+        novelId: item.id,
+        chapterId: chapter.id,
+        chapterIndex: chapter.index,
+        href: readerUrl(item, chapter),
+        readChapterIds: [...readIds],
+        bookmarks: savedBookmarks,
+        readerSettings: { fontSize, lineHeight, theme, ttsRate, ttsVoice, ttsSleep },
+      },
+    });
+  }
 
   async function addToLibrary(item: NovelSummary, chapter?: NovelChapter) {
     const imported = await api<{ work: Work }>("/works/import-extension", {

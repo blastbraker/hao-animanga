@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type { Work } from "@hao/domain";
-import { BookMarked, BookOpen, ChevronLeft, ChevronRight, Columns2, Flag, LoaderCircle, RefreshCw, Search, Server, Settings2, TriangleAlert } from "lucide-react";
+import { BookMarked, BookOpen, Check, ChevronLeft, ChevronRight, Columns2, Download, Flag, LoaderCircle, RefreshCw, Search, Server, Settings2, TriangleAlert } from "lucide-react";
 import { api, bridgeErrorMessage, bridgeJson, getActiveBridge, type LibraryResponse } from "../../lib/api";
 import {
   MangaChapter,
@@ -21,9 +21,12 @@ import { dedupeSourceResults, rankSourcesByReliability, recordSourceResult } fro
 import { confidentSourceMatch } from "../../lib/source-match";
 import { OPEN_READER_BROWSER_EVENT } from "../../lib/reader-navigation";
 import { maybeNotifyNewReleases, parseReaderBookmarks, recordActivity, READER_BOOKMARKS_STORAGE_KEY, RELEASE_SNAPSHOTS_STORAGE_KEY, saveSourceReport, toggleReaderBookmark, updateReleaseSnapshot } from "../../lib/beta-features";
+import { getCloudReadingState, saveCloudReadingState } from "../../lib/cloud-reading";
+import { cacheMangaChapter, loadCachedMangaChapter, mangaOfflineKey } from "../../lib/offline-library";
 type BrowseMode = "popular" | "latest";
 type ReadingMode = "webtoon" | "ltr" | "rtl";
 const ALL_SOURCES_ID = "all-installed-sources";
+type MangaOfflineSnapshot = { selected: MangaSummary; chapters: MangaChapter[]; pages: MangaChapterPages };
 
 export default function ReaderPage() {
   const [bridge, setBridge] = useState("");
@@ -46,6 +49,8 @@ export default function ReaderPage() {
   const [error, setError] = useState("");
   const [searchSummary, setSearchSummary] = useState("");
   const [syncStatus, setSyncStatus] = useState("");
+  const [offlinePageUrls, setOfflinePageUrls] = useState<string[]>([]);
+  const [downloadStatus, setDownloadStatus] = useState("");
   const libraryWorkIdRef = useRef<string | null>(null);
   const libraryReadyWorkIdRef = useRef<string | null>(null);
 
@@ -113,6 +118,8 @@ export default function ReaderPage() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [pages, readingMode]);
 
+  useEffect(() => () => offlinePageUrls.forEach((url) => URL.revokeObjectURL(url)), [offlinePageUrls]);
+
   useEffect(() => {
     if (!pages || !selected || !currentChapter) return;
     const timer = window.setTimeout(() => {
@@ -121,6 +128,21 @@ export default function ReaderPage() {
     }, 600);
     return () => window.clearTimeout(timer);
   }, [currentChapter, pageIndex, pages, readingMode, selected]);
+
+  useEffect(() => {
+    if (!pages || !selected || !currentChapter || readingMode !== "webtoon") return;
+    let timer: number | undefined;
+    const onScroll = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        const maximum = Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
+        const percent = Math.round(Math.max(0, Math.min(100, (window.scrollY / maximum) * 100)) * 10) / 10;
+        void syncChapterProgress(currentChapter, percent);
+      }, 700);
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => { window.removeEventListener("scroll", onScroll); window.clearTimeout(timer); };
+  }, [currentChapter, pages, readingMode, selected]);
 
   useEffect(() => {
     if (!pages || !selected) return;
@@ -198,7 +220,62 @@ export default function ReaderPage() {
     } catch {
       setSyncStatus("Progress saved on this page only · sync unavailable");
     }
+    void saveCloudReadingState({
+      contentKey: `manga:${selected.sourceId}:${selected.id}`,
+      mediaKind: "MANGA",
+      workId: libraryWorkIdRef.current,
+      title: selected.title,
+      releaseLabel: chapter.name,
+      positionPercent,
+      completed: positionPercent !== null && positionPercent >= 95,
+      state: {
+        sourceId: selected.sourceId,
+        mangaId: selected.id,
+        chapterIndex: chapter.index,
+        pageIndex,
+        readingMode,
+        href: window.location.pathname + window.location.search,
+      },
+    });
     recordActivity({ id: `manga:${selected.sourceId}:${selected.id}`, kind: "read", title: selected.title, detail: chapter.name, href: window.location.pathname + window.location.search, sourceName: selectedSource?.displayName ?? activeSource?.displayName ?? "Manga source", progressPercent: positionPercent });
+  }
+
+  async function restoreCachedChapter(source: string, mangaId: number, chapterIndex: number, requestedPage = 0) {
+    const cached = await loadCachedMangaChapter<MangaOfflineSnapshot>(mangaOfflineKey(source, mangaId, chapterIndex));
+    if (!cached) return false;
+    setSelected(cached.snapshot.selected);
+    setChapters(cached.snapshot.chapters);
+    setPages(cached.snapshot.pages);
+    setOfflinePageUrls(cached.pageUrls);
+    setSourceId(source);
+    setPageIndex(Math.min(cached.snapshot.pages.pageCount - 1, requestedPage));
+    setDownloadStatus("Available offline");
+    setSyncStatus("Opened from this device");
+    setBusy("");
+    setError("");
+    return true;
+  }
+
+  async function downloadCurrentChapter() {
+    if (!selected || !pages || !currentChapter || !bridge) return;
+    setDownloadStatus(`Saving 0 of ${pages.pageCount}`);
+    try {
+      const key = mangaOfflineKey(selected.sourceId || sourceId, selected.id, currentChapter.index);
+      await cacheMangaChapter({
+        key,
+        title: selected.title,
+        releaseLabel: currentChapter.name,
+        bridge,
+        pageUrls: pages.pageUrls,
+        snapshot: { selected, chapters, pages } satisfies MangaOfflineSnapshot,
+        onProgress: (saved, total) => setDownloadStatus(`Saving ${saved} of ${total}`),
+      });
+      const cached = await loadCachedMangaChapter<MangaOfflineSnapshot>(key);
+      if (cached) setOfflinePageUrls(cached.pageUrls);
+      setDownloadStatus("Available offline");
+    } catch (cause) {
+      setDownloadStatus(cause instanceof Error ? cause.message : "Offline download failed");
+    }
   }
 
   async function findMangaFallback(title: string, currentSource: MangaSource, availableSources: MangaSource[], endpoint = bridge): Promise<ReadableMangaFallback | null> {
@@ -290,15 +367,26 @@ export default function ReaderPage() {
             if (!chapterPages) throw new Error("This source returned invalid page data for the selected chapter.");
             if (cancelled) return;
             setPages(chapterPages);
-            setPageIndex(Math.min(chapterPages.pageCount - 1, requestedPage));
+            const cloud = await getCloudReadingState(`manga:${details.sourceId}:${details.id}`);
+            const cloudPage = typeof cloud?.state.pageIndex === "number" ? cloud.state.pageIndex : 0;
+            setPageIndex(Math.min(chapterPages.pageCount - 1, parameters.has("page") ? requestedPage : cloudPage));
           }
         }
         setBusy("");
       })
       .catch((cause: unknown) => {
         if (!cancelled) {
-          setBusy("");
-          setError(cause instanceof Error ? cause.message : "Could not connect to HAO Bridge.");
+          const parameters = new URLSearchParams(window.location.search);
+          const cachedSource = parameters.get("sourceId") ?? "";
+          const cachedManga = Number(parameters.get("mangaId"));
+          const cachedChapter = Number(parameters.get("chapterIndex"));
+          const cachedPage = Math.max(0, Number(parameters.get("page")) || 0);
+          void restoreCachedChapter(cachedSource, cachedManga, cachedChapter, cachedPage).then((restored) => {
+            if (!restored) {
+              setBusy("");
+              setError(cause instanceof Error ? cause.message : "Could not connect to HAO Bridge.");
+            }
+          });
         }
       });
     return () => {
@@ -421,11 +509,15 @@ export default function ReaderPage() {
     if (!selected) return;
     setBusy(`Loading ${chapter.name}…`);
     setError("");
+    setOfflinePageUrls([]);
+    setDownloadStatus("");
     try {
       const chapterPages = normalizeMangaChapterPages(await bridgeRequest<unknown>(`/v1/manga/${selected.id}/chapter/${chapter.index}/pages`));
       if (!chapterPages) throw new Error("This source returned invalid page data for the selected chapter.");
       setPages(chapterPages);
-      setPageIndex(0);
+      const cloud = await getCloudReadingState(`manga:${selected.sourceId}:${selected.id}`);
+      const savedPage = cloud?.state.chapterIndex === chapter.index && typeof cloud.state.pageIndex === "number" ? cloud.state.pageIndex : 0;
+      setPageIndex(Math.min(chapterPages.pageCount - 1, savedPage));
       const url = new URL(window.location.href);
       url.searchParams.set("sourceId", selected.sourceId || sourceId);
       url.searchParams.set("mangaId", String(selected.id));
@@ -478,6 +570,8 @@ export default function ReaderPage() {
     setSelected(null);
     setChapters([]);
     setPages(null);
+    setOfflinePageUrls([]);
+    setDownloadStatus("");
     setError("");
   }
 
@@ -495,6 +589,7 @@ export default function ReaderPage() {
           <div className="reader-mode-controls">
             <button title="Report a source issue" aria-label="Report a source issue" onClick={reportReaderIssue}><Flag /></button>
             <button title={bookmarked ? "Remove bookmark" : "Bookmark this page"} className={bookmarked ? "active" : ""} aria-label={bookmarked ? "Remove bookmark" : "Bookmark this page"} onClick={toggleBookmark}><BookMarked /></button>
+            <button title={downloadStatus || "Save this chapter offline"} className={downloadStatus === "Available offline" ? "active" : ""} aria-label="Save this chapter offline" disabled={downloadStatus.startsWith("Saving")} onClick={() => void downloadCurrentChapter()}>{downloadStatus === "Available offline" ? <Check /> : <Download />}</button>
             {readingMode !== "webtoon" && <button title="Toggle double-page spread" className={doublePage ? "active" : ""} aria-label="Toggle double-page spread" onClick={toggleDoublePage}><Columns2 /></button>}
             <label className="reader-mode-select" title={`Reading mode: ${readingMode === "webtoon" ? "Webtoon" : readingMode === "ltr" ? "Left to right" : "Right to left"}`}>
               <Settings2 aria-hidden="true" />
@@ -512,12 +607,12 @@ export default function ReaderPage() {
         {busy && <ReaderStatus text={busy} />} {error && <ReaderError text={error} onRetry={() => window.location.reload()} />}
         <main className={`manga-pages ${readingMode === "webtoon" ? "webtoon" : "paged"}`} dir={readingMode === "rtl" ? "rtl" : "ltr"} aria-label={`${selected.title}, ${pages.chapterName}`}>
           {readingMode === "webtoon" ? (
-            pages.pageUrls.map((url, index) => <img key={url} loading={index < 2 ? "eager" : "lazy"} src={`${bridge}${url}`} alt={`Page ${index + 1} of ${pages.pageCount}`} />)
+            pages.pageUrls.map((url, index) => <img key={offlinePageUrls[index] ?? url} loading={index < 2 ? "eager" : "lazy"} src={offlinePageUrls[index] ?? `${bridge}${url}`} alt={`Page ${index + 1} of ${pages.pageCount}`} />)
           ) : (
             <>
               <div className={doublePage ? "reader-spread" : "reader-single-page"}>
-                <img key={pages.pageUrls[pageIndex]} src={`${bridge}${pages.pageUrls[pageIndex]}`} alt={`Page ${pageIndex + 1} of ${pages.pageCount}`} />
-                {doublePage && pages.pageUrls[pageIndex + 1] && <img key={pages.pageUrls[pageIndex + 1]} src={`${bridge}${pages.pageUrls[pageIndex + 1]}`} alt={`Page ${pageIndex + 2} of ${pages.pageCount}`} />}
+                <img key={offlinePageUrls[pageIndex] ?? pages.pageUrls[pageIndex]} src={offlinePageUrls[pageIndex] ?? `${bridge}${pages.pageUrls[pageIndex]}`} alt={`Page ${pageIndex + 1} of ${pages.pageCount}`} />
+                {doublePage && pages.pageUrls[pageIndex + 1] && <img key={offlinePageUrls[pageIndex + 1] ?? pages.pageUrls[pageIndex + 1]} src={offlinePageUrls[pageIndex + 1] ?? `${bridge}${pages.pageUrls[pageIndex + 1]}`} alt={`Page ${pageIndex + 2} of ${pages.pageCount}`} />}
               </div>
               <div className="page-turn-zones" role="group" aria-label="Page turn controls">
                 <button

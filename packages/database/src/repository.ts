@@ -1,4 +1,4 @@
-import type { LibraryEntry, LibraryStatus, Progress, SourceKind, Work } from "@hao/domain";
+import type { LibraryEntry, LibraryStatus, MaturityLevel, ProfilePreferences, Progress, ReadingState, SourceKind, Work } from "@hao/domain";
 import type { Database } from "./index.js";
 
 type WorkRow = {
@@ -102,6 +102,49 @@ export class HaoRepository {
           suspendedAt: row.suspended_at?.toISOString() ?? null
         }
       : null;
+  }
+
+  async getProfilePreferences(userId: string): Promise<ProfilePreferences | null> {
+    const [row] = await this.sql<{
+      display_name: string;
+      maturity_ceiling: MaturityLevel;
+      hide_unrated: boolean;
+      preferences: Record<string, unknown> | null;
+      updated_at: Date;
+    }[]>`
+      select display_name,maturity_ceiling,hide_unrated,preferences,updated_at
+      from profiles where id=${userId}
+    `;
+    if (!row) return null;
+    return {
+      displayName: row.display_name,
+      maturityCeiling: row.maturity_ceiling,
+      hideUnrated: row.hide_unrated,
+      readerSettings: row.preferences ?? {},
+      updatedAt: row.updated_at.toISOString(),
+    };
+  }
+
+  async updateProfilePreferences(
+    userId: string,
+    input: Omit<ProfilePreferences, "updatedAt">,
+  ): Promise<ProfilePreferences> {
+    const [row] = await this.sql<{ updated_at: Date }[]>`
+      update profiles set
+        display_name=${input.displayName},
+        maturity_ceiling=${input.maturityCeiling},
+        hide_unrated=${input.hideUnrated},
+        preferences=${this.sql.json(input.readerSettings as never)},
+        updated_at=now()
+      where id=${userId}
+      returning updated_at
+    `;
+    if (!row) throw new Error("Profile not found");
+    await this.audit(userId, "profile.preferences_update", "profile", userId, {
+      maturityCeiling: input.maturityCeiling,
+      hideUnrated: input.hideUnrated,
+    });
+    return { ...input, updatedAt: row.updated_at.toISOString() };
   }
 
   async acceptInvitation(userId: string, email: string): Promise<void> {
@@ -254,6 +297,76 @@ export class HaoRepository {
     return {
       ...input,
       updatedAt: row?.updated_at.toISOString() ?? new Date().toISOString()
+    };
+  }
+
+  async listReadingStates(userId: string): Promise<ReadingState[]> {
+    const rows = await this.sql<{
+      content_key: string;
+      media_kind: ReadingState["mediaKind"];
+      work_id: string | null;
+      title: string;
+      release_label: string;
+      position_percent: number | string | null;
+      completed: boolean;
+      state: Record<string, unknown> | null;
+      client_updated_at: Date;
+      server_updated_at: Date;
+    }[]>`
+      select content_key,media_kind,work_id,title,release_label,position_percent,
+        completed,state,client_updated_at,server_updated_at
+      from reading_states where user_id=${userId}
+      order by server_updated_at desc
+    `;
+    return rows.map((row) => ({
+      contentKey: row.content_key,
+      mediaKind: row.media_kind,
+      workId: row.work_id,
+      title: row.title,
+      releaseLabel: row.release_label,
+      positionPercent: numberOrNull(row.position_percent),
+      completed: row.completed,
+      state: row.state ?? {},
+      clientUpdatedAt: row.client_updated_at.toISOString(),
+      serverUpdatedAt: row.server_updated_at.toISOString(),
+    }));
+  }
+
+  async upsertReadingState(userId: string, input: Omit<ReadingState, "serverUpdatedAt">): Promise<ReadingState> {
+    const [row] = await this.sql<{
+      client_updated_at: Date;
+      server_updated_at: Date;
+    }[]>`
+      insert into reading_states (
+        user_id,content_key,media_kind,work_id,title,release_label,position_percent,
+        completed,state,client_updated_at
+      ) values (
+        ${userId},${input.contentKey},${input.mediaKind},${input.workId},${input.title},
+        ${input.releaseLabel},${input.positionPercent},${input.completed},
+        ${this.sql.json(input.state as never)},${input.clientUpdatedAt}
+      )
+      on conflict (user_id,content_key) do update set
+        media_kind=excluded.media_kind,
+        work_id=coalesce(excluded.work_id,reading_states.work_id),
+        title=excluded.title,
+        release_label=excluded.release_label,
+        position_percent=excluded.position_percent,
+        completed=excluded.completed,
+        state=excluded.state,
+        client_updated_at=excluded.client_updated_at,
+        server_updated_at=now()
+      where excluded.client_updated_at >= reading_states.client_updated_at
+      returning client_updated_at,server_updated_at
+    `;
+    if (!row) {
+      const existing = (await this.listReadingStates(userId)).find((item) => item.contentKey === input.contentKey);
+      if (existing) return existing;
+      throw new Error("Reading state could not be saved");
+    }
+    return {
+      ...input,
+      clientUpdatedAt: row.client_updated_at.toISOString(),
+      serverUpdatedAt: row.server_updated_at.toISOString(),
     };
   }
 
@@ -509,6 +622,44 @@ export class HaoRepository {
       insert into epub_assets (id,user_id,work_id,storage_key,original_name,byte_size,sha256,processing_status,manifest)
       values (${input.id},${input.userId},${input.workId},${input.storageKey},${input.originalName},${input.byteSize},${input.sha256},${input.status},${this.sql.json(input.manifest as never)})
     `;
+  }
+
+  async listEpubAssets(userId: string): Promise<Array<{
+    id: string;
+    workId: string;
+    originalName: string;
+    byteSize: number;
+    sha256: string;
+    status: string;
+    manifest: unknown;
+    storageKey: string;
+    createdAt: string;
+  }>> {
+    const rows = await this.sql<{
+      id: string;
+      work_id: string;
+      original_name: string;
+      byte_size: number | string;
+      sha256: string;
+      processing_status: string;
+      manifest: unknown;
+      storage_key: string;
+      created_at: Date;
+    }[]>`
+      select id,work_id,original_name,byte_size,sha256,processing_status,manifest,storage_key,created_at
+      from epub_assets where user_id=${userId} order by created_at desc
+    `;
+    return rows.map((row) => ({
+      id: row.id,
+      workId: row.work_id,
+      originalName: row.original_name,
+      byteSize: Number(row.byte_size),
+      sha256: row.sha256,
+      status: row.processing_status,
+      manifest: row.manifest,
+      storageKey: row.storage_key,
+      createdAt: row.created_at.toISOString(),
+    }));
   }
 
   async audit(actorId: string | null, action: string, subjectType: string, subjectId: string | null, metadata: Record<string, unknown> = {}): Promise<void> {

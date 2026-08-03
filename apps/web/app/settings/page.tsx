@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { MaturityLevel, ProfilePreferences } from "@hao/domain";
 import {
   BookOpen,
   Check,
@@ -17,8 +18,11 @@ import {
   ShieldAlert,
   ShieldCheck,
   Trash2,
+  UserRound,
 } from "lucide-react";
 import { api, bridgeJson, type LibraryResponse } from "../../lib/api";
+import { cacheProfilePreferences } from "../../lib/profile-preferences";
+import { clearOfflineLibrary, offlineBytes, offlineItems, type OfflineItem } from "../../lib/offline-library";
 
 const DISCLAIMER =
   "Third-party repositories and extensions are not created, reviewed, hosted, endorsed, supported, or controlled by HAO. Their developers and content providers are unaffiliated with HAO. Availability, safety, and legality are not guaranteed. You are responsible for using only content you are authorized to access and for complying with applicable laws and provider terms.";
@@ -149,6 +153,14 @@ export default function SettingsPage() {
   const [pendingRemoval, setPendingRemoval] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [message, setMessage] = useState("");
+  const [profile, setProfile] = useState<ProfilePreferences>({
+    displayName: "HAO member",
+    maturityCeiling: "MATURE",
+    hideUnrated: false,
+    readerSettings: {},
+    updatedAt: new Date(0).toISOString(),
+  });
+  const [downloads, setDownloads] = useState<OfflineItem[]>([]);
 
   const personalBridge =
     bridges.find(
@@ -195,9 +207,10 @@ export default function SettingsPage() {
   }, [maturityFilter, packageQuery, preview]);
 
   async function loadCloudState() {
-    const [bridgeResult, repositoryResult] = await Promise.all([
+    const [bridgeResult, repositoryResult, profileResult] = await Promise.all([
       api<{ items: BridgeDevice[] }>("/bridges"),
       api<{ items: SavedRepository[] }>("/repositories"),
+      api<ProfilePreferences>("/profile"),
     ]);
     setBridges(bridgeResult.items);
     setRepositories(repositoryResult.items);
@@ -205,6 +218,9 @@ export default function SettingsPage() {
       (bridge) => bridge.scope === "personal" && !bridge.revokedAt,
     );
     if (personal?.endpoint) setBridgeEndpoint(personal.endpoint);
+    setProfile(profileResult);
+    cacheProfilePreferences(profileResult);
+    setDownloads(offlineItems());
   }
 
   useEffect(() => {
@@ -527,6 +543,74 @@ export default function SettingsPage() {
     }
   }
 
+  async function saveProfile() {
+    setBusyAction("profile");
+    try {
+      const updated = await api<ProfilePreferences>("/profile", {
+        method: "PUT",
+        body: JSON.stringify({
+          displayName: profile.displayName,
+          maturityCeiling: profile.maturityCeiling,
+          hideUnrated: profile.hideUnrated,
+          readerSettings: profile.readerSettings,
+        }),
+      });
+      setProfile(updated);
+      cacheProfilePreferences(updated);
+      setMessage("Profile and maturity controls synced to every device.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Profile settings could not be saved.");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function exportHaoBackup() {
+    setBusyAction("hao-export");
+    try {
+      const backup = await api<Record<string, unknown>>("/backup");
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `hao-account-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      setMessage("Complete HAO backup downloaded.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "HAO backup could not be exported.");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function importHaoBackup(file: File | undefined) {
+    if (!file) return;
+    setBusyAction("hao-import");
+    try {
+      const payload = JSON.parse(await file.text()) as unknown;
+      const result = await api<{ restoredLibrary: number; restoredLists: number; restoredStates: number; profile: ProfilePreferences }>("/backup/import", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      setProfile(result.profile);
+      cacheProfilePreferences(result.profile);
+      setMessage(`Restored ${result.restoredLibrary} library entries, ${result.restoredLists} lists, and ${result.restoredStates} detailed reading positions.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "HAO backup could not be imported.");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function removeOfflineDownloads() {
+    setBusyAction("offline-clear");
+    await clearOfflineLibrary();
+    setDownloads([]);
+    setBusyAction(null);
+    setMessage("Offline books and manga chapters removed from this device.");
+  }
+
   async function exportAniListBackup() {
     setBusyAction("anilist-export");
     try {
@@ -649,6 +733,52 @@ export default function SettingsPage() {
           history with them.
         </p>
       </div>
+      <section className="settings-section admin-card profile-controls-card">
+        <div className="settings-card-heading">
+          <UserRound />
+          <div>
+            <span className="eyebrow">PROFILE & MATURITY</span>
+            <h2>Your viewing profile</h2>
+            <p>These controls follow your account and filter discovery on every signed-in device.</p>
+          </div>
+        </div>
+        <div className="profile-settings-grid">
+          <label>
+            <span>Display name</span>
+            <input value={profile.displayName} maxLength={80} onChange={(event) => setProfile((current) => ({ ...current, displayName: event.target.value }))} />
+          </label>
+          <label>
+            <span>Show content up to</span>
+            <select value={profile.maturityCeiling} onChange={(event) => setProfile((current) => ({ ...current, maturityCeiling: event.target.value as MaturityLevel }))}>
+              <option value="GENERAL">General audiences</option>
+              <option value="TEEN">Teen</option>
+              <option value="MATURE">Mature</option>
+              <option value="ADULT">Adult</option>
+            </select>
+          </label>
+          <label className="profile-checkbox">
+            <input type="checkbox" checked={profile.hideUnrated} onChange={(event) => setProfile((current) => ({ ...current, hideUnrated: event.target.checked }))} />
+            <span>Hide titles without a maturity rating</span>
+          </label>
+          <button className="button primary" disabled={busyAction !== null || !profile.displayName.trim()} onClick={() => void saveProfile()}>
+            <Cloud /> {busyAction === "profile" ? "Syncing…" : "Save profile"}
+          </button>
+        </div>
+      </section>
+
+      <section className="settings-section admin-card continuity-card">
+        <div>
+          <span className="eyebrow">CLOUD CONTINUITY</span>
+          <h2>Backup and offline storage</h2>
+          <p>Detailed chapter, page, bookmark, and reader settings sync automatically. Download a portable copy of your library, progress, notes, lists, and settings whenever you want.</p>
+          <small>{downloads.length} offline item{downloads.length === 1 ? "" : "s"} · {(offlineBytes(downloads) / 1024 / 1024).toFixed(1)} MB on this device</small>
+        </div>
+        <div className="continuity-actions">
+          <button className="button primary" disabled={busyAction !== null} onClick={() => void exportHaoBackup()}><Download /> Export full backup</button>
+          <label className="button ghost"><Cloud /> Restore backup<input type="file" accept="application/json,.json" disabled={busyAction !== null} onChange={(event) => { void importHaoBackup(event.target.files?.[0]); event.currentTarget.value = ""; }} /></label>
+          <button className="button ghost danger" disabled={busyAction !== null || downloads.length === 0} onClick={() => void removeOfflineDownloads()}><Trash2 /> Clear offline files</button>
+        </div>
+      </section>
       <section className="settings-section">
         <h2>Content connections</h2>
         <div className="settings-grid">

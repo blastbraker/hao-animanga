@@ -2,10 +2,11 @@
 
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import type { MediaKind, Work } from "@hao/domain";
+import type { MediaKind, ProfilePreferences, Work } from "@hao/domain";
 import { Filter, Search, SlidersHorizontal, X } from "lucide-react";
 import { api } from "../../lib/api";
 import { MediaCard } from "../../components/media-card";
+import { cacheProfilePreferences, isWorkAllowed } from "../../lib/profile-preferences";
 
 type ReleaseStatus = "" | "RELEASING" | "FINISHED" | "NOT_YET_RELEASED";
 type Maturity = "GENERAL" | "ADULT";
@@ -45,8 +46,12 @@ function DiscoverPageContent() {
     if (year) parameters.set("year", year);
     if (status) parameters.set("status", status);
     try {
-      const result = await api<{ items: Work[] }>(`/search?${parameters.toString()}`);
-      setItems(result.items);
+      const [result, preferences] = await Promise.all([
+        api<{ items: Work[] }>(`/search?${parameters.toString()}`),
+        api<ProfilePreferences>("/profile"),
+      ]);
+      cacheProfilePreferences(preferences);
+      setItems(result.items.filter((work) => isWorkAllowed(work, preferences)));
     } catch (cause) {
       setItems([]);
       setError(cause instanceof Error ? cause.message : "Discovery is temporarily unavailable.");

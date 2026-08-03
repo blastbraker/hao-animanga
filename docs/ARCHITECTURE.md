@@ -13,6 +13,12 @@ AniList identifiers are strong import references but are not primary keys. Title
 3. Catalog adapters return normalized HAO types and typed failure states.
 4. Durable work is queued in Redis and processed by the worker.
 5. Private EPUB objects remain in Supabase Storage and are exposed through short-lived signed URLs.
+6. Canonical progress and detailed `reading_states` are account-scoped in PostgreSQL. Reader clients keep a local outbox and resolve concurrent device updates by `client_updated_at` (last write wins).
+7. Offline EPUB files and explicitly downloaded manga chapters use the browser Cache API. They remain on that device, can be cleared from Settings, and are never copied into HAO's shared cloud media storage.
+
+## Account portability and maturity
+
+The versioned `hao-account-backup-v1` export contains profile preferences, maturity controls, library entries, ratings, notes, canonical progress, custom-list metadata, and detailed reading state. Private EPUB binaries and cached extension pages are deliberately excluded; users retain their original book files and may download chapters again on each trusted device.
 6. The PWA communicates directly with a paired, user-owned bridge over user-controlled HTTPS. HAO Cloud does not relay extension media.
 
 ## Development mode

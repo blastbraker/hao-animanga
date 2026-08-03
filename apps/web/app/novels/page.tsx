@@ -46,15 +46,18 @@ import {
   rememberNovelMatch,
   type NovelResume,
 } from "../../lib/novel-state";
+import { cacheEpubFile } from "../../lib/offline-library";
 
 const GENRES = ["Fantasy", "Romance", "Adventure", "Drama", "Comedy"] as const;
 type Shelf = "POPULAR" | "RELEASING" | "NEW";
 type SourceMode = "popular" | "latest" | "search";
 type UploadResult = {
+  id: string;
   filename: string;
   manifest: { title?: string; creator?: string; chapters?: unknown[] };
   work?: Work;
 };
+type EpubAsset = { id: string; originalName: string; byteSize: number; manifest: { title?: string; creator?: string }; work: Work | null };
 
 export default function NovelsPage() {
   const fileInput = useRef<HTMLInputElement>(null);
@@ -86,6 +89,7 @@ export default function NovelsPage() {
   const [chapterQuery, setChapterQuery] = useState("");
   const [visibleChapters, setVisibleChapters] = useState(60);
   const [continueReading, setContinueReading] = useState<NovelResume[]>([]);
+  const [epubs, setEpubs] = useState<EpubAsset[]>([]);
 
   const selectedSource = useMemo(
     () => sources.find((source) => source.id === sourceId) ?? null,
@@ -108,6 +112,7 @@ export default function NovelsPage() {
 
   useEffect(() => {
     setContinueReading(parseNovelResumes(window.localStorage.getItem(NOVEL_RESUMES_KEY)).slice(0, 10));
+    void api<{ items: EpubAsset[] }>("/epubs").then((result) => setEpubs(result.items)).catch(() => undefined);
   }, []);
 
   const load = useCallback(async () => {
@@ -219,6 +224,8 @@ export default function NovelsPage() {
         method: "POST",
         body,
       });
+      await cacheEpubFile(result.id, file, result.manifest.title || result.filename);
+      void api<{ items: EpubAsset[] }>("/epubs").then((response) => setEpubs(response.items)).catch(() => undefined);
       if (result.work)
         setItems((current) => [
           result.work!,
@@ -226,7 +233,7 @@ export default function NovelsPage() {
         ]);
       const chapterCount = result.manifest.chapters?.length ?? 0;
       setUploadMessage(
-        `${result.manifest.title || result.filename} is ready${chapterCount ? ` with ${chapterCount} chapters` : ""}.`,
+        `${result.manifest.title || result.filename} is ready offline${chapterCount ? ` with ${chapterCount} chapters` : ""}.`,
       );
     } catch (cause) {
       setUploadMessage(
@@ -375,6 +382,21 @@ export default function NovelsPage() {
               <Link href={item.href} className="novel-continue-card" key={item.id}>
                 {item.coverUrl ? <img src={item.coverUrl} alt="" /> : <span className="novel-cover-placeholder"><BookOpenText /></span>}
                 <div><small>{Math.round(item.progressPercent)}% read</small><b>{item.title}</b><p>{item.chapterTitle}</p><i><span style={{ width: `${item.progressPercent}%` }} /></i></div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {epubs.length > 0 && (
+        <section className="content-block epub-shelf" aria-labelledby="epub-shelf-heading">
+          <div className="section-head"><div><span className="eyebrow">PRIVATE & OFFLINE READY</span><h2 id="epub-shelf-heading">Your EPUB books</h2></div></div>
+          <div className="epub-shelf-grid">
+            {epubs.map((asset) => (
+              <Link href={`/novels/epub/${asset.id}`} className="epub-book-card" key={asset.id}>
+                <span><BookOpenText /></span>
+                <div><b>{asset.work?.title || asset.manifest.title || asset.originalName}</b><small>{asset.manifest.creator || "Private EPUB"} · {(asset.byteSize / 1024 / 1024).toFixed(1)} MB</small></div>
+                <ChevronRight />
               </Link>
             ))}
           </div>

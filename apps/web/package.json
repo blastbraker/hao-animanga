@@ -14,6 +14,7 @@
     "@hao/api": "workspace:*",
     "@hao/domain": "workspace:*",
     "@supabase/supabase-js": "^2.110.2",
+    "epubjs": "^0.3.93",
     "hls.js": "^1.6.16",
     "lucide-react": "^0.542.0",
     "next": "^15.5.2",

@@ -5,8 +5,17 @@ import multipart from "@fastify/multipart";
 import rateLimit from "@fastify/rate-limit";
 import Fastify from "fastify";
 import { createDatabase, HaoRepository } from "@hao/database";
-import { ImportExtensionWorkSchema, SearchQuerySchema, UpdateProgressSchema, UpsertLibraryEntrySchema } from "@hao/domain";
-import type { Work } from "@hao/domain";
+import {
+  HaoBackupSchema,
+  ImportExtensionWorkSchema,
+  LibraryEntrySchema,
+  SearchQuerySchema,
+  UpdateProfilePreferencesSchema,
+  UpdateProgressSchema,
+  UpsertLibraryEntrySchema,
+  UpsertReadingStateSchema,
+} from "@hao/domain";
+import type { ProfilePreferences, ReadingState, Work } from "@hao/domain";
 import type { SearchFilters } from "@hao/providers";
 import { AniListProvider } from "./anilist.js";
 import { EpisodeGuideProvider } from "./episode-guide.js";
@@ -16,13 +25,13 @@ import { inspectEpub } from "./epub.js";
 import { encryptCredential } from "./crypto.js";
 import { testJellyfin, type JellyfinConnection } from "./jellyfin.js";
 import { safeProviderFetch, validatePublicHttps } from "./security.js";
-import { completePasswordSetup, createPasswordInvitation, generateTemporaryPassword, uploadEpub } from "./supabase.js";
+import { completePasswordSetup, createPasswordInvitation, createSignedEpubUrl, generateTemporaryPassword, uploadEpub } from "./supabase.js";
 
 export function buildApp() {
   const app = Fastify({
     logger: process.env.NODE_ENV !== "test",
     trustProxy: true,
-    bodyLimit: 2 * 1024 * 1024
+    bodyLimit: 10 * 1024 * 1024
   });
   const catalog = new AniListProvider();
   const episodeGuides = new EpisodeGuideProvider();
@@ -35,6 +44,8 @@ export function buildApp() {
   const directMedia = new Map<string, Array<{ id: string; name: string; url: string; kind: "HLS" | "MP4" }>>();
   const customLists = new Map<string, Array<{ id: string; name: string; description: string; workIds: string[] }>>();
   const pairingCodes = new Map<string, { userId: string; expiresAt: number }>();
+  const profilePreferences = new Map<string, ProfilePreferences>();
+  const readingStates = new Map<string, ReadingState>();
   const bridgeDevices = new Map<
     string,
     Array<{
@@ -89,6 +100,51 @@ export function buildApp() {
   app.post("/v1/auth/password-ready", { preHandler: authenticate }, async (request) => {
     await completePasswordSetup(request.user.id);
     return { ready: true };
+  });
+
+  app.get("/v1/profile", { preHandler: authenticate }, async (request) => {
+    const stored = repository ? await repository.getProfilePreferences(request.user.id) : profilePreferences.get(request.user.id);
+    return stored ?? {
+      displayName: request.user.email?.split("@")[0] || "HAO member",
+      maturityCeiling: "MATURE",
+      hideUnrated: false,
+      readerSettings: {},
+      updatedAt: new Date().toISOString(),
+    };
+  });
+
+  app.put("/v1/profile", { preHandler: authenticate }, async (request, reply) => {
+    const parsed = UpdateProfilePreferencesSchema.safeParse(request.body);
+    if (!parsed.success)
+      return reply.code(400).send({ code: "INVALID", message: parsed.error.issues[0]?.message ?? "Invalid profile settings", retryable: false });
+    const updated = repository
+      ? await repository.updateProfilePreferences(request.user.id, parsed.data)
+      : { ...parsed.data, updatedAt: new Date().toISOString() };
+    profilePreferences.set(request.user.id, updated);
+    return updated;
+  });
+
+  app.get("/v1/reading-state", { preHandler: authenticate }, async (request) => ({
+    items: repository
+      ? await repository.listReadingStates(request.user.id)
+      : [...readingStates.entries()].filter(([key]) => key.startsWith(`${request.user.id}:`)).map(([, value]) => value),
+  }));
+
+  app.put("/v1/reading-state", { preHandler: authenticate }, async (request, reply) => {
+    const parsed = UpsertReadingStateSchema.safeParse(request.body);
+    if (!parsed.success)
+      return reply.code(400).send({ code: "INVALID", message: parsed.error.issues[0]?.message ?? "Invalid reading state", retryable: false });
+    let state: ReadingState;
+    if (repository) state = await repository.upsertReadingState(request.user.id, parsed.data);
+    else {
+      const key = `${request.user.id}:${parsed.data.contentKey}`;
+      const existing = readingStates.get(key);
+      state = existing && existing.clientUpdatedAt > parsed.data.clientUpdatedAt
+        ? existing
+        : { ...parsed.data, serverUpdatedAt: new Date().toISOString() };
+      readingStates.set(key, state);
+    }
+    return state;
   });
 
   app.get("/v1/discover", async () => {
@@ -341,6 +397,105 @@ export function buildApp() {
     return { saved: true };
   });
 
+  app.get("/v1/backup", { preHandler: authenticate }, async (request) => {
+    const profile = repository
+      ? await repository.getProfilePreferences(request.user.id)
+      : profilePreferences.get(request.user.id);
+    const library = repository
+      ? await repository.listLibrary(request.user.id)
+      : [...libraryStore.entries()]
+          .filter(([key]) => key.startsWith(`${request.user.id}:`))
+          .map(([, entry]) => ({ ...entry, progress: progressStore.get(keyFor(request.user.id, entry.work.id)) ?? null }));
+    const lists = repository ? await repository.listCustomLists(request.user.id) : customLists.get(request.user.id) ?? [];
+    const states = repository
+      ? await repository.listReadingStates(request.user.id)
+      : [...readingStates.entries()].filter(([key]) => key.startsWith(`${request.user.id}:`)).map(([, value]) => value);
+    return {
+      format: "hao-account-backup-v1",
+      exportedAt: new Date().toISOString(),
+      profile: profile ?? {
+        displayName: request.user.email?.split("@")[0] || "HAO member",
+        maturityCeiling: "MATURE",
+        hideUnrated: false,
+        readerSettings: {},
+        updatedAt: new Date().toISOString(),
+      },
+      library,
+      lists,
+      readingStates: states,
+    };
+  });
+
+  app.post("/v1/backup/import", { preHandler: authenticate }, async (request, reply) => {
+    const parsed = HaoBackupSchema.safeParse(request.body);
+    if (!parsed.success)
+      return reply.code(400).send({ code: "INVALID", message: parsed.error.issues[0]?.message ?? "Invalid HAO backup", retryable: false });
+    const profileInput = {
+      displayName: parsed.data.profile.displayName,
+      maturityCeiling: parsed.data.profile.maturityCeiling,
+      hideUnrated: parsed.data.profile.hideUnrated,
+      readerSettings: parsed.data.profile.readerSettings,
+    };
+    const restoredProfile = repository
+      ? await repository.updateProfilePreferences(request.user.id, profileInput)
+      : { ...profileInput, updatedAt: new Date().toISOString() };
+    profilePreferences.set(request.user.id, restoredProfile);
+    let restoredLibrary = 0;
+    const restoredWorkIds = new Map<string, string>();
+    for (const raw of parsed.data.library) {
+      const entry = LibraryEntrySchema.safeParse(raw);
+      if (!entry.success) continue;
+      const work = repository ? await repository.upsertWork(entry.data.work) : entry.data.work;
+      restoredWorkIds.set(entry.data.work.id, work.id);
+      workStore.set(work.id, work);
+      const saved = repository
+        ? await repository.upsertLibrary(request.user.id, {
+            workId: work.id,
+            status: entry.data.status,
+            favorite: entry.data.favorite,
+            rating: entry.data.rating,
+            notes: entry.data.notes,
+          })
+        : { ...entry.data, work, updatedAt: new Date().toISOString() };
+      if (saved) libraryStore.set(keyFor(request.user.id, work.id), saved);
+      if (entry.data.progress) {
+        const input = { ...entry.data.progress, workId: work.id };
+        const savedProgress = repository ? await repository.updateProgress(request.user.id, input) : { ...input, updatedAt: new Date().toISOString() };
+        progressStore.set(keyFor(request.user.id, work.id), savedProgress);
+      }
+      restoredLibrary += 1;
+    }
+    let restoredLists = 0;
+    let existingLists = repository ? await repository.listCustomLists(request.user.id) : customLists.get(request.user.id) ?? [];
+    for (const raw of parsed.data.lists) {
+      if (!raw || typeof raw !== "object") continue;
+      const item = raw as Record<string, unknown>;
+      const name = typeof item.name === "string" ? item.name.trim().slice(0, 80) : "";
+      if (!name) continue;
+      let list = existingLists.find((candidate) => candidate.name.toLocaleLowerCase() === name.toLocaleLowerCase());
+      if (!list) {
+        list = repository ? await repository.createCustomList(request.user.id, name) : { id: randomUUID(), name, description: "", workIds: [] };
+        existingLists = [...existingLists, list];
+        if (!repository) customLists.set(request.user.id, existingLists);
+      }
+      const workIds = Array.isArray(item.workIds) ? item.workIds.filter((value): value is string => typeof value === "string") : [];
+      for (const exportedWorkId of workIds) {
+        const workId = restoredWorkIds.get(exportedWorkId) ?? exportedWorkId;
+        if (repository) await repository.setCustomListItem(request.user.id, list.id, workId, true);
+        else if (!list.workIds.includes(workId)) list.workIds.push(workId);
+      }
+      restoredLists += 1;
+    }
+    let restoredStates = 0;
+    for (const state of parsed.data.readingStates) {
+      const { serverUpdatedAt: _serverUpdatedAt, ...stateInput } = state;
+      if (repository) await repository.upsertReadingState(request.user.id, stateInput);
+      else readingStates.set(`${request.user.id}:${state.contentKey}`, state);
+      restoredStates += 1;
+    }
+    return { restoredLibrary, restoredLists, restoredStates, profile: restoredProfile };
+  });
+
   app.post("/v1/source-reports", { preHandler: authenticate }, async (request, reply) => {
     const body = request.body as Record<string, unknown> | null;
     const medium = body?.medium;
@@ -434,6 +589,26 @@ export function buildApp() {
         retryable: false
       });
     }
+  });
+
+  app.get("/v1/epubs", { preHandler: authenticate }, async (request) => {
+    if (!repository) return { items: [] };
+    const assets = await repository.listEpubAssets(request.user.id);
+    return {
+      items: await Promise.all(assets.map(async ({ storageKey: _storageKey, ...asset }) => ({
+        ...asset,
+        work: await repository.getWork(asset.workId),
+      }))),
+    };
+  });
+
+  app.get<{ Params: { id: string } }>("/v1/epubs/:id/download", { preHandler: authenticate }, async (request, reply) => {
+    if (!repository)
+      return reply.code(404).send({ code: "NOT_FOUND", message: "EPUB storage is unavailable", retryable: false });
+    const asset = (await repository.listEpubAssets(request.user.id)).find((item) => item.id === request.params.id);
+    if (!asset)
+      return reply.code(404).send({ code: "NOT_FOUND", message: "EPUB not found", retryable: false });
+    return { url: await createSignedEpubUrl(asset.storageKey), expiresIn: 60 };
   });
 
   app.get("/v1/providers", { preHandler: authenticate }, async (request) => {

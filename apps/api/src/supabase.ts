@@ -101,3 +101,11 @@ export async function uploadEpub(storageKey: string, buffer: Buffer): Promise<vo
   });
   if (error) throw error;
 }
+
+export async function createSignedEpubUrl(storageKey: string): Promise<string> {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) throw new Error("Supabase storage is not configured");
+  const { data, error } = await supabase.storage.from("epubs").createSignedUrl(storageKey, 60);
+  if (error || !data?.signedUrl) throw error ?? new Error("EPUB download could not be signed");
+  return data.signedUrl;
+}

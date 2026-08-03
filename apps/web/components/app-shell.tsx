@@ -3,6 +3,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { User } from "@supabase/supabase-js";
+import type { ProfilePreferences } from "@hao/domain";
 import {
   Activity,
   BookOpen,
@@ -43,6 +44,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
   const [authError, setAuthError] = useState("");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [profileLabel, setProfileLabel] = useState("");
   useEffect(() => {
     try {
       setSidebarCollapsed(
@@ -52,6 +54,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       /* Use the expanded navigation when storage is unavailable. */
     }
   }, []);
+  useEffect(() => {
+    if (!role) return;
+    void api<ProfilePreferences>("/profile").then((profile) => setProfileLabel(profile.displayName)).catch(() => undefined);
+  }, [role]);
   useEffect(() => {
     function toggleFromKeyboard(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
@@ -96,15 +102,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         const session = await api<{ user: { role: "member" | "admin" } }>(
           "/session",
         );
-        if (!cancelled) setRole(session.user.role);
+        if (!cancelled) {
+          setRole(session.user.role);
+          window.localStorage.setItem("hao:session-role", session.user.role);
+        }
       } catch (cause) {
         if (!cancelled) {
-          setRole(null);
-          setAuthError(
-            cause instanceof Error
-              ? cause.message
-              : "Your session could not be verified.",
-          );
+          if (!navigator.onLine) {
+            const cachedRole = window.localStorage.getItem("hao:session-role");
+            setRole(cachedRole === "admin" ? "admin" : "member");
+            setAuthError("");
+          } else {
+            setRole(null);
+            setAuthError(
+              cause instanceof Error
+                ? cause.message
+                : "Your session could not be verified.",
+            );
+          }
         }
       }
     };
@@ -215,7 +230,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </section>
       </div>
     );
-  const label = user?.email?.split("@")[0] ?? "Ali";
+  const label = profileLabel || user?.email?.split("@")[0] || "Ali";
   function toggleSidebar() {
     setSidebarCollapsed((value) => {
       const next = !value;

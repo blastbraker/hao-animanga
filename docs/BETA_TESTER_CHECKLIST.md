@@ -8,6 +8,9 @@ Run this checklist with a separate invited account before increasing the beta gr
 - Confirm the profile menu shows the tester's email name.
 - Confirm there is no **Admin** navigation item and `/admin` displays the access-required screen.
 - Confirm another tester's library, favorites, notes, and progress are not visible.
+- Change the profile maturity ceiling, refresh Home and Discover, and confirm titles above the ceiling are hidden.
+- Read on one device, open the same title on another device, and confirm the latest chapter/page and reader controls resume.
+- Export a full HAO backup in Settings and restore it to the same beta account.
 
 ## Managed sources
 
@@ -22,6 +25,8 @@ Run this checklist with a separate invited account before increasing the beta gr
 - Play the signed fixture anime, confirm autoplay begins, seek, reload, and confirm resume works.
 - Browse MangaDex, open a chapter, switch among Webtoon, Left to right, and Right to left, then reload and confirm the mode persists.
 - Temporarily stop the shared Bridge and confirm Home, Player, and Reader show a useful offline message with Retry or Source status actions.
+- Save one manga chapter offline, stop the Bridge, reload that chapter, and confirm every cached page remains readable.
+- Upload and open a test EPUB once, disconnect the device, then reopen it from the Novels shelf.
 
 ## Pass criteria
 

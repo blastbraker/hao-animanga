@@ -37,6 +37,37 @@ describe("API", () => {
     });
     expect(other.json().items).toHaveLength(0);
   });
+
+  it("syncs detailed reading state per account", async () => {
+    const saved = await app.inject({
+      method: "PUT",
+      url: "/v1/reading-state",
+      headers: { "x-user-id": user },
+      payload: {
+        contentKey: "manga:source:title",
+        mediaKind: "MANGA",
+        workId: null,
+        title: "Fixture manga",
+        releaseLabel: "Chapter 4",
+        positionPercent: 42,
+        completed: false,
+        state: { pageIndex: 6 },
+        clientUpdatedAt: "2026-08-03T12:00:00.000Z",
+      },
+    });
+    expect(saved.statusCode).toBe(200);
+    const own = await app.inject({ method: "GET", url: "/v1/reading-state", headers: { "x-user-id": user } });
+    const other = await app.inject({ method: "GET", url: "/v1/reading-state", headers: { "x-user-id": "00000000-0000-0000-0000-000000000003" } });
+    expect(own.json().items[0].state.pageIndex).toBe(6);
+    expect(other.json().items).toHaveLength(0);
+  });
+
+  it("exports a versioned full-account backup", async () => {
+    await app.inject({ method: "PUT", url: "/v1/profile", headers: { "x-user-id": user }, payload: { displayName: "Beta reader", maturityCeiling: "TEEN", hideUnrated: true, readerSettings: { theme: "dark" } } });
+    const response = await app.inject({ method: "GET", url: "/v1/backup", headers: { "x-user-id": user } });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ format: "hao-account-backup-v1", profile: { displayName: "Beta reader", maturityCeiling: "TEEN", hideUnrated: true } });
+  });
   it("imports a selected extension title as a stable work", async () => {
     const payload = {
       kind: "MANGA",
