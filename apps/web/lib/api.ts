@@ -122,13 +122,49 @@ export type BridgeAccess = {
   revokedAt: string | null;
 };
 
+export function activeBridgeCandidates(items: BridgeAccess[]): BridgeAccess[] {
+  return items
+    .filter((item) => !item.revokedAt && Boolean(item.endpoint?.trim()))
+    .map((item) => ({ ...item, endpoint: item.endpoint.replace(/\/$/, "") }))
+    .sort((left, right) => Number(right.scope === "personal") - Number(left.scope === "personal"));
+}
+
+async function probeBridge(access: BridgeAccess): Promise<boolean> {
+  // A production HTTPS PWA cannot reach an HTTP Bridge because browsers block
+  // mixed content. Skip it immediately so a shared HTTPS Bridge can take over.
+  if (typeof window !== "undefined" && window.location.protocol === "https:" && !access.endpoint.startsWith("https://")) return false;
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 3_000);
+  try {
+    const response = await bridgeFetch(access.endpoint, "/health", {
+      method: "GET",
+      cache: "no-store",
+      signal: controller.signal
+    });
+    if (!response.ok) return false;
+    const health = await response.json().catch(() => null) as { status?: unknown; paired?: unknown } | null;
+    return health?.status === "ok" && health.paired === true;
+  } catch {
+    return false;
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
+export async function selectReachableBridge(
+  items: BridgeAccess[],
+  probe: (access: BridgeAccess) => Promise<boolean> = probeBridge
+): Promise<BridgeAccess | undefined> {
+  const candidates = activeBridgeCandidates(items);
+  const reachable = await Promise.all(candidates.map((candidate) => probe(candidate)));
+  return candidates.find((_candidate, index) => reachable[index]);
+}
+
 export async function getActiveBridge(): Promise<BridgeAccess> {
   try {
     const { items } = await api<{ items: BridgeAccess[] }>("/bridges");
-    const personal = items.find((item) => item.scope === "personal" && !item.revokedAt && item.endpoint);
-    const shared = items.find((item) => item.scope === "beta" && !item.revokedAt && item.endpoint);
-    const selected = personal ?? shared;
-    if (selected) return { ...selected, endpoint: selected.endpoint.replace(/\/$/, "") };
+    const selected = await selectReachableBridge(items);
+    if (selected) return selected;
   } catch (cause) {
     if (process.env.NODE_ENV !== "development") throw cause;
   }
@@ -140,7 +176,7 @@ export async function getActiveBridge(): Promise<BridgeAccess> {
       sharedBeta: false,
       revokedAt: null
     };
-  throw new Error("No personal or managed Beta Bridge is available. Ask the beta administrator to check the shared Bridge.");
+  throw new Error("None of your connected Bridges are reachable from this device. HAO also checked the shared Beta Bridge.");
 }
 
 export async function getActiveBridgeEndpoint(): Promise<string> {
