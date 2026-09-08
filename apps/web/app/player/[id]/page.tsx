@@ -155,6 +155,7 @@ export default function PlayerPage() {
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
+  const [autoplayMuted, setAutoplayMuted] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -194,7 +195,10 @@ export default function PlayerPage() {
     setEpisodeSummaries(readPreference("hao:anime:episode-summaries") !== "false");
     const savedVolume = Number(readPreference("hao:anime:volume"));
     if (Number.isFinite(savedVolume) && savedVolume >= 0 && savedVolume <= 1) setVolume(savedVolume);
-    setMuted(readPreference("hao:anime:muted") === "true");
+    // Mute is intentionally session-only. Safari can require muted autoplay,
+    // and persisting that temporary state made every later episode silent.
+    setMuted(false);
+    writePreference("hao:anime:muted", "false");
     setPlaybackSpeed(normalizePlaybackSpeed(readPreference("hao:anime:playback-speed")));
     setSubtitleSize(readPreference("hao:anime:subtitle-size") || "100");
     setSubtitleBackground(readPreference("hao:anime:subtitle-background") || "dark");
@@ -1099,10 +1103,10 @@ export default function PlayerPage() {
       if (cause instanceof DOMException && cause.name === "NotAllowedError") {
         video.muted = true;
         setMuted(true);
-        writePreference("hao:anime:muted", "true");
+        setAutoplayMuted(true);
         try {
           await video.play();
-          setProgressStatus("Autoplay started muted · use the player to unmute");
+          setProgressStatus("Safari started playback muted · tap Sound on the video");
           return;
         } catch (fallbackCause) {
           if (fallbackCause instanceof DOMException && fallbackCause.name === "AbortError") return;
@@ -1226,15 +1230,37 @@ export default function PlayerPage() {
   function toggleMute() {
     const next = !muted;
     setMuted(next);
-    writePreference("hao:anime:muted", String(next));
+    if (!next) setAutoplayMuted(false);
+    revealControls();
+  }
+
+  async function enableSound() {
+    const video = videoRef.current;
+    if (!video) return;
+    const audibleVolume = volume > 0 ? volume : 0.8;
+    video.volume = audibleVolume;
+    video.muted = false;
+    setVolume(audibleVolume);
+    setMuted(false);
+    setAutoplayMuted(false);
+    writePreference("hao:anime:volume", String(audibleVolume));
+    writePreference("hao:anime:muted", "false");
+    try {
+      if (video.paused) await video.play();
+      setProgressStatus("Sound enabled");
+      setError("");
+    } catch {
+      setError("Sound could not start. Tap play and try again.");
+    }
     revealControls();
   }
 
   function changeVolume(nextVolume: number) {
     setVolume(nextVolume);
     setMuted(nextVolume === 0);
+    if (nextVolume > 0) setAutoplayMuted(false);
     writePreference("hao:anime:volume", String(nextVolume));
-    writePreference("hao:anime:muted", String(nextVolume === 0));
+    writePreference("hao:anime:muted", "false");
   }
 
   function changePlaybackSpeed(nextSpeed: number) {
@@ -1383,6 +1409,7 @@ export default function PlayerPage() {
         {stream && <div className="player-title-overlay"><div><b>{anime?.title ?? "Anime"}</b><span>{episode ? episodeDisplayLabel(episode) : "Select an episode"}</span></div><span className="player-quality-badge">{stream.quality ?? "AUTO"}</span></div>}
         {stream && !isPlaying && !isBuffering && <button className="player-center-action" aria-label="Play" onClick={() => void togglePlayback()}><Play fill="currentColor" /></button>}
         {stream && isBuffering && <div className="player-buffering" role="status"><LoaderCircle className="spin" /><span>Buffering</span></div>}
+        {stream && autoplayMuted && isPlaying && <button className="player-unmute-action" aria-label="Enable sound" onClick={() => void enableSound()}><Volume2 /><span>Tap for sound</span></button>}
         {stream && showSkipIntro && <button className="skip-intro-button" onClick={skipIntro}><SkipForward /><span>Skip intro</span></button>}
 
         {stream && (

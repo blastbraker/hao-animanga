@@ -118,7 +118,11 @@ fun main() {
         requirePaired(ctx, pairing)
         val response = animeHost.media(ctx.pathParam("streamId"), ctx.header("Range"))
         ctx.status(response.status).header("Content-Type", response.contentType).header("Accept-Ranges", response.acceptRanges).header("Cache-Control", "private, max-age=3600")
-        response.contentLength?.let { ctx.header("Content-Length", it) }
+        // Do not pin a length for text-based playlists. Jetty may gzip these for
+        // browsers that advertise compression (notably Safari), which changes the
+        // wire length after this handler runs. A stale uncompressed length makes
+        // WebKit reject an otherwise valid HLS manifest.
+        response.contentLength?.takeIf { shouldForwardContentLength(response.contentType) }?.let { ctx.header("Content-Length", it) }
         response.contentRange?.let { ctx.header("Content-Range", it) }
         ctx.result(response.body)
     }
@@ -126,7 +130,7 @@ fun main() {
         requirePaired(ctx, pairing)
         val response = animeHost.subtitle(ctx.pathParam("streamId"))
         ctx.status(response.status).header("Content-Type", response.contentType).header("Cache-Control", "private, max-age=3600")
-        response.contentLength?.let { ctx.header("Content-Length", it) }
+        response.contentLength?.takeIf { shouldForwardContentLength(response.contentType) }?.let { ctx.header("Content-Length", it) }
         ctx.result(response.body)
     }
     app.get("/v1/manga/sources") { ctx -> requirePaired(ctx, pairing); ctx.json(suwayomi.sources()) }
@@ -177,6 +181,13 @@ fun main() {
 }
 
 private fun requirePaired(ctx: Context, pairing: AtomicReference<PairResponse?>) { require(pairing.get() != null) { "Bridge must be paired first" } }
+
+internal fun shouldForwardContentLength(contentType: String): Boolean {
+    val mediaType = contentType.substringBefore(';').trim().lowercase()
+    return mediaType != "application/vnd.apple.mpegurl" &&
+        mediaType != "application/x-mpegurl" &&
+        !mediaType.startsWith("text/")
+}
 
 private fun requireAdminToken(ctx: Context, configuredToken: String?) {
     if (configuredToken == null) return

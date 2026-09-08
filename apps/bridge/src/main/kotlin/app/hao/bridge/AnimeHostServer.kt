@@ -62,14 +62,14 @@ object AnimeHostServer {
             val id = ctx.pathParam("streamId")
             val response = if (id.startsWith(AniyomiFixtureRuntime.ID_PREFIX)) aniyomiFixture.media(id, ctx.header("Range")) else fixture.media(id, ctx.header("Range"))
             ctx.status(response.status).header("Content-Type", response.contentType).header("Accept-Ranges", response.acceptRanges).header("Cache-Control", "private, max-age=3600")
-            response.contentLength?.let { ctx.header("Content-Length", it) }
+            response.contentLength?.takeIf { shouldForwardContentLength(response.contentType) }?.let { ctx.header("Content-Length", it) }
             response.contentRange?.let { ctx.header("Content-Range", it) }
             ctx.result(response.body)
         }
         app.get("/v1/streams/{streamId}/subtitles") { ctx ->
             val response = aniyomiFixture.subtitle(ctx.pathParam("streamId"))
             ctx.status(response.status).header("Content-Type", response.contentType).header("Cache-Control", "private, max-age=3600")
-            response.contentLength?.let { ctx.header("Content-Length", it) }
+            response.contentLength?.takeIf { shouldForwardContentLength(response.contentType) }?.let { ctx.header("Content-Length", it) }
             ctx.result(response.body)
         }
         return app

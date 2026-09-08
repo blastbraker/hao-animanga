@@ -12,6 +12,9 @@ coverage/
 .tmp/
 apps/bridge/build/
 apps/bridge/.gradle/
+apps/tray/bin/
+apps/tray/obj/
+apps/tray/publish/
 fixtures/**/build/
 fixtures/**/.gradle/
 fixtures/**/local.properties
@@ -24,3 +27,14 @@ supabase/.temp/
 .env*
 !.env.example
 !.env.production.example
+
+# Local credentials and signing material must never enter the public repository.
+*.dpapi
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+secrets/
+Secrets/

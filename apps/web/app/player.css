@@ -21,6 +21,10 @@
 .player-center-action { position: absolute; z-index: 4; inset: 50% auto auto 50%; width: 72px; height: 72px; display: grid; place-items: center; transform: translate(-50%,-50%); border: 1px solid rgba(255,255,255,.35); border-radius: 50%; color: #090b11; background: rgba(255,255,255,.94); box-shadow: 0 14px 45px rgba(0,0,0,.45); cursor: pointer; }
 .player-center-action:hover { color: #041312; background: var(--cyan); transform: translate(-50%,-50%) scale(1.06); }
 .player-center-action svg { width: 28px; height: 28px; margin-left: 3px; }
+.player-unmute-action { position: absolute; z-index: 7; inset: 50% auto auto 50%; min-height: 48px; display: flex; align-items: center; gap: 10px; transform: translate(-50%,-50%); padding: 0 18px; border: 1px solid rgba(255,255,255,.7); border-radius: 24px; color: #080a12; background: rgba(255,255,255,.96); box-shadow: 0 14px 45px rgba(0,0,0,.52); font-weight: 800; cursor: pointer; }
+.player-unmute-action:hover { background: var(--cyan); }
+.player-unmute-action svg { width: 20px; height: 20px; }
+.player-unmute-action span { white-space: nowrap; }
 .skip-intro-button { position: absolute; z-index: 7; right: 24px; bottom: 104px; display: flex; align-items: center; gap: 9px; min-height: 42px; padding: 0 16px; color: #07100f; border: 1px solid rgba(255,255,255,.72); border-radius: 8px; background: rgba(255,255,255,.94); box-shadow: 0 10px 32px rgba(0,0,0,.42); font-weight: 800; cursor: pointer; }
 .skip-intro-button:hover { background: var(--cyan); }
 .skip-intro-button svg { width: 18px; }
