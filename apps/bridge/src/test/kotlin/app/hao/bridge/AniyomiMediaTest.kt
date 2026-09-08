@@ -63,6 +63,28 @@ class AniyomiMediaTest {
         assertEquals(188, response.body.readBytes().size)
     }
 
+    @Test
+    fun `builds a native HLS master playlist for separate audio`() {
+        val playlist = buildHlsMasterPlaylist(
+            "/v1/anime/streams/video/media",
+            listOf(
+                HlsAudioRendition("Japanese", "ja", "/v1/anime/streams/audio-ja/media", true),
+                HlsAudioRendition("English", "en", "/v1/anime/streams/audio-en/media", false),
+            ),
+        )
+
+        assertTrue(playlist.startsWith("#EXTM3U\n"))
+        assertTrue(playlist.contains("TYPE=AUDIO,GROUP-ID=\"hao-audio\",NAME=\"Japanese\",DEFAULT=YES"))
+        assertTrue(playlist.contains("LANGUAGE=\"en\",URI=\"/v1/anime/streams/audio-en/media\""))
+        assertTrue(playlist.contains("#EXT-X-STREAM-INF:BANDWIDTH=12000000,AUDIO=\"hao-audio\"\n/v1/anime/streams/video/media"))
+    }
+
+    @Test
+    fun `recognizes HLS urls with query parameters`() {
+        assertTrue(isHlsUrl("https://media.example.test/video/index.m3u8?token=short-lived"))
+        assertFalse(isHlsUrl("https://media.example.test/video/file.mp4?token=short-lived"))
+    }
+
     private fun transportStream() = ByteArray(188 * 5).also { bytes ->
         bytes[0] = 0x47
         bytes[188] = 0x47

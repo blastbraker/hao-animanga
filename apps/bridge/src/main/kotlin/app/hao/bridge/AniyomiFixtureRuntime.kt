@@ -31,7 +31,14 @@ class AniyomiFixtureRuntime(private val extensionRoot: Path, private val dataRoo
     )
 
     @Serializable
-    private data class StreamHandle(val url: String, val headers: Map<String, List<String>> = emptyMap())
+    private data class StreamHandle(
+        val url: String,
+        val headers: Map<String, List<String>> = emptyMap(),
+        val audioTracks: List<StoredAudioTrack> = emptyList(),
+    )
+
+    @Serializable
+    private data class StoredAudioTrack(val url: String, val language: String)
 
     private val json = Json { ignoreUnknownKeys = true }
     private val probes = AniyomiApkProbe(extensionRoot, dataRoot)
@@ -122,9 +129,16 @@ class AniyomiFixtureRuntime(private val extensionRoot: Path, private val dataRoo
                 val subtitles = video.subtitleTracks.filter { track ->
                     runCatching { AnimeNetworkPolicy.allowRemoteHttps(track.url) }.isSuccess
                 }
-                val playable = video.copy(subtitleTracks = subtitles)
+                val audioTracks = video.audioTracks.filter { track ->
+                    track.url.isNotBlank() && runCatching { AnimeNetworkPolicy.allowRemoteHttps(track.url) }.isSuccess
+                }
+                val playable = video.copy(subtitleTracks = subtitles, audioTracks = audioTracks)
                 val id = stableId("stream", episodeId, mediaUrl)
-                val handle = StreamHandle(mediaUrl, playable.headers?.toMultimap() ?: emptyMap())
+                val handle = StreamHandle(
+                    mediaUrl,
+                    playable.headers?.toMultimap() ?: emptyMap(),
+                    audioTracks.map { StoredAudioTrack(it.url, it.lang) },
+                )
                 streams[id] = handle
                 persistStream(id, handle)
                 AnimeStream(
@@ -149,6 +163,21 @@ class AniyomiFixtureRuntime(private val extensionRoot: Path, private val dataRoo
         // Persisted stream descriptors can outlive the child process that first
         // approved their CDN. Re-run public-HTTPS validation after recovery.
         AnimeNetworkPolicy.allowRemoteHttps(uri.toString())
+        val hlsAudioTracks = video.audioTracks.filter { track -> isHlsUrl(track.url) }
+        if (isHlsUrl(video.url) && hlsAudioTracks.isNotEmpty()) {
+            val videoPath = registerHlsResource(uri, video.headers)
+            val audioRenditions = hlsAudioTracks.mapIndexed { index, track ->
+                AnimeNetworkPolicy.allowRemoteHttps(track.url)
+                HlsAudioRendition(
+                    name = track.language.ifBlank { "Audio ${index + 1}" },
+                    language = track.language,
+                    uri = registerHlsResource(URI(track.url), video.headers),
+                    default = index == 0,
+                )
+            }
+            val master = buildHlsMasterPlaylist(videoPath, audioRenditions).toByteArray()
+            return AnimeMediaResponse(200, "application/vnd.apple.mpegurl", master.size.toString(), null, "none", ByteArrayInputStream(master))
+        }
         require(range == null || (range != "bytes=-" && range.matches(Regex("bytes=[0-9]*-[0-9]*")))) { "Invalid media range" }
         fun request(requestRange: String?): okhttp3.Request {
             val builder = okhttp3.Request.Builder().url(uri.toString()).header("User-Agent", "HAO-Bridge/0.1").get()
@@ -411,6 +440,39 @@ internal fun isDisguisedMediaContentType(contentType: String): Boolean =
     contentType.startsWith("image/", true) ||
         contentType.startsWith("text/", true) ||
         contentType.contains("javascript", true)
+
+internal data class HlsAudioRendition(
+    val name: String,
+    val language: String,
+    val uri: String,
+    val default: Boolean,
+)
+
+internal fun isHlsUrl(url: String): Boolean =
+    runCatching { URI(url).path.endsWith(".m3u8", true) }.getOrDefault(false)
+
+internal fun buildHlsMasterPlaylist(videoUri: String, audioTracks: List<HlsAudioRendition>): String {
+    require(videoUri.startsWith("/v1/anime/streams/")) { "Invalid HLS video route" }
+    require(audioTracks.isNotEmpty()) { "At least one HLS audio rendition is required" }
+    fun attribute(value: String): String = value.replace(Regex("[\\r\\n\\\"]"), " ").trim().take(80)
+    return buildString {
+        appendLine("#EXTM3U")
+        appendLine("#EXT-X-VERSION:6")
+        audioTracks.forEach { track ->
+            require(track.uri.startsWith("/v1/anime/streams/")) { "Invalid HLS audio route" }
+            val language = attribute(track.language)
+            append("#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"hao-audio\",NAME=\"")
+            append(attribute(track.name).ifBlank { "Audio" })
+            append("\",DEFAULT=")
+            append(if (track.default) "YES" else "NO")
+            append(",AUTOSELECT=YES")
+            if (language.isNotBlank()) append(",LANGUAGE=\"").append(language).append('"')
+            append(",URI=\"").append(track.uri).appendLine("\"")
+        }
+        appendLine("#EXT-X-STREAM-INF:BANDWIDTH=12000000,AUDIO=\"hao-audio\"")
+        appendLine(videoUri)
+    }
+}
 
 internal fun mpegTransportStreamOffset(prefix: ByteArray): Int? {
     if (prefix.size < 753) return null
