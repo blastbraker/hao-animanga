@@ -133,7 +133,14 @@ class AniyomiFixtureRuntime(private val extensionRoot: Path, private val dataRoo
                     track.url.isNotBlank() && runCatching { AnimeNetworkPolicy.allowRemoteHttps(track.url) }.isSuccess
                 }
                 val playable = video.copy(subtitleTracks = subtitles, audioTracks = audioTracks)
-                val id = stableId("stream", episodeId, mediaUrl)
+                // Include external audio renditions in the public stream identity.
+                // This both distinguishes materially different streams and forces
+                // Safari to discard an older cached video-only playlist.
+                val streamIdentity = buildString {
+                    append(mediaUrl)
+                    audioTracks.forEach { append('\u0000').append(it.url).append('\u0000').append(it.lang) }
+                }
+                val id = stableId("stream", episodeId, streamIdentity)
                 val handle = StreamHandle(
                     mediaUrl,
                     playable.headers?.toMultimap() ?: emptyMap(),
