@@ -1441,6 +1441,7 @@ export default function PlayerPage() {
             <div className="playback-settings-heading"><b>Playback settings</b><button aria-label="Close playback settings" onClick={() => setSettingsOpen(false)}>×</button></div>
             <label>Server<select aria-label="Stream server" value={serverId} onChange={(event) => void changeServer(event.target.value)} disabled={Boolean(busy) || !servers.length}>{servers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
             <label>Quality & audio<select aria-label="Stream quality" value={streamId} onChange={(event) => void changeStream(event.target.value)} disabled={Boolean(busy) || !streams.length}>{streams.map((item) => <option key={item.id} value={item.id}>{item.quality ?? "Auto"} · {item.audio ?? "Default audio"}</option>)}</select></label>
+            {availableAudioModes.size > 1 && <label>Audio version<select aria-label="Audio version" value={activeAudioMode ?? ""} onChange={(event) => void switchAudioVersion(event.target.value as AudioMode)} disabled={Boolean(busy)}><option value="sub">Subtitled</option><option value="dub">Dubbed</option></select></label>}
             <label>Playback speed<select aria-label="Playback speed" value={String(playbackSpeed)} onChange={(event) => changePlaybackSpeed(Number(event.target.value))}>{PLAYBACK_SPEEDS.map((speed) => <option key={speed} value={String(speed)}>{formatPlaybackSpeed(speed)}{speed === 1 ? " · Normal" : ""}</option>)}</select></label>
             <label>Subtitles<select aria-label="Subtitle track" value={subtitleMode} onChange={(event) => changeSubtitle(event.target.value)}><option value="off">Off</option>{stream.subtitles.map((subtitle, index) => <option key={subtitle.url} value={String(index)}>{subtitle.label}</option>)}</select></label>
             <label>Subtitle size<select aria-label="Subtitle size" value={subtitleSize} onChange={(event) => { setSubtitleSize(event.target.value); writePreference("hao:anime:subtitle-size", event.target.value); }}><option value="75">Small</option><option value="100">Medium</option><option value="125">Large</option><option value="150">Extra large</option><option value="175">iPad large</option><option value="200">Maximum</option></select></label>
@@ -1449,6 +1450,7 @@ export default function PlayerPage() {
         )}
       </div>
       <div className="watch-utility-bar" aria-label="Watch options">
+        {audioSwitchTarget && <button className="audio-version-utility" onClick={() => void switchAudioVersion(audioSwitchTarget)}><ArrowDownUp /><span>{activeAudioMode?.toUpperCase()} → {audioSwitchTarget.toUpperCase()}</span></button>}
         <button className={autoplayNext ? "active" : ""} aria-pressed={autoplayNext} onClick={() => toggleAutoplay(!autoplayNext)}><SkipForward /><span>Auto next</span></button>
         <button className={lightsOff ? "active" : ""} aria-pressed={lightsOff} onClick={() => setLightsOff((value) => !value)}><Lightbulb /><span>{lightsOff ? "Lights on" : "Lights off"}</span></button>
         <button aria-haspopup="dialog" onClick={() => setShortcutsOpen(true)}><Keyboard /><span>Shortcuts</span></button>

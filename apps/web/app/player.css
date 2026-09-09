@@ -62,6 +62,7 @@
 .watch-utility-bar button { min-height: 34px; display: flex; align-items: center; gap: 7px; padding: 0 11px; border: 0; border-radius: 7px; color: var(--muted); background: transparent; font-size: 9px; font-weight: 700; cursor: pointer; }
 .watch-utility-bar button:hover,.watch-utility-bar button.active { color: var(--cyan); background: rgba(96,239,227,.08); }
 .watch-utility-bar button svg { width: 15px; height: 15px; }
+.watch-utility-bar .audio-version-utility { min-height: 38px; color: var(--cyan); border: 1px solid rgba(96,239,227,.28); background: rgba(96,239,227,.08); }
 .episode-rail { min-height: 0; max-height: calc(min(72vh,720px) + 54px); display: grid; grid-template-rows: auto auto 1fr; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: linear-gradient(155deg,rgba(21,25,39,.98),rgba(10,12,20,.98)); }
 .episode-rail-heading { min-height: 72px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; border-bottom: 1px solid var(--line); }
 .episode-rail-heading>div { display: flex; align-items: center; gap: 11px; }
@@ -221,7 +222,6 @@
   .player-time { min-width: 70px; }
 }
 @container video-stage (max-width:390px) {
-  .player-control-group .audio-version-toggle { display: none; }
   .player-time { min-width: 62px; font-size: 7px; }
 }
 @media(max-width:1180px) {

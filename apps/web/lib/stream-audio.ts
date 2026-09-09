@@ -11,7 +11,9 @@ export function streamAudioMode(stream: StreamLike): AudioMode | null {
   const label = `${stream.quality ?? ""} ${stream.audio ?? ""}`;
   if (/\b(?:dub|dubbed)\b/i.test(label)) return "dub";
   if (/\b(?:sub|subbed|hsub)\b/i.test(label)) return "sub";
-  if (/\b(?:english|eng)\b/i.test(stream.audio ?? "")) return "dub";
+  const audioLanguage = (stream.audio ?? "").trim();
+  if (/^(?:en|eng|english)(?:[-_ ].*)?$/i.test(audioLanguage)) return "dub";
+  if (/^(?:ja|jp|jpn|japanese)(?:[-_ ].*)?$/i.test(audioLanguage)) return "sub";
   if (stream.subtitles?.length) return "sub";
   return null;
 }

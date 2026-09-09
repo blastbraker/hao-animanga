@@ -10,6 +10,8 @@ describe("stream audio variants", () => {
 
   it("uses audio and subtitle metadata when quality is neutral", () => {
     expect(streamAudioMode({ id: "dub", audio: "English" })).toBe("dub");
+    expect(streamAudioMode({ id: "dub-code", audio: "en-US", subtitles: [{}] })).toBe("dub");
+    expect(streamAudioMode({ id: "sub-code", audio: "ja", subtitles: [{}] })).toBe("sub");
     expect(streamAudioMode({ id: "sub", subtitles: [{}] })).toBe("sub");
   });
 

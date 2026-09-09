@@ -122,7 +122,7 @@ class AniyomiFixtureRuntime(private val extensionRoot: Path, private val dataRoo
     fun streams(episodeId: String, serverId: String): List<AnimeStream> {
         require(serverId == "aniyomi") { "Aniyomi server was not found" }
         val handle = episodes[episodeId] ?: throw IllegalArgumentException("Aniyomi episode was not found")
-        return runBlocking { withTimeout(40_000) { handle.source.getVideoList(handle.episode) } }.mapNotNull { video ->
+        return runBlocking { withTimeout(40_000) { handle.source.getVideoList(handle.episode) } }.flatMap { video ->
             runCatching {
                 val mediaUrl = video.videoUrl ?: video.url
                 AnimeNetworkPolicy.allowRemoteHttps(mediaUrl)
@@ -132,34 +132,40 @@ class AniyomiFixtureRuntime(private val extensionRoot: Path, private val dataRoo
                 val audioTracks = video.audioTracks.filter { track ->
                     track.url.isNotBlank() && runCatching { AnimeNetworkPolicy.allowRemoteHttps(track.url) }.isSuccess
                 }
-                val playable = video.copy(subtitleTracks = subtitles, audioTracks = audioTracks)
-                // Include external audio renditions in the public stream identity.
-                // This both distinguishes materially different streams and forces
-                // Safari to discard an older cached video-only playlist.
-                val streamIdentity = buildString {
-                    append(mediaUrl)
-                    audioTracks.forEach { append('\u0000').append(it.url).append('\u0000').append(it.lang) }
+                // Publish each external language track as its own stream variant.
+                // Safari/iPadOS does not consistently expose alternate HLS audio
+                // renditions through custom web controls, whereas separate stream
+                // URLs let HAO's Sub/Dub control select the language reliably.
+                val audioVariants = if (audioTracks.isEmpty()) listOf(emptyList()) else audioTracks.map { listOf(it) }
+                audioVariants.map { selectedAudioTracks ->
+                    val playable = video.copy(subtitleTracks = subtitles, audioTracks = selectedAudioTracks)
+                    // Include the selected audio rendition in the public stream
+                    // identity so Safari cannot reuse a differently voiced stream.
+                    val streamIdentity = buildString {
+                        append(mediaUrl)
+                        selectedAudioTracks.forEach { append('\u0000').append(it.url).append('\u0000').append(it.lang) }
+                    }
+                    val id = stableId("stream", episodeId, streamIdentity)
+                    val streamHandle = StreamHandle(
+                        mediaUrl,
+                        playable.headers?.toMultimap() ?: emptyMap(),
+                        selectedAudioTracks.map { StoredAudioTrack(it.url, it.lang) },
+                    )
+                    streams[id] = streamHandle
+                    persistStream(id, streamHandle)
+                    AnimeStream(
+                        id,
+                        serverId,
+                        "/v1/anime/streams/$id/media",
+                        if (mediaUrl.contains(".m3u8", true)) "HLS" else "MP4",
+                        playable.quality,
+                        selectedAudioTracks.firstOrNull()?.lang,
+                        subtitles.map { track -> registerSubtitle(track.url, track.lang, playable.headers?.toMultimap() ?: emptyMap()) },
+                    )
                 }
-                val id = stableId("stream", episodeId, streamIdentity)
-                val handle = StreamHandle(
-                    mediaUrl,
-                    playable.headers?.toMultimap() ?: emptyMap(),
-                    audioTracks.map { StoredAudioTrack(it.url, it.lang) },
-                )
-                streams[id] = handle
-                persistStream(id, handle)
-                AnimeStream(
-                    id,
-                    serverId,
-                    "/v1/anime/streams/$id/media",
-                    if (mediaUrl.contains(".m3u8", true)) "HLS" else "MP4",
-                    playable.quality,
-                    playable.audioTracks.firstOrNull()?.lang,
-                    subtitles.map { track -> registerSubtitle(track.url, track.lang, playable.headers?.toMultimap() ?: emptyMap()) },
-                )
             }.getOrElse { error ->
                 System.err.println("Aniyomi discarded an unsafe stream: ${error.message ?: error.javaClass.simpleName}")
-                null
+                emptyList()
             }
         }.distinctBy { it.id }
     }
