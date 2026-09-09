@@ -1,9 +1,20 @@
 import { normalizeTitle, type Work } from "@hao/domain";
 
+type AudioMode = "sub" | "dub";
+
 export function confidentSourceMatch<T extends { title: string }>(work: Pick<Work, "title" | "alternateTitles">, items: T[]): T | null {
   const titles = [work.title, ...work.alternateTitles].map(comparableTitle).filter(Boolean);
   const ranked = items.map((item) => ({ item, score: matchScore(titles, comparableTitle(item.title)) })).sort((left, right) => right.score - left.score);
   return ranked[0] && ranked[0].score >= .84 ? ranked[0].item : null;
+}
+
+export function confidentAudioSourceMatch<T extends { title: string }>(
+  work: Pick<Work, "title" | "alternateTitles">,
+  items: T[],
+  audioMode: AudioMode,
+): T | null {
+  const explicitlyMatching = items.filter((item) => titleAudioMode(item.title) === audioMode);
+  return confidentSourceMatch(work, explicitlyMatching) ?? confidentSourceMatch(work, items);
 }
 
 export function sourceFallbackOrder<T extends { id: string }>(sources: T[], preferredSourceId: string): T[] {
@@ -52,6 +63,12 @@ function comparableTitle(title: string): string {
     .split(" ")
     .map((token) => token.length > 2 ? token.replace(/([aeiou])\1/g, "$1") : token)
     .join(" ");
+}
+
+function titleAudioMode(title: string): AudioMode | null {
+  if (/\b(?:dub|dubbed|english dub)\b/i.test(title)) return "dub";
+  if (/\b(?:sub|subbed|hsub)\b/i.test(title)) return "sub";
+  return null;
 }
 
 function seasonNumber(title: string): number | null {

@@ -6,7 +6,7 @@ import { ArrowDownUp, Captions, CheckCircle2, ChevronDown, ChevronRight, Externa
 import Hls from "hls.js";
 import { api, bridgeErrorMessage, bridgeJson, getActiveBridge, type LibraryResponse } from "../../../lib/api";
 import { completedEpisodeUnits, continueWatchingId, CONTINUE_WATCHING_STORAGE_KEY, DISMISSED_CONTINUE_STORAGE_KEY, parseContinueWatching, parseDismissedWorkIds, parsePlaybackPosition, playbackPercent, playbackStorageKey, resumablePosition, updateContinueWatching, type ContinueWatchingEntry } from "../../../lib/playback-progress";
-import { confidentSourceMatch } from "../../../lib/source-match";
+import { confidentAudioSourceMatch, confidentSourceMatch } from "../../../lib/source-match";
 import { rankSourcesByReliability, recordSourceResult } from "../../../lib/source-reliability";
 import { nextPlaybackCandidate, playbackRecoveryPosition, prioritizePlaybackItems } from "../../../lib/playback-recovery";
 import { compatibleAudioStreams, pickAudioVariant, pickQualityUpgrade, selectAudioStreams, streamAudioMode, streamResolution, type AudioMode } from "../../../lib/stream-audio";
@@ -163,6 +163,7 @@ export default function PlayerPage() {
   const [subtitleMode, setSubtitleMode] = useState("off");
   const [subtitleSize, setSubtitleSize] = useState("100");
   const [subtitleBackground, setSubtitleBackground] = useState("dark");
+  const [audioPreference, setAudioPreference] = useState<AudioMode>("sub");
   const [busy, setBusy] = useState("Connecting to HAO Bridge…");
   const [error, setError] = useState("");
   const [introSkip, setIntroSkip] = useState<IntroSkipInterval | null>(null);
@@ -178,11 +179,8 @@ export default function PlayerPage() {
   const stream = useMemo(() => streams.find((item) => item.id === streamId), [streamId, streams]);
   const streamUrl = stream ? (stream.url.startsWith("/") ? `${bridge}${stream.url}` : stream.url) : "";
   const subtitleUrls = useMemo(() => stream?.subtitles.map((subtitle) => subtitle.url.startsWith("/") ? `${bridge}${subtitle.url}` : subtitle.url) ?? [], [bridge, stream]);
-  const activeAudioMode = stream ? streamAudioMode(stream) : null;
-  const availableAudioModes = useMemo(() => new Set(streams.map(streamAudioMode).filter((mode): mode is AudioMode => mode !== null)), [streams]);
-  const audioSwitchTarget: AudioMode | null = activeAudioMode === "dub"
-    ? (availableAudioModes.has("sub") ? "sub" : null)
-    : (availableAudioModes.has("dub") ? "dub" : null);
+  const activeAudioMode = stream ? streamAudioMode(stream) ?? audioPreference : audioPreference;
+  const audioSwitchTarget: AudioMode = activeAudioMode === "dub" ? "sub" : "dub";
 
   async function bridgeRequest<T>(endpoint: string, path: string): Promise<T> {
     return bridgeJson<T>(endpoint, path);
@@ -200,6 +198,7 @@ export default function PlayerPage() {
     setMuted(false);
     writePreference("hao:anime:muted", "false");
     setPlaybackSpeed(normalizePlaybackSpeed(readPreference("hao:anime:playback-speed")));
+    setAudioPreference(readAudioModePreference() ?? "sub");
     setSubtitleSize(initialSubtitleSize(readPreference("hao:anime:subtitle-size")));
     setSubtitleBackground(readPreference("hao:anime:subtitle-background") || "dark");
     void connect();
@@ -551,6 +550,7 @@ export default function PlayerPage() {
     preferredAnimeId?: string,
     preferredEpisodeId?: string,
     alternateTitles: string[] = [],
+    requestedAudioMode?: AudioMode,
   ) {
     setError("");
     setSourceFallbackStatus("");
@@ -580,9 +580,9 @@ export default function PlayerPage() {
         const verifiedPreferred = preferredItem && confidentSourceMatch({ title: query, alternateTitles }, [preferredItem])
           ? preferredItem
           : null;
-        const item =
-          verifiedPreferred ??
-          confidentSourceMatch({ title: query, alternateTitles }, titles);
+        const item = verifiedPreferred ?? (requestedAudioMode
+          ? confidentAudioSourceMatch({ title: query, alternateTitles }, titles, requestedAudioMode)
+          : confidentSourceMatch({ title: query, alternateTitles }, titles));
         if (!item) {
           recordSourceResult("anime", source.id, false, performance.now() - startedAt);
           continue;
@@ -609,7 +609,7 @@ export default function PlayerPage() {
         setEpisodes(nextEpisodes);
         setEpisodeId(initialEpisode.id);
         autoplayRequestedRef.current = true;
-        await loadEpisode(endpoint, initialEpisode.id);
+        await loadEpisode(endpoint, initialEpisode.id, false, requestedAudioMode === undefined);
         recordSourceResult("anime", source.id, true, performance.now() - startedAt);
         replacePlaybackSourceInUrl(source.id, item.id, initialEpisode.id, query);
         if (source.id !== preferredSourceId) {
@@ -656,7 +656,7 @@ export default function PlayerPage() {
     }
   }
 
-  async function loadEpisode(endpoint: string, nextEpisodeId: string, cancelled = false) {
+  async function loadEpisode(endpoint: string, nextEpisodeId: string, cancelled = false, allowOppositeAudioFallback = true) {
     failedPlaybackStreamsRef.current.clear();
     setBusy("Loading stream servers…");
     setError("");
@@ -667,10 +667,10 @@ export default function PlayerPage() {
     const preferredServerName = readPreference("hao:anime:preferred-server");
     const initialServer = nextServers.find((item) => item.name === preferredServerName) ?? nextServers[0]!;
     setServers(nextServers);
-    await loadPlayableServer(endpoint, nextEpisodeId, nextServers, initialServer.id, cancelled);
+    await loadPlayableServer(endpoint, nextEpisodeId, nextServers, initialServer.id, cancelled, allowOppositeAudioFallback);
   }
 
-  async function loadPlayableServer(endpoint: string, nextEpisodeId: string, availableServers: AnimeServer[], preferredServerId: string, cancelled = false) {
+  async function loadPlayableServer(endpoint: string, nextEpisodeId: string, availableServers: AnimeServer[], preferredServerId: string, cancelled = false, allowOppositeAudioFallback = true) {
     const orderedServers = prioritizePlaybackItems(availableServers, preferredServerId);
     let lastFailure: unknown = null;
     for (const [index, candidateServer] of orderedServers.entries()) {
@@ -688,7 +688,7 @@ export default function PlayerPage() {
     }
 
     const preferredAudioMode = readAudioModePreference();
-    if (preferredAudioMode) {
+    if (preferredAudioMode && allowOppositeAudioFallback) {
       for (const candidateServer of orderedServers) {
         if (cancelled) return;
         setServerId(candidateServer.id);
@@ -862,7 +862,10 @@ export default function PlayerPage() {
     if (selectedStream) {
       writePreference("hao:anime:preferred-stream", streamPreference(selectedStream));
       const selectedAudioMode = streamAudioMode(selectedStream);
-      if (selectedAudioMode) writePreference("hao:anime:audio-mode", selectedAudioMode);
+      if (selectedAudioMode) {
+        setAudioPreference(selectedAudioMode);
+        writePreference("hao:anime:audio-mode", selectedAudioMode);
+      }
     }
     restoredPlaybackKeyRef.current = "";
     failedPlaybackStreamsRef.current.delete(next);
@@ -873,10 +876,46 @@ export default function PlayerPage() {
 
   async function switchAudioVersion(target: AudioMode) {
     const nextStream = pickAudioVariant(streams, stream, target);
-    if (!nextStream) return;
+    if (nextStream) {
+      setAudioPreference(target);
+      writePreference("hao:anime:audio-mode", target);
+      setSourceFallbackStatus(`Switched to ${target === "dub" ? "dubbed audio" : "subtitled audio"}.`);
+      await changeStream(nextStream.id);
+      return;
+    }
+
+    if (!anime || !episode || !bridge) return;
+    const previousAudioMode = readAudioModePreference() ?? activeAudioMode;
+    const positionSeconds = videoRef.current?.currentTime ?? currentTime;
+    const query = canonicalWork?.title ?? (searchDraft.trim() || anime.title);
+    setAudioPreference(target);
     writePreference("hao:anime:audio-mode", target);
-    setSourceFallbackStatus(`Switched to ${target === "dub" ? "dubbed audio" : "subtitled audio"}.`);
-    await changeStream(nextStream.id);
+    pendingPlaybackPositionRef.current = { episodeNumber: episode.number, positionSeconds };
+    remoteProgressRef.current = { episodeNumber: episode.number, positionSeconds };
+    autoplayRequestedRef.current = !videoRef.current?.paused;
+    setBusy(`Finding the ${target === "dub" ? "dubbed" : "subtitled"} version…`);
+    setError("");
+    try {
+      await loadAnimeWithSourceFallback(
+        bridge,
+        sources,
+        sourceId,
+        query,
+        undefined,
+        undefined,
+        canonicalWork?.alternateTitles ?? [],
+        target,
+      );
+      setSourceFallbackStatus(`Switched to the ${target === "dub" ? "dubbed" : "subtitled"} version.`);
+    } catch {
+      if (previousAudioMode) {
+        setAudioPreference(previousAudioMode);
+        writePreference("hao:anime:audio-mode", previousAudioMode);
+      }
+      await connect();
+      setBusy("");
+      setError(`No playable ${target === "dub" ? "dubbed" : "subtitled"} version was found in your installed sources.`);
+    }
   }
 
   async function recoverFromPlaybackFailure() {
@@ -1426,7 +1465,7 @@ export default function PlayerPage() {
               </div>
               <div className="player-control-group">
                 {nextEpisode && <button aria-label="Next episode" title="Next episode" onClick={() => void changeEpisode(nextEpisode.id, true)}><SkipForward /></button>}
-                {audioSwitchTarget && <button className="audio-version-toggle" aria-label={`Switch to ${audioSwitchTarget === "dub" ? "dubbed" : "subtitled"} audio`} title={`Switch to ${audioSwitchTarget === "dub" ? "Dub" : "Sub"}`} onClick={() => void switchAudioVersion(audioSwitchTarget)}><span>{audioSwitchTarget.toUpperCase()}</span></button>}
+                <button className="audio-version-toggle" aria-label={`Switch to ${audioSwitchTarget === "dub" ? "dubbed" : "subtitled"} audio`} title={`Switch to ${audioSwitchTarget === "dub" ? "Dub" : "Sub"}`} disabled={Boolean(busy)} onClick={() => void switchAudioVersion(audioSwitchTarget)}><span>{audioSwitchTarget.toUpperCase()}</span></button>
                 <button className="playback-rate-toggle" aria-label={`Playback speed ${formatPlaybackSpeed(playbackSpeed)}. Select next speed`} title="Change playback speed" onClick={() => changePlaybackSpeed(nextPlaybackSpeed(playbackSpeed))}><span>{formatPlaybackSpeed(playbackSpeed)}</span></button>
                 <button className={subtitleMode !== "off" ? "active" : ""} aria-label="Subtitles" title="Subtitles" disabled={!stream.subtitles.length} onClick={() => changeSubtitle(subtitleMode === "off" ? "0" : "off")}><Captions /></button>
                 <button className={settingsOpen ? "active" : ""} aria-label="Playback settings" title="Playback settings" onClick={() => { setSettingsOpen((value) => !value); setControlsVisible(true); }}><Settings2 /></button>
@@ -1441,7 +1480,7 @@ export default function PlayerPage() {
             <div className="playback-settings-heading"><b>Playback settings</b><button aria-label="Close playback settings" onClick={() => setSettingsOpen(false)}>×</button></div>
             <label>Server<select aria-label="Stream server" value={serverId} onChange={(event) => void changeServer(event.target.value)} disabled={Boolean(busy) || !servers.length}>{servers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
             <label>Quality & audio<select aria-label="Stream quality" value={streamId} onChange={(event) => void changeStream(event.target.value)} disabled={Boolean(busy) || !streams.length}>{streams.map((item) => <option key={item.id} value={item.id}>{item.quality ?? "Auto"} · {item.audio ?? "Default audio"}</option>)}</select></label>
-            {availableAudioModes.size > 1 && <label>Audio version<select aria-label="Audio version" value={activeAudioMode ?? ""} onChange={(event) => void switchAudioVersion(event.target.value as AudioMode)} disabled={Boolean(busy)}><option value="sub">Subtitled</option><option value="dub">Dubbed</option></select></label>}
+            <label>Audio version<select aria-label="Audio version" value={activeAudioMode ?? "sub"} onChange={(event) => void switchAudioVersion(event.target.value as AudioMode)} disabled={Boolean(busy)}><option value="sub">Subtitled</option><option value="dub">Dubbed</option></select></label>
             <label>Playback speed<select aria-label="Playback speed" value={String(playbackSpeed)} onChange={(event) => changePlaybackSpeed(Number(event.target.value))}>{PLAYBACK_SPEEDS.map((speed) => <option key={speed} value={String(speed)}>{formatPlaybackSpeed(speed)}{speed === 1 ? " · Normal" : ""}</option>)}</select></label>
             <label>Subtitles<select aria-label="Subtitle track" value={subtitleMode} onChange={(event) => changeSubtitle(event.target.value)}><option value="off">Off</option>{stream.subtitles.map((subtitle, index) => <option key={subtitle.url} value={String(index)}>{subtitle.label}</option>)}</select></label>
             <label>Subtitle size<select aria-label="Subtitle size" value={subtitleSize} onChange={(event) => { setSubtitleSize(event.target.value); writePreference("hao:anime:subtitle-size", event.target.value); }}><option value="75">Small</option><option value="100">Medium</option><option value="125">Large</option><option value="150">Extra large</option><option value="175">iPad large</option><option value="200">Maximum</option></select></label>
@@ -1450,7 +1489,7 @@ export default function PlayerPage() {
         )}
       </div>
       <div className="watch-utility-bar" aria-label="Watch options">
-        {audioSwitchTarget && <button className="audio-version-utility" onClick={() => void switchAudioVersion(audioSwitchTarget)}><ArrowDownUp /><span>{activeAudioMode?.toUpperCase()} → {audioSwitchTarget.toUpperCase()}</span></button>}
+        {stream && <button className="audio-version-utility" disabled={Boolean(busy)} onClick={() => void switchAudioVersion(audioSwitchTarget)}><ArrowDownUp /><span>{(activeAudioMode ?? "sub").toUpperCase()} → {audioSwitchTarget.toUpperCase()}</span></button>}
         <button className={autoplayNext ? "active" : ""} aria-pressed={autoplayNext} onClick={() => toggleAutoplay(!autoplayNext)}><SkipForward /><span>Auto next</span></button>
         <button className={lightsOff ? "active" : ""} aria-pressed={lightsOff} onClick={() => setLightsOff((value) => !value)}><Lightbulb /><span>{lightsOff ? "Lights on" : "Lights off"}</span></button>
         <button aria-haspopup="dialog" onClick={() => setShortcutsOpen(true)}><Keyboard /><span>Shortcuts</span></button>

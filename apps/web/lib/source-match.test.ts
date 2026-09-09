@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { confidentSourceMatch, sourceFallbackOrder } from "./source-match";
+import { confidentAudioSourceMatch, confidentSourceMatch, sourceFallbackOrder } from "./source-match";
 
 const seasonTwo = {
   title: "Skeleton Knight in Another World Season 2",
@@ -79,6 +79,20 @@ describe("confidentSourceMatch", () => {
     const special = { title: "Naruto: Shippuden: Sunny Side Battle", id: "special" };
     expect(confidentSourceMatch(series, [special, main])).toEqual(main);
     expect(confidentSourceMatch({ title: series.title, alternateTitles: [] }, [special])).toBeNull();
+  });
+});
+
+describe("confidentAudioSourceMatch", () => {
+  const work = { title: "Naruto: Shippuden", alternateTitles: ["Naruto Shippuuden"] };
+  const sub = { title: "Naruto: Shippuden" };
+  const dub = { title: "Naruto: Shippuden (Dub)" };
+
+  it("prefers the explicitly dubbed catalog entry", () => {
+    expect(confidentAudioSourceMatch(work, [sub, dub], "dub")).toEqual(dub);
+  });
+
+  it("keeps the unmarked catalog entry for subtitled playback", () => {
+    expect(confidentAudioSourceMatch(work, [sub, dub], "sub")).toEqual(sub);
   });
 });
 
