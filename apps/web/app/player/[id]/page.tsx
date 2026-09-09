@@ -200,7 +200,7 @@ export default function PlayerPage() {
     setMuted(false);
     writePreference("hao:anime:muted", "false");
     setPlaybackSpeed(normalizePlaybackSpeed(readPreference("hao:anime:playback-speed")));
-    setSubtitleSize(readPreference("hao:anime:subtitle-size") || "100");
+    setSubtitleSize(initialSubtitleSize(readPreference("hao:anime:subtitle-size")));
     setSubtitleBackground(readPreference("hao:anime:subtitle-background") || "dark");
     void connect();
     return () => {
@@ -1443,7 +1443,7 @@ export default function PlayerPage() {
             <label>Quality & audio<select aria-label="Stream quality" value={streamId} onChange={(event) => void changeStream(event.target.value)} disabled={Boolean(busy) || !streams.length}>{streams.map((item) => <option key={item.id} value={item.id}>{item.quality ?? "Auto"} · {item.audio ?? "Default audio"}</option>)}</select></label>
             <label>Playback speed<select aria-label="Playback speed" value={String(playbackSpeed)} onChange={(event) => changePlaybackSpeed(Number(event.target.value))}>{PLAYBACK_SPEEDS.map((speed) => <option key={speed} value={String(speed)}>{formatPlaybackSpeed(speed)}{speed === 1 ? " · Normal" : ""}</option>)}</select></label>
             <label>Subtitles<select aria-label="Subtitle track" value={subtitleMode} onChange={(event) => changeSubtitle(event.target.value)}><option value="off">Off</option>{stream.subtitles.map((subtitle, index) => <option key={subtitle.url} value={String(index)}>{subtitle.label}</option>)}</select></label>
-            <label>Subtitle size<select aria-label="Subtitle size" value={subtitleSize} onChange={(event) => { setSubtitleSize(event.target.value); writePreference("hao:anime:subtitle-size", event.target.value); }}><option value="75">Small</option><option value="100">Medium</option><option value="125">Large</option><option value="150">Extra large</option></select></label>
+            <label>Subtitle size<select aria-label="Subtitle size" value={subtitleSize} onChange={(event) => { setSubtitleSize(event.target.value); writePreference("hao:anime:subtitle-size", event.target.value); }}><option value="75">Small</option><option value="100">Medium</option><option value="125">Large</option><option value="150">Extra large</option><option value="175">iPad large</option><option value="200">Maximum</option></select></label>
             <label>Subtitle background<select aria-label="Subtitle background" value={subtitleBackground} onChange={(event) => { setSubtitleBackground(event.target.value); writePreference("hao:anime:subtitle-background", event.target.value); }}><option value="dark">Dark</option><option value="none">None</option></select></label>
           </div>
         )}
@@ -1696,6 +1696,17 @@ function writePreference(key: string, value: string) {
   } catch {
     /* Playback continues when local storage is unavailable. */
   }
+}
+
+function initialSubtitleSize(saved: string | null): string {
+  if (["75", "100", "125", "150", "175", "200"].includes(saved ?? "")) return saved!;
+  if (typeof window === "undefined" || typeof navigator === "undefined") return "100";
+
+  // iPadOS can identify itself as macOS, so touch capability and the shorter
+  // screen edge are more dependable than the user agent. Give tablets a
+  // comfortably readable default while leaving phones and desktops unchanged.
+  const shorterScreenEdge = Math.min(window.screen.width, window.screen.height);
+  return navigator.maxTouchPoints > 1 && shorterScreenEdge >= 700 ? "175" : "100";
 }
 
 function readAudioModePreference(): AudioMode | null {
