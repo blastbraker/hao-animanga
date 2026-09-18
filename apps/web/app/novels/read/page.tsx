@@ -15,7 +15,6 @@ import {
   Plus,
   Search,
   Settings2,
-  Square,
   Sun,
   TriangleAlert,
   Volume2,
@@ -59,6 +58,7 @@ import {
 } from "../../../lib/novel-state";
 import { confidentSourceMatch, sourceFallbackOrder } from "../../../lib/source-match";
 import { getCloudReadingState, saveCloudReadingState } from "../../../lib/cloud-reading";
+import { NovelListenPlayer } from "../../../components/novel-listen-player";
 
 type Theme = "paper" | "sepia" | "dark";
 
@@ -83,15 +83,10 @@ export default function NovelReaderPage() {
   const [bookmarkOpen, setBookmarkOpen] = useState(false);
   const [bookmarkNote, setBookmarkNote] = useState("");
   const [selectedPassage, setSelectedPassage] = useState("");
-  const [speaking, setSpeaking] = useState(false);
-  const [spokenText, setSpokenText] = useState("");
-  const [ttsRate, setTtsRate] = useState(1);
-  const [ttsVoice, setTtsVoice] = useState("");
-  const [ttsSleep, setTtsSleep] = useState(0);
-  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [listenOpen, setListenOpen] = useState(false);
+  const [listenAutoNext, setListenAutoNext] = useState(false);
+  const [listenSleep, setListenSleep] = useState({ minutes: 0, until: 0 });
   const workId = useRef<string | null>(null);
-  const speechGeneration = useRef(0);
-  const sleepTimer = useRef<number | undefined>(undefined);
 
   const navigation = useMemo(
     () => novelChapterNavigation(chapters, content?.chapterId),
@@ -117,7 +112,7 @@ export default function NovelReaderPage() {
     try {
       const saved = JSON.parse(
         window.localStorage.getItem("hao:novel-reader-settings") || "{}",
-      ) as { fontSize?: number; lineHeight?: number; theme?: Theme; ttsRate?: number; ttsVoice?: string; ttsSleep?: number };
+      ) as { fontSize?: number; lineHeight?: number; theme?: Theme };
       if (typeof saved.fontSize === "number")
         setFontSize(Math.max(16, Math.min(28, saved.fontSize)));
       if (typeof saved.lineHeight === "number")
@@ -128,20 +123,11 @@ export default function NovelReaderPage() {
         saved.theme === "dark"
       )
         setTheme(saved.theme);
-      if (typeof saved.ttsRate === "number") setTtsRate(Math.max(0.5, Math.min(2, saved.ttsRate)));
-      if (typeof saved.ttsVoice === "string") setTtsVoice(saved.ttsVoice);
-      if (typeof saved.ttsSleep === "number") setTtsSleep(saved.ttsSleep);
     } catch {
       /* Defaults remain available when storage is blocked. */
     }
-    const loadVoices = () => setVoices(window.speechSynthesis?.getVoices() ?? []);
-    loadVoices();
-    window.speechSynthesis?.addEventListener("voiceschanged", loadVoices);
     return () => {
       document.body.classList.remove("novel-reader-immersive");
-      window.speechSynthesis?.removeEventListener("voiceschanged", loadVoices);
-      window.speechSynthesis?.cancel();
-      window.clearTimeout(sleepTimer.current);
     };
   }, []);
 
@@ -290,14 +276,14 @@ export default function NovelReaderPage() {
     try {
       window.localStorage.setItem(
         "hao:novel-reader-settings",
-        JSON.stringify({ fontSize, lineHeight, theme, ttsRate, ttsVoice, ttsSleep }),
+        JSON.stringify({ fontSize, lineHeight, theme }),
       );
     } catch {
       /* Reader controls still work for this session. */
     }
     const chapter = chapters.find((item) => item.id === content?.chapterId);
     if (novel && chapter) void syncDetailedNovelState(novel, chapter, progress, readChapterIds, bookmarks);
-  }, [fontSize, lineHeight, theme, ttsRate, ttsVoice, ttsSleep]);
+  }, [fontSize, lineHeight, theme]);
 
   function markRead(chapterId: string) {
     if (!novel) return;
@@ -350,44 +336,6 @@ export default function NovelReaderPage() {
     if (novel && chapter) void syncDetailedNovelState(novel, chapter, progress, readChapterIds, nextBookmarks);
   }
 
-  function stopSpeaking() {
-    speechGeneration.current += 1;
-    window.speechSynthesis?.cancel();
-    window.clearTimeout(sleepTimer.current);
-    setSpeaking(false);
-    setSpokenText("");
-  }
-
-  function toggleSpeaking() {
-    if (speaking) {
-      stopSpeaking();
-      return;
-    }
-    const selected = window.getSelection()?.toString().trim();
-    const fullText = document.querySelector(".novel-reader-content")?.textContent?.replace(/\s+/g, " ").trim() ?? "";
-    const text = selected || fullText;
-    if (!text || !window.speechSynthesis) return;
-    const chunks = text.match(/[^.!?]+[.!?]+|[^.!?]+$/g)?.map((item) => item.trim()).filter(Boolean) ?? [text];
-    const generation = ++speechGeneration.current;
-    setSpeaking(true);
-    if (ttsSleep > 0) sleepTimer.current = window.setTimeout(stopSpeaking, ttsSleep * 60_000);
-    const speak = (index: number) => {
-      if (generation !== speechGeneration.current || index >= chunks.length) {
-        if (generation === speechGeneration.current) stopSpeaking();
-        return;
-      }
-      const chunk = chunks[index]!.slice(0, 500);
-      setSpokenText(chunk);
-      const utterance = new SpeechSynthesisUtterance(chunk);
-      utterance.rate = ttsRate;
-      utterance.voice = voices.find((voice) => voice.name === ttsVoice) ?? null;
-      utterance.onend = () => speak(index + 1);
-      utterance.onerror = () => stopSpeaking();
-      window.speechSynthesis.speak(utterance);
-    };
-    speak(0);
-  }
-
   const chapterHref = useCallback(
     (chapter: NovelChapter) => {
       const parameters = new URLSearchParams({
@@ -416,7 +364,6 @@ export default function NovelReaderPage() {
           String(progress),
         );
       if (content && progress >= 90) markRead(content.chapterId);
-      stopSpeaking();
       try {
         const payload = await bridgeJson<unknown>(
           bridge,
@@ -540,7 +487,7 @@ export default function NovelReaderPage() {
         href: readerUrl(item, chapter),
         readChapterIds: [...readIds],
         bookmarks: savedBookmarks,
-        readerSettings: { fontSize, lineHeight, theme, ttsRate, ttsVoice, ttsSleep },
+        readerSettings: { fontSize, lineHeight, theme },
       },
     });
   }
@@ -636,12 +583,12 @@ export default function NovelReaderPage() {
           <Bookmark />
         </button>
         <button
-          aria-label={speaking ? "Stop text to speech" : "Read chapter aloud"}
-          title={speaking ? "Stop reading" : "Read aloud"}
-          className={speaking ? "active" : ""}
-          onClick={toggleSpeaking}
+          aria-label={listenOpen ? "Close Kokoro player" : "Listen with Kokoro"}
+          title="Listen with Kokoro"
+          className={listenOpen ? "active" : ""}
+          onClick={() => setListenOpen((value) => !value)}
         >
-          {speaking ? <Square /> : <Volume2 />}
+          <Volume2 />
         </button>
         <button
           aria-label="Reader settings"
@@ -715,25 +662,6 @@ export default function NovelReaderPage() {
               <option value="paper">Paper</option>
               <option value="sepia">Sepia</option>
               <option value="dark">Dark</option>
-            </select>
-          </label>
-          <label>
-            Reading voice{" "}
-            <select value={ttsVoice} onChange={(event) => setTtsVoice(event.target.value)}>
-              <option value="">System default</option>
-              {voices.map((voice) => <option key={voice.voiceURI} value={voice.name}>{voice.name} ({voice.lang})</option>)}
-            </select>
-          </label>
-          <label>
-            Voice speed{" "}
-            <select value={ttsRate} onChange={(event) => setTtsRate(Number(event.target.value))}>
-              {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map((rate) => <option key={rate} value={rate}>{rate}x</option>)}
-            </select>
-          </label>
-          <label>
-            Sleep timer{" "}
-            <select value={ttsSleep} onChange={(event) => setTtsSleep(Number(event.target.value))}>
-              <option value={0}>Off</option><option value={15}>15 minutes</option><option value={30}>30 minutes</option><option value={60}>60 minutes</option>
             </select>
           </label>
         </section>
@@ -822,7 +750,7 @@ export default function NovelReaderPage() {
         </div>
       )}
       {error && <div className="novel-reader-inline-error" role="alert"><TriangleAlert /> {error}</div>}
-      {speaking && spokenText && <div className="novel-tts-current" role="status"><Volume2 /><span>{spokenText}</span></div>}
+      {listenOpen && <NovelListenPlayer key={content.chapterId} endpoint={bridge} chapterId={content.chapterId} novelKey={novelKey} title={novel.title} onClose={() => setListenOpen(false)} hasNext={!!nextChapter} autoNext={listenAutoNext} onAutoNext={setListenAutoNext} sleep={listenSleep.minutes} sleepUntil={listenSleep.until} onSleep={(minutes) => setListenSleep({ minutes, until: minutes ? Date.now() + minutes * 60_000 : 0 })} onFinished={(advance) => { markRead(content.chapterId); if (advance && nextChapter) void openChapter(nextChapter); }} />}
       <header className="novel-reader-heading">
         <span>{novel.title}</span>
         <b>{content.title}</b>

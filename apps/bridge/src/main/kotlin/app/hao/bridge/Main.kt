@@ -25,6 +25,7 @@ fun main() {
     val suwayomiManager = SuwayomiManager.default(suwayomi)
     val animeHost = AnimeHostManager.default()
     val novelHost = NovelHostManager.default()
+    val narration = NarrationService()
     val runtimes = listOf(SuwayomiRuntime(suwayomiManager), AnimeHostExtensionRuntime(animeHost), AniyomiCompatibilityRuntime(animeHost), MangayomiNovelRuntime(novelHost))
     val port = System.getenv("HAO_BRIDGE_PORT")?.toIntOrNull() ?: 4568
     val adminToken = System.getenv("HAO_BRIDGE_ADMIN_TOKEN")?.trim()?.takeIf { it.isNotEmpty() }
@@ -35,6 +36,7 @@ fun main() {
         config.bundledPlugins.enableCors { cors -> cors.addRule { rule -> rule.allowHost("http://localhost:3000"); System.getenv("HAO_WEB_ORIGIN")?.let(rule::allowHost) } }
     }
     app.exception(IllegalArgumentException::class.java) { error, ctx -> ctx.status(400).json(ErrorResponse("INVALID", error.message ?: "Invalid request")) }
+    app.exception(NarrationUnavailable::class.java) { error, ctx -> ctx.status(error.status).header("Retry-After", "3").json(ErrorResponse("NARRATION_UNAVAILABLE", error.message ?: "Kokoro is unavailable", true)) }
     app.exception(AnimeHostRequestException::class.java) { error, ctx ->
         val clientError = error.status in 400..499 && error.status != 401
         ctx.status(if (clientError) error.status else 503).json(ErrorResponse(if (clientError) "INVALID" else "UNAVAILABLE", if (clientError) "Anime source request was invalid" else "Isolated anime host is unavailable", !clientError))
@@ -156,6 +158,17 @@ fun main() {
         ctx.contentType(response.contentType).header("Cache-Control", "private, max-age=86400").result(response.body)
     }
     app.get("/v1/novel/sources") { ctx -> requirePaired(ctx, pairing); ctx.json(novelHost.sources()) }
+    app.get("/v1/narration/status") { ctx -> requirePaired(ctx, pairing); ctx.json(narration.status()) }
+    app.post("/v1/novel/chapters/{chapterId}/narration") { ctx ->
+        requirePaired(ctx, pairing)
+        ctx.header("Cache-Control", "no-store").json(narration.manifest { novelHost.chapter(ctx.pathParam("chapterId")) })
+    }
+    app.post("/v1/narration/audio") { ctx ->
+        requirePaired(ctx, pairing)
+        require(ctx.body().length <= 1024) { "Narration request is too large" }
+        val audio = narration.audio(json.decodeFromString<NarrationAudioRequest>(ctx.body()))
+        ctx.contentType("audio/wav").header("Cache-Control", "no-store").result(audio)
+    }
     app.get("/v1/novel/catalog") { ctx ->
         requirePaired(ctx, pairing)
         ctx.json(novelHost.catalog(
@@ -177,7 +190,7 @@ fun main() {
     }
     Thread.ofVirtual().name("hao-anime-host-startup").start { runCatching { animeHost.ensureStarted() }.onFailure { it.printStackTrace() } }
     Thread.ofVirtual().name("hao-novel-host-startup").start { runCatching { novelHost.ensureStarted() }.onFailure { it.printStackTrace() } }
-    Runtime.getRuntime().addShutdownHook(Thread { animeHost.close(); novelHost.close() })
+    Runtime.getRuntime().addShutdownHook(Thread { animeHost.close(); novelHost.close(); narration.close() })
 }
 
 private fun requirePaired(ctx: Context, pairing: AtomicReference<PairResponse?>) { require(pairing.get() != null) { "Bridge must be paired first" } }

@@ -38,4 +38,10 @@ dependencies {
 kotlin { jvmToolchain(21) }
 application { mainClass.set("app.hao.bridge.MainKt") }
 
+distributions {
+    main {
+        contents { from("narrator") { into("narrator"); exclude("node_modules/**", ".cache/**") } }
+    }
+}
+
 tasks.test { useJUnitPlatform() }

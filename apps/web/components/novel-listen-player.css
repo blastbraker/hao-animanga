@@ -1,0 +1,168 @@
+.novel-listen-player {
+  position: fixed;
+  z-index: 110;
+  right: 76px;
+  bottom: max(20px, env(safe-area-inset-bottom));
+  width: min(510px, calc(100vw - 110px));
+  max-height: calc(100dvh - 40px);
+  overflow: auto;
+  padding: 20px;
+  border: 1px solid #34374b;
+  border-radius: 20px;
+  color: #f5f6fc;
+  background: #11141e;
+  box-shadow: 0 16px 70px #0008;
+  font-size: 14px;
+  color-scheme: dark;
+}
+.novel-listen-player header,
+.novel-listen-player header > div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.novel-listen-player header {
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.novel-listen-player header span {
+  display: grid;
+  gap: 4px;
+}
+.novel-listen-player header small {
+  font-size: 11px;
+  color: #a9b2c6;
+}
+.novel-listen-player header > div > svg {
+  color: #67e8dd;
+  flex-shrink: 0;
+}
+.novel-listen-player button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 44px;
+  min-height: 44px;
+  border: 1px solid #34374b;
+  border-radius: 12px;
+  color: inherit;
+  background: #1b1f2d;
+  cursor: pointer;
+}
+.novel-listen-player button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.novel-listen-player button:focus-visible,
+.novel-listen-player select:focus-visible,
+.novel-listen-player input:focus-visible {
+  outline: 2px solid #67e8dd;
+  outline-offset: 3px;
+}
+.novel-listen-player svg {
+  width: 20px;
+  height: 20px;
+}
+.novel-listen-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #b8c6db;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.novel-listen-status svg {
+  flex-shrink: 0;
+}
+.novel-listen-error {
+  color: #ffc0b7;
+  line-height: 1.6;
+}
+.novel-listen-error button {
+  padding: 6px 10px;
+}
+.novel-listen-passage {
+  font-family: Georgia, serif;
+  line-height: 1.75;
+  font-size: 16px;
+  max-height: 150px;
+  overflow: auto;
+  color: #e3e8f2;
+  white-space: pre-line;
+}
+.novel-listen-timeline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: #b8c6db;
+}
+.novel-listen-timeline input {
+  flex: 1;
+  min-width: 0;
+  accent-color: #67e8dd;
+}
+.novel-listen-transport {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 14px 0;
+}
+.novel-listen-transport .novel-listen-play {
+  background: #67e8dd;
+  color: #071211;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+}
+.novel-listen-transport small {
+  font-size: 10px;
+}
+.novel-listen-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.novel-listen-options label {
+  display: grid;
+  gap: 6px;
+  color: #b8c6db;
+  font-size: 11px;
+}
+.novel-listen-options select {
+  min-width: 0;
+  width: 100%;
+  min-height: 40px;
+  padding: 8px;
+  border: 1px solid #34374b;
+  border-radius: 9px;
+  background: #1b1f2d;
+  color: #f5f6fc;
+}
+.novel-listen-autonext {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  font-size: 12px;
+  color: #b8c6db;
+}
+.novel-listen-autonext input {
+  accent-color: #67e8dd;
+}
+@media (max-width: 760px) {
+  .novel-listen-player {
+    right: 10px;
+    bottom: calc(74px + env(safe-area-inset-bottom));
+    width: calc(100vw - 20px);
+    max-height: calc(100dvh - 100px);
+    padding: 16px;
+    border-radius: 16px;
+  }
+  .novel-listen-passage {
+    max-height: 100px;
+  }
+}
