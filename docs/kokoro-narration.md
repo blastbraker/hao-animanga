@@ -23,12 +23,13 @@ To verify installation, check `/v1/narration/status` on a paired Bridge. `availa
 
 - Play/pause, 15-second seek within the current passage, previous/next passage, and passage selection.
 - Seven built-in voices and 0.5×–2× playback speed. Speed changes do not regenerate audio.
+- Continuous playback groups join four passages into one lossless PCM audio file, avoiding player reloads at paragraph boundaries. The reader prepares up to eight further passages ahead, sequentially, and replenishes that buffer as listening advances. Startup waits for the first group; a slow/offline Bridge can still require buffering at group boundaries if generation falls behind playback.
 - Listening position stored separately from visual reading progress, locally first and through the existing account reading-state sync.
 - Passage timestamps resume only when both the chapter and content fingerprint match. Source edits start a fresh position.
 - Sleep timer and opt-in next-chapter continuation. These survive chapter changes within the open reader.
 - Media Session play/pause/seek controls where supported.
 
-If Safari blocks the initial asynchronous play request, the player displays **Tap Play**. Once accepted, the same audio element is used for subsequent passages. Background/lock-screen passage transitions on a physical iPad still need device testing; desktop viewport emulation cannot verify iOS suspension or AirPods behavior. Closing Listen or leaving the reader pauses narration and saves position. There is no site-wide persistent mini-player yet.
+If Safari blocks the initial asynchronous play request, the player displays **Tap Play**. Once accepted, the same audio element is used for subsequent groups. Background/lock-screen group transitions on a physical iPad still need device testing; desktop viewport emulation cannot verify iOS suspension or AirPods behavior. Closing Listen or leaving the reader pauses narration and saves position. There is no site-wide persistent mini-player yet.
 
 ## Privacy and resource limits
 
@@ -36,7 +37,7 @@ The Bridge accepts only an existing extension chapter ID, fetches that chapter i
 
 The worker communicates over private stdin/stdout pipes. It inherits a small system-environment allowlist, not HAO cloud or admin credentials. On Windows it is put in a kill-on-close Job Object with a 1.5 GiB memory limit. ONNX uses two inference threads; only one generation runs at a time. The model is unloaded after five minutes idle. Other readers receive bounded retries when busy.
 
-Source-chapter manifests are unguessable capabilities, expire after two hours, and are limited to 32 retained chapters and 30 manifest requests/minute. The audio API requires a manifest ID, a valid passage index, and an allowlisted voice. Chapters are capped at 200,000 text characters/1,500 passages; individual inference inputs are bounded and further split if phoneme tokens exceed the model limit, never silently truncated. Generated audio is capped at 120 seconds/passage and a 256 MiB least-recently-used Bridge cache. Browsers retain only a small passage window.
+Source-chapter manifests are unguessable capabilities, expire after two hours, and are limited to 32 retained chapters and 30 manifest requests/minute. The audio API requires a manifest ID, a valid passage index, and an allowlisted voice. Chapters are capped at 200,000 text characters/1,500 passages; individual inference inputs are bounded and further split if phoneme tokens exceed the model limit, never silently truncated. Generated audio is capped at 120 seconds/passage and a 256 MiB least-recently-used Bridge cache. Browsers retain the current group, up to two prepared groups ahead, and one previous group. Obsolete audio URLs are released on navigation, voice changes, and close; foreground seeks take priority over background preparation.
 
 These limits supplement the existing Bridge access model. They do **not** turn a paired Bridge into per-user authenticated public hosting: the existing shared Bridge catalog endpoints rely on endpoint access and pairing state. Keep it within the intended trusted beta/private-network boundary. Public Internet hosting needs account-bound Bridge authorization and quotas before expanding usage. Do not reuse this source-only cache for private EPUBs without account-scoped isolation.
 

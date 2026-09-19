@@ -25,54 +25,13 @@ import {
   type NarrationManifest,
   type NarrationVoice,
 } from "../lib/narration";
-
-type AudioSession = {
-  get: (index: number) => Promise<string>;
-  dispose: () => void;
-};
-function audioSession(
-  endpoint: string,
-  manifest: NarrationManifest,
-  voice: string,
-): AudioSession {
-  const controller = new AbortController();
-  const urls = new Map<number, string>();
-  const pending = new Map<number, Promise<string>>();
-  return {
-    get(index) {
-      if (urls.has(index)) return Promise.resolve(urls.get(index)!);
-      if (pending.has(index)) return pending.get(index)!;
-      const request = fetchNarrationAudio(
-        endpoint,
-        manifest.id,
-        index,
-        voice,
-        controller.signal,
-      )
-        .then((blob) => {
-          if (controller.signal.aborted)
-            throw new DOMException("Cancelled", "AbortError");
-          const url = URL.createObjectURL(blob);
-          urls.set(index, url);
-          // Keep a small sliding window, not an entire book in browser memory.
-          for (const [key, old] of urls)
-            if (Math.abs(key - index) > 2) {
-              URL.revokeObjectURL(old);
-              urls.delete(key);
-            }
-          return url;
-        })
-        .finally(() => pending.delete(index));
-      pending.set(index, request);
-      return request;
-    },
-    dispose() {
-      controller.abort();
-      for (const url of urls.values()) URL.revokeObjectURL(url);
-      urls.clear();
-    },
-  };
-}
+import {
+  NarrationBuffer,
+  NARRATION_BATCH_SIZE,
+  narrationBatchStart,
+  passageAtTime,
+  type NarrationBatch,
+} from "../lib/narration-buffer";
 
 function timestamp(value: number) {
   return `${Math.floor(value / 60)}:${Math.floor(value % 60)
@@ -119,7 +78,10 @@ export function NovelListenPlayer({
   const [playing, setPlaying] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [session, setSession] = useState<AudioSession | null>(null);
+  const [session, setSession] = useState<NarrationBuffer | null>(null);
+  const [prepared, setPrepared] = useState(0);
+  const activeBatch = useRef<NarrationBatch | null>(null);
+  const targetIndex = useRef(0);
   const [retry, setRetry] = useState(0);
   const wantsPlay = useRef(true);
   const resumeSeconds = useRef(0);
@@ -142,7 +104,10 @@ export function NovelListenPlayer({
         (100 * (state.index + (duration ? state.seconds / duration : 0))) /
           manifest.passages.length,
       ),
-      completed: state.index === manifest.passages.length - 1 && duration > 0 && state.seconds >= duration - 0.2,
+      completed:
+        state.index === manifest.passages.length - 1 &&
+        duration > 0 &&
+        state.seconds >= duration - 0.2,
       state: { ...state },
     }).catch(() => undefined);
   };
@@ -180,6 +145,7 @@ export function NovelListenPlayer({
         );
         position.current = restored;
         resumeSeconds.current = restored.seconds;
+        targetIndex.current = restored.index;
         setIndex(restored.index);
         setSeconds(restored.seconds);
         setVoice(restored.voice);
@@ -204,15 +170,22 @@ export function NovelListenPlayer({
 
   useEffect(() => {
     if (!manifest) return;
-    const next = audioSession(endpoint, manifest, voice);
+    const next = new NarrationBuffer(
+      manifest.passages.length,
+      (index, signal) =>
+        fetchNarrationAudio(endpoint, manifest.id, index, voice, signal),
+      setPrepared,
+    );
     setSession(next);
     return () => next.dispose();
   }, [endpoint, manifest, voice]);
 
+  const batchStart = narrationBatchStart(index);
   useEffect(() => {
     if (!session || !manifest) return;
     let cancelled = false;
     const element = audio.current!;
+    activeBatch.current = null;
     element.pause();
     element.removeAttribute("src");
     element.load();
@@ -220,14 +193,14 @@ export function NovelListenPlayer({
     setError("");
     setDuration(0);
     void session
-      .get(index)
-      .then((url) => {
+      .get(batchStart)
+      .then((batch) => {
         if (cancelled) return;
-        element.src = url;
+        activeBatch.current = batch;
+        element.src = batch.url;
         element.load();
-        // Prefetch exactly one passage. Cached audio keeps normal transitions short.
-        if (index + 1 < manifest.passages.length)
-          void session.get(index + 1).catch(() => undefined);
+        // Prepare up to eight more passages while this continuous group plays.
+        session.prefetch();
       })
       .catch((cause) => {
         if (!cancelled) {
@@ -241,7 +214,7 @@ export function NovelListenPlayer({
       cancelled = true;
       element.pause();
     };
-  }, [session, index, retry, manifest]);
+  }, [session, batchStart, retry, manifest]);
 
   useEffect(() => {
     if (audio.current) audio.current.playbackRate = rate;
@@ -302,6 +275,7 @@ export function NovelListenPlayer({
     if (!manifest || next < 0 || next >= manifest.passages.length) return;
     save.current();
     resumeSeconds.current = 0;
+    targetIndex.current = next;
     setSeconds(0);
     setIndex(next);
     position.current = {
@@ -312,12 +286,23 @@ export function NovelListenPlayer({
       voice,
       rate,
     };
+    const boundary = activeBatch.current?.boundaries.find(
+      (part) => part.index === next,
+    );
+    if (boundary && audio.current) {
+      audio.current.currentTime = boundary.start;
+      setDuration(boundary.duration);
+    }
   }
 
   function seek(next: number) {
     if (!audio.current || !duration) return;
     const value = Math.max(0, Math.min(duration, next));
-    audio.current.currentTime = value;
+    const boundary = activeBatch.current?.boundaries.find(
+      (part) => part.index === index,
+    );
+    if (!boundary) return;
+    audio.current.currentTime = boundary.start + value;
     setSeconds(value);
     if (position.current) position.current.seconds = value;
     save.current();
@@ -337,8 +322,8 @@ export function NovelListenPlayer({
         void play();
       },
       pause,
-      seekbackward: () => seek((audio.current?.currentTime ?? 0) - 15),
-      seekforward: () => seek((audio.current?.currentTime ?? 0) + 15),
+      seekbackward: () => seek((position.current?.seconds ?? 0) - 15),
+      seekforward: () => seek((position.current?.seconds ?? 0) + 15),
       previoustrack: () => move(index - 1),
       nexttrack: () => move(index + 1),
     };
@@ -395,11 +380,19 @@ export function NovelListenPlayer({
         preload="auto"
         onLoadedMetadata={() => {
           const element = audio.current!;
-          setDuration(Number.isFinite(element.duration) ? element.duration : 0);
-          element.currentTime = Math.min(
-            resumeSeconds.current,
-            Math.max(0, element.duration - 0.1),
-          );
+          const batch = activeBatch.current;
+          if (!batch) return;
+          const boundary =
+            batch.boundaries.find(
+              (part) => part.index === targetIndex.current,
+            ) ?? batch.boundaries[0]!;
+          setDuration(boundary.duration);
+          element.currentTime =
+            boundary.start +
+            Math.min(
+              resumeSeconds.current,
+              Math.max(0, boundary.duration - 0.1),
+            );
           resumeSeconds.current = 0;
           element.playbackRate = rate;
           setLoading(false);
@@ -408,13 +401,23 @@ export function NovelListenPlayer({
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
         onTimeUpdate={() => {
-          const time = audio.current?.currentTime ?? 0;
+          const batch = activeBatch.current;
+          if (!batch || !audio.current?.readyState) return;
+          const elapsed = audio.current.currentTime;
+          const boundary = passageAtTime(batch, elapsed);
+          const time = Math.min(
+            boundary.duration,
+            Math.max(0, elapsed - boundary.start),
+          );
+          setIndex(boundary.index);
+          targetIndex.current = boundary.index;
+          setDuration(boundary.duration);
           setSeconds(time);
           if (manifest)
             position.current = {
               chapterId,
               fingerprint: manifest.fingerprint,
-              index,
+              index: boundary.index,
               seconds: time,
               voice,
               rate,
@@ -433,9 +436,14 @@ export function NovelListenPlayer({
           }
         }}
         onEnded={() => {
-          if (manifest && index + 1 < manifest.passages.length) {
+          const next = activeBatch.current?.endIndex;
+          if (
+            manifest &&
+            next !== undefined &&
+            next < manifest.passages.length
+          ) {
             wantsPlay.current = true;
-            move(index + 1);
+            move(next);
           } else {
             pause();
             setNotice("Chapter finished.");
@@ -445,8 +453,8 @@ export function NovelListenPlayer({
       />
       {loading && (
         <p className="novel-listen-status" role="status">
-          <LoaderCircle className="spin" /> Preparing narration… First use
-          downloads the model and can take a few minutes.
+          <LoaderCircle className="spin" /> Buffering continuous narration…
+          Preparing several passages before playback. First use may take longer.
         </p>
       )}
       {error && (
@@ -464,6 +472,15 @@ export function NovelListenPlayer({
       {notice && (
         <p className="novel-listen-status" role="status">
           {notice}
+        </p>
+      )}
+      {manifest && !loading && !error && (
+        <p className="novel-listen-status">
+          {prepared
+            ? `${prepared} passages prepared ahead`
+            : batchStart + NARRATION_BATCH_SIZE >= manifest.passages.length
+              ? "Final passages ready"
+              : "Preparing more audio in the background…"}
         </p>
       )}
       {manifest && (
@@ -531,7 +548,7 @@ export function NovelListenPlayer({
                 value={voice}
                 onChange={(event) => {
                   pause();
-                  resumeSeconds.current = audio.current?.currentTime ?? 0;
+                  resumeSeconds.current = position.current?.seconds ?? 0;
                   setVoice(event.target.value);
                   setNotice(
                     "Voice changed. Your place is kept; press Play when ready.",
