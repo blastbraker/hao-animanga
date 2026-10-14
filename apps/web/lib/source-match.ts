@@ -1,4 +1,4 @@
-import { normalizeTitle, type Work } from "@hao/domain";
+import type { Work } from "@hao/domain";
 
 type AudioMode = "sub" | "dub";
 
@@ -59,7 +59,14 @@ function comparableTitle(title: string): string {
   // Common romanization variants represent the same Japanese long vowel,
   // e.g. Shippuuden and Shippuden. Folding doubled vowels lets the exact
   // series outrank OVAs and specials that merely contain the requested name.
-  return normalizeTitle(title)
+  // Catalogs may suffix an otherwise exact title with an audio label. It is
+  // not a different season; audio selection still uses the original title.
+  const identity = title.replace(/\s*(?:\((?:english\s+)?(?:dub(?:bed)?|sub(?:bed)?|hsub)\)|\[(?:english\s+)?(?:dub(?:bed)?|sub(?:bed)?|hsub)\])\s*$/i, "");
+  // Keep non-Latin aliases intact. ASCII-only normalization can turn two
+  // unrelated Japanese titles into the same remaining text (e.g. "Part 2").
+  return identity.normalize("NFKD").toLowerCase()
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\p{L}\p{N}\p{M}]+/gu, " ").trim()
     .split(" ")
     .map((token) => token.length > 2 ? token.replace(/([aeiou])\1/g, "$1") : token)
     .join(" ");

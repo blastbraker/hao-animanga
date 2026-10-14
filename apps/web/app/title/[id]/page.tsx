@@ -6,6 +6,7 @@ import type { LibraryEntry, LibraryStatus, Work } from "@hao/domain";
 import { BookOpen, BookmarkPlus, CircleAlert, Clapperboard, ExternalLink, Heart, LoaderCircle, Play, RefreshCw, Server, Star } from "lucide-react";
 import { api, bridgeErrorMessage, bridgeJson, getActiveBridge, type LibraryResponse } from "../../../lib/api";
 import { confidentSourceMatch } from "../../../lib/source-match";
+import { searchAnimeSource } from "../../../lib/anime-source-search";
 import { rankSourcesByReliability, recordSourceResult } from "../../../lib/source-reliability";
 import { episodeDisplayName, episodeNumberLabel } from "../../../lib/episode-title";
 import { ReleasePicker } from "../../../components/release-picker";
@@ -387,14 +388,11 @@ async function loadAvailability(work: Work): Promise<{
       candidates.map(async (source): Promise<AnimeAvailability | null> => {
         const startedAt = performance.now();
         try {
-          const parameters = new URLSearchParams({
-            sourceId: source.id,
-            mode: "search",
-            query: work.title,
-            page: "1"
+          const match = await searchAnimeSource(work, (query) => {
+            const parameters = new URLSearchParams({ sourceId: source.id, mode: "search", query, page: "1" });
+            return bridgeRequest<AnimeItem[]>(endpoint, `/v1/anime/catalog?${parameters.toString()}`);
           });
-          const searchItems = await bridgeRequest<AnimeItem[]>(endpoint, `/v1/anime/catalog?${parameters.toString()}`);
-          let item = confidentSourceMatch(work, searchItems);
+          let item = match.item;
           if (!item) {
             const modes = source.supportsLatest ? ["popular", "latest"] : ["popular"];
             const catalogs = await Promise.all(modes.map((mode) => bridgeRequest<AnimeItem[]>(endpoint, `/v1/anime/catalog?${new URLSearchParams({ sourceId: source.id, mode, page: "1" }).toString()}`)));

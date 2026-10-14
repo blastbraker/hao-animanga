@@ -23,6 +23,7 @@ Run this checklist with a separate invited account before increasing the beta gr
 
 - Save one AniList title to the library, reload, and confirm it remains saved.
 - Play the signed fixture anime, confirm autoplay begins, seek, reload, and confirm resume works.
+- With fixture catalog responses, make the English title search return no match and the metadata's Japanese title return the correct season. Verify both the title page and player find it, reject a different season/movie, and preserve the episode number during source fallback. Alias search is bounded to four distinct names per source and stops on a confident match.
 - Browse MangaDex, open a chapter, switch among Webtoon, Left to right, and Right to left, then reload and confirm the mode persists.
 - Temporarily stop the shared Bridge and confirm Home, Player, and Reader show a useful offline message with Retry or Source status actions.
 - Save one manga chapter offline, stop the Bridge, reload that chapter, and confirm every cached page remains readable.

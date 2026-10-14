@@ -43,6 +43,13 @@ describe("confidentSourceMatch", () => {
     expect(confidentSourceMatch({ title: "Re:ZERO -Starting Life in Another World-", alternateTitles: [] }, [{ title: "Re:ZERO -Starting Life in Another World- Season 3" }])).toBeNull();
   });
 
+  it("ignores bracketed audio labels without ignoring sequel identity", () => {
+    const work = { title: "Attack on Titan Final Season", alternateTitles: ["Shingeki no Kyojin: The Final Season", "Attack on Titan Season 4"] };
+    const dub = { title: "Shingeki no Kyojin: The Final Season (Dub)" };
+    expect(confidentSourceMatch(work, [dub])).toEqual(dub);
+    expect(confidentSourceMatch(work, [{ title: "Shingeki no Kyojin: The Final Season Part 2 [Dub]" }])).toBeNull();
+  });
+
   it("matches numbered Bleach movie source titles by their full movie subtitle", () => {
     const cases = [
       {

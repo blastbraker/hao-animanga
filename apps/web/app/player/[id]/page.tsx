@@ -6,7 +6,8 @@ import { ArrowDownUp, Captions, CheckCircle2, ChevronDown, ChevronRight, Externa
 import Hls from "hls.js";
 import { api, bridgeErrorMessage, bridgeJson, getActiveBridge, type LibraryResponse } from "../../../lib/api";
 import { completedEpisodeUnits, continueWatchingId, CONTINUE_WATCHING_STORAGE_KEY, DISMISSED_CONTINUE_STORAGE_KEY, parseContinueWatching, parseDismissedWorkIds, parsePlaybackPosition, playbackPercent, playbackStorageKey, resumablePosition, updateContinueWatching, type ContinueWatchingEntry } from "../../../lib/playback-progress";
-import { confidentAudioSourceMatch, confidentSourceMatch } from "../../../lib/source-match";
+import { confidentSourceMatch } from "../../../lib/source-match";
+import { animeSearchIdentity, searchAnimeSource, sourceEpisodeForPlayback } from "../../../lib/anime-source-search";
 import { rankSourcesByReliability, recordSourceResult } from "../../../lib/source-reliability";
 import { nextPlaybackCandidate, playbackRecoveryPosition, prioritizePlaybackItems } from "../../../lib/playback-recovery";
 import { compatibleAudioStreams, pickAudioVariant, pickQualityUpgrade, selectAudioStreams, streamAudioMode, streamResolution, type AudioMode } from "../../../lib/stream-audio";
@@ -466,7 +467,7 @@ export default function PlayerPage() {
         void api<{ details: AnimeDetails }>(`/works/${canonicalWorkId}/anime-details`).then((result) => setAnimeDetails(result.details)).catch(() => setAnimeDetails(null));
       }
     }
-    const alternateTitles = workResult.status === "fulfilled" ? workResult.value.work.alternateTitles : [];
+    const alternateTitles = workResult.status === "fulfilled" ? [workResult.value.work.title, ...workResult.value.work.alternateTitles] : [];
     if (libraryResult.status !== "fulfilled") return alternateTitles;
     const libraryEntry = libraryResult.value.items.find((item) => item.work.id === canonicalWorkId);
     if (!libraryEntry) {
@@ -566,23 +567,17 @@ export default function PlayerPage() {
 
     const orderedSources = rankSourcesByReliability(availableSources, "anime", preferredSourceId);
     const preferredSource = orderedSources[0];
+    const searchIdentity = animeSearchIdentity(query, alternateTitles, canonicalWork);
     let desiredEpisodeNumber = remoteProgressRef.current?.episodeNumber ?? null;
 
     for (const [index, source] of orderedSources.entries()) {
       const startedAt = performance.now();
       setBusy(index === 0 ? `Opening “${query}”…` : `Trying ${source.name}…`);
       try {
-        const parameters = new URLSearchParams({ sourceId: source.id, mode: "search", query, page: "1" });
-        const titles = await bridgeRequest<AnimeCatalogItem[]>(endpoint, `/v1/anime/catalog?${parameters.toString()}`);
-        const preferredItem = source.id === preferredSourceId && preferredAnimeId
-          ? titles.find((title) => title.id === preferredAnimeId) ?? null
-          : null;
-        const verifiedPreferred = preferredItem && confidentSourceMatch({ title: query, alternateTitles }, [preferredItem])
-          ? preferredItem
-          : null;
-        const item = verifiedPreferred ?? (requestedAudioMode
-          ? confidentAudioSourceMatch({ title: query, alternateTitles }, titles, requestedAudioMode)
-          : confidentSourceMatch({ title: query, alternateTitles }, titles));
+        const { item, items: titles } = await searchAnimeSource<AnimeCatalogItem>(searchIdentity, (searchQuery) => {
+          const parameters = new URLSearchParams({ sourceId: source.id, mode: "search", query: searchQuery, page: "1" });
+          return bridgeRequest<AnimeCatalogItem[]>(endpoint, `/v1/anime/catalog?${parameters.toString()}`);
+        }, { preferredId: source.id === preferredSourceId ? preferredAnimeId : undefined, audioMode: requestedAudioMode });
         if (!item) {
           recordSourceResult("anime", source.id, false, performance.now() - startedAt);
           continue;
@@ -598,7 +593,11 @@ export default function PlayerPage() {
 
         const preferredEpisode = source.id === preferredSourceId ? nextEpisodes.find((episode) => episode.id === preferredEpisodeId) : undefined;
         if (preferredEpisode) desiredEpisodeNumber = preferredEpisode.number;
-        const initialEpisode = preferredEpisode ?? nextEpisodes.find((episode) => episode.number === desiredEpisodeNumber) ?? nextEpisodes[0]!;
+        const initialEpisode = sourceEpisodeForPlayback(nextEpisodes, desiredEpisodeNumber, preferredEpisode?.id);
+        if (!initialEpisode) {
+          recordSourceResult("anime", source.id, false, performance.now() - startedAt);
+          continue;
+        }
         const nextCatalog = titles.some((title) => title.id === item.id) ? titles : [item, ...titles];
 
         setSourceId(source.id);
