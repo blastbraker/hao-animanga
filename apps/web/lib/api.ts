@@ -62,10 +62,17 @@ export function bridgeResponseMessage(status: number, detail?: string): string {
   return detail?.trim() || `The Bridge rejected this request (${status}). Try another source.`;
 }
 
+export class ApiRequestError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "ApiRequestError";
+  }
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const supabase = getSupabaseBrowser();
   const token = (await supabase?.auth.getSession())?.data.session?.access_token;
-  if (!token && process.env.NODE_ENV === "production") throw new Error("Sign in required");
+  if (!token && process.env.NODE_ENV === "production") throw new ApiRequestError("Sign in required", 401);
   const authHeaders = token ? { authorization: `Bearer ${token}` } : { "x-user-id": DEV_USER_ID };
   const contentHeaders = init?.body == null || init.body instanceof FormData ? {} : { "content-type": "application/json" };
   const method = (init?.method ?? "GET").toUpperCase();
@@ -92,12 +99,12 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
           await new Promise((resolve) => window.setTimeout(resolve, 400));
           continue;
         }
-        throw new Error(message);
+        throw new ApiRequestError(message, response.status);
       }
       return response.json() as Promise<T>;
     } catch (error) {
       lastError = error;
-      if (attempt + 1 >= attempts || init?.signal?.aborted) break;
+      if (attempt + 1 >= attempts || init?.signal?.aborted || (error instanceof ApiRequestError && error.status < 500 && error.status !== 429)) break;
       await new Promise((resolve) => window.setTimeout(resolve, 400));
     } finally {
       if (timeout !== null) window.clearTimeout(timeout);

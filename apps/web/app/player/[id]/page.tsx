@@ -19,7 +19,8 @@ import { ReleasePicker } from "../../../components/release-picker";
 import { browseEpisodes, type EpisodeOrder } from "../../../lib/episode-browser";
 import { enrichEpisodes, episodeGroupLabel, type EpisodeGuideMetadata } from "../../../lib/episode-metadata";
 import { nextPlaybackSpeed, normalizePlaybackSpeed, PLAYBACK_SPEEDS } from "../../../lib/playback-speed";
-import { nextHlsRecoveryAction, supportsNativeHls } from "../../../lib/hls-recovery";
+import { nextHlsRecoveryAction, PLAYBACK_HLS_CONFIG, supportsNativeHls } from "../../../lib/hls-recovery";
+import { orderedSourceProbes, playbackRequest, PlaybackProgressWriter } from "../../../lib/playback-loading";
 import { isIntroSkipVisible, normalizeIntroSkipInterval, type IntroSkipInterval } from "../../../lib/intro-skip";
 import { NextEpisodePrompt } from "../../../components/next-episode-prompt";
 import { nextEpisodeCountdown, normalizeOutroInterval, shouldAutoplayNext } from "../../../lib/next-episode";
@@ -103,6 +104,8 @@ type QualityUpgradeRollback = {
   streamId: string;
 };
 
+type CloudPlaybackProgress = { workId: string; releaseItemId: null; completedUnits: number; positionSeconds: number; positionPercent: number | null };
+
 export default function PlayerPage() {
   const playerShellRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -113,6 +116,8 @@ export default function PlayerPage() {
   const episodeTransitionRef = useRef(false);
   const dismissedNextEpisodeRef = useRef("");
   const lastSavedAtRef = useRef(0);
+  const progressWriterRef = useRef<PlaybackProgressWriter<CloudPlaybackProgress> | null>(null);
+  const progressSaveRevisionRef = useRef(0);
   const restoredPlaybackKeyRef = useRef("");
   const remoteProgressRef = useRef<{
     episodeNumber: number;
@@ -159,6 +164,7 @@ export default function PlayerPage() {
   const [sourceFallbackStatus, setSourceFallbackStatus] = useState("");
   const [isPlaying, setIsPlaying] = useState(false);
   const [isBuffering, setIsBuffering] = useState(false);
+  const [pageVisible, setPageVisible] = useState(true);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(1);
@@ -194,11 +200,13 @@ export default function PlayerPage() {
   const nextEpisodeKey = JSON.stringify([workId || animeId, episode?.number]);
   const timingKey = JSON.stringify([workId, episodeId, duration]);
 
-  async function bridgeRequest<T>(endpoint: string, path: string): Promise<T> {
-    return bridgeJson<T>(endpoint, path);
+  async function bridgeRequest<T>(endpoint: string, path: string, signal?: AbortSignal): Promise<T> {
+    return playbackRequest((requestSignal) => bridgeJson<T>(endpoint, path, { signal: requestSignal }), signal);
   }
 
   useEffect(() => {
+    const progressWriter = new PlaybackProgressWriter<CloudPlaybackProgress>((progress) => api("/progress", { method: "PUT", body: JSON.stringify(progress) }));
+    progressWriterRef.current = progressWriter;
     autoplayNextRef.current = readPreference("hao:anime:autoplay-next") !== "false";
     setAutoplayNext(autoplayNextRef.current);
     setEpisodeOrder(readPreference("hao:anime:episode-order") === "desc" ? "desc" : "asc");
@@ -216,10 +224,19 @@ export default function PlayerPage() {
     setSubtitleBackground(readPreference("hao:anime:subtitle-background") || "dark");
     void connect();
     return () => {
+      progressSaveRevisionRef.current += 1;
+      progressWriter.dispose();
       if (controlsTimerRef.current !== null) window.clearTimeout(controlsTimerRef.current);
       if (qualityUpgradeConfirmationTimerRef.current !== null) window.clearTimeout(qualityUpgradeConfirmationTimerRef.current);
       safelyResetVideo(videoRef.current);
     };
+  }, []);
+
+  useEffect(() => {
+    const changed = () => setPageVisible(document.visibilityState === "visible");
+    changed();
+    document.addEventListener("visibilitychange", changed);
+    return () => document.removeEventListener("visibilitychange", changed);
   }, []);
 
   useEffect(() => {
@@ -291,6 +308,8 @@ export default function PlayerPage() {
 
   useEffect(() => {
     const target = qualityUpgradeTargetRef.current;
+    // Do not interrupt a background/paused player to probe a previously failed quality.
+    if (!pageVisible || !isPlaying || isBuffering) return;
     if (!target || !episode || target.episodeNumber !== episode.number || !stream) return;
     const currentResolution = streamResolution(stream);
     if (currentResolution !== null && currentResolution >= target.resolution) return;
@@ -298,6 +317,7 @@ export default function PlayerPage() {
     if (!upgrade) return;
     const delay = Math.min(20_000 * (2 ** target.attempts), 120_000);
     const timer = window.setTimeout(() => {
+      if (document.visibilityState !== "visible" || videoRef.current?.paused || videoRef.current?.seeking) return;
       const latestTarget = qualityUpgradeTargetRef.current;
       if (!latestTarget || latestTarget.episodeNumber !== episode.number) return;
       latestTarget.attempts += 1;
@@ -311,7 +331,7 @@ export default function PlayerPage() {
       setStreamId(upgrade.id);
     }, delay);
     return () => window.clearTimeout(timer);
-  }, [episode, stream, streams]);
+  }, [episode, stream, streams, pageVisible, isPlaying, isBuffering]);
 
   useEffect(() => {
     const video = videoRef.current as (HTMLVideoElement & FullscreenVideo) | null;
@@ -408,7 +428,7 @@ export default function PlayerPage() {
       };
     }
     if (stream.kind === "HLS" && Hls.isSupported()) {
-      const hls = new Hls({ enableWorker: true });
+      const hls = new Hls(PLAYBACK_HLS_CONFIG);
       const recoveryAttempts = { network: 0, media: 0 };
       hls.loadSource(streamUrl);
       hls.attachMedia(video);
@@ -424,7 +444,7 @@ export default function PlayerPage() {
         if (action === "retry-network") {
           recoveryAttempts.network += 1;
           setSourceFallbackStatus("The stream was interrupted. HAO is reconnecting before changing servers.");
-          hls.startLoad();
+          hls.startLoad(video.currentTime);
           return;
         }
         if (action === "recover-media") {
@@ -600,27 +620,30 @@ export default function PlayerPage() {
     const preferredSource = orderedSources[0];
     const searchIdentity = animeSearchIdentity(query, alternateTitles, canonicalWork);
     let desiredEpisodeNumber = remoteProgressRef.current?.episodeNumber ?? null;
+    setBusy(`Opening “${query}”…`);
+    const probeStartedAt = new Map<string, number>();
+    const probes = orderedSourceProbes(orderedSources, async (source, signal) => {
+      probeStartedAt.set(source.id, performance.now());
+      const { item, items: titles } = await searchAnimeSource<AnimeCatalogItem>(searchIdentity, (searchQuery) => {
+        const parameters = new URLSearchParams({ sourceId: source.id, mode: "search", query: searchQuery, page: "1" });
+        return bridgeRequest<AnimeCatalogItem[]>(endpoint, `/v1/anime/catalog?${parameters.toString()}`, signal);
+      }, { preferredId: source.id === preferredSourceId ? preferredAnimeId : undefined, audioMode: requestedAudioMode });
+      if (!item) return null;
+      const nextEpisodes = (await bridgeRequest<AnimeEpisode[]>(endpoint, `/v1/anime/${encodeURIComponent(item.id)}/episodes`, signal))
+        .slice().sort((left, right) => left.number - right.number);
+      return { item, titles, nextEpisodes };
+    });
 
-    for (const [index, source] of orderedSources.entries()) {
-      const startedAt = performance.now();
+    for await (const { item: source, index, result } of probes) {
+      const startedAt = probeStartedAt.get(source.id) ?? performance.now();
       setBusy(index === 0 ? `Opening “${query}”…` : `Trying ${source.name}…`);
       try {
-        const { item, items: titles } = await searchAnimeSource<AnimeCatalogItem>(searchIdentity, (searchQuery) => {
-          const parameters = new URLSearchParams({ sourceId: source.id, mode: "search", query: searchQuery, page: "1" });
-          return bridgeRequest<AnimeCatalogItem[]>(endpoint, `/v1/anime/catalog?${parameters.toString()}`);
-        }, { preferredId: source.id === preferredSourceId ? preferredAnimeId : undefined, audioMode: requestedAudioMode });
-        if (!item) {
+        if (result.status === "rejected") throw result.reason;
+        if (!result.value || !result.value.nextEpisodes.length) {
           recordSourceResult("anime", source.id, false, performance.now() - startedAt);
           continue;
         }
-
-        const nextEpisodes = (await bridgeRequest<AnimeEpisode[]>(endpoint, `/v1/anime/${encodeURIComponent(item.id)}/episodes`))
-          .slice()
-          .sort((left, right) => left.number - right.number);
-        if (!nextEpisodes.length) {
-          recordSourceResult("anime", source.id, false, performance.now() - startedAt);
-          continue;
-        }
+        const { item, titles, nextEpisodes } = result.value;
 
         const preferredEpisode = source.id === preferredSourceId ? nextEpisodes.find((episode) => episode.id === preferredEpisodeId) : undefined;
         if (preferredEpisode) desiredEpisodeNumber = preferredEpisode.number;
@@ -702,6 +725,13 @@ export default function PlayerPage() {
 
   async function loadPlayableServer(endpoint: string, nextEpisodeId: string, availableServers: AnimeServer[], preferredServerId: string, cancelled = false, allowOppositeAudioFallback = true) {
     const orderedServers = prioritizePlaybackItems(availableServers, preferredServerId);
+    // Resolve each server once per episode attempt. The audio fallback pass reuses
+    // that response instead of asking every extension to extract the same URLs twice.
+    const resolved = new Map<string, Promise<AnimeStream[]>>();
+    const resolve = (id: string) => {
+      if (!resolved.has(id)) resolved.set(id, bridgeRequest<AnimeStream[]>(endpoint, `/v1/anime/episodes/${encodeURIComponent(nextEpisodeId)}/streams?serverId=${encodeURIComponent(id)}`));
+      return resolved.get(id)!;
+    };
     let lastFailure: unknown = null;
     for (const [index, candidateServer] of orderedServers.entries()) {
       if (cancelled) return;
@@ -709,7 +739,7 @@ export default function PlayerPage() {
       setStreams([]);
       setStreamId("");
       try {
-        const result = await loadServer(endpoint, nextEpisodeId, candidateServer.id, cancelled);
+        const result = await loadServer(endpoint, nextEpisodeId, candidateServer.id, cancelled, false, await resolve(candidateServer.id));
         if (index > 0 && !result.usedAudioFallback) setSourceFallbackStatus(`Switched to ${candidateServer.name} because the preferred server had no playable stream.`);
         return;
       } catch (cause) {
@@ -725,7 +755,7 @@ export default function PlayerPage() {
         setStreams([]);
         setStreamId("");
         try {
-          await loadServer(endpoint, nextEpisodeId, candidateServer.id, cancelled, true);
+          await loadServer(endpoint, nextEpisodeId, candidateServer.id, cancelled, true, await resolve(candidateServer.id));
           return;
         } catch (cause) {
           lastFailure = cause;
@@ -735,11 +765,11 @@ export default function PlayerPage() {
     throw new Error(lastFailure ? "Every server from this source was checked, but none returned a playable stream." : "No stream server returned a playable stream for this episode.");
   }
 
-  async function loadServer(endpoint: string, nextEpisodeId: string, nextServerId: string, cancelled = false, allowAudioFallback = false) {
+  async function loadServer(endpoint: string, nextEpisodeId: string, nextServerId: string, cancelled = false, allowAudioFallback = false, resolvedStreams?: AnimeStream[]) {
     setBusy("Resolving authorized streams…");
     setError("");
     safelyResetVideo(videoRef.current);
-    const nextStreams = await bridgeRequest<AnimeStream[]>(endpoint, `/v1/anime/episodes/${encodeURIComponent(nextEpisodeId)}/streams?serverId=${encodeURIComponent(nextServerId)}`);
+    const nextStreams = resolvedStreams ?? await bridgeRequest<AnimeStream[]>(endpoint, `/v1/anime/episodes/${encodeURIComponent(nextEpisodeId)}/streams?serverId=${encodeURIComponent(nextServerId)}`);
     if (!nextStreams.length) throw new Error("This server did not return a playable stream.");
     if (cancelled) return { usedAudioFallback: false };
     const preferredStream = readPreference("hao:anime:preferred-stream");
@@ -801,7 +831,7 @@ export default function PlayerPage() {
       qualityUpgradeRollbackRef.current = null;
       const nextEpisode = episodes.find((item) => item.id === next);
       failedPlaybackSourcesRef.current.clear();
-      if (!videoRef.current?.ended) await persistProgress(false);
+      if (!videoRef.current?.ended) void persistProgress(false);
       autoplayRequestedRef.current = autoplayVideo;
       restoredPlaybackKeyRef.current = "";
       setProgressStatus("");
@@ -833,7 +863,7 @@ export default function PlayerPage() {
     rememberPlaybackPosition();
     qualityUpgradeTargetRef.current = null;
     qualityUpgradeRollbackRef.current = null;
-    await persistProgress(false);
+    void persistProgress(false);
     const selectedServer = servers.find((item) => item.id === next);
     if (selectedServer) writePreference("hao:anime:preferred-server", selectedServer.name);
     restoredPlaybackKeyRef.current = "";
@@ -892,7 +922,7 @@ export default function PlayerPage() {
     rememberPlaybackPosition();
     qualityUpgradeTargetRef.current = null;
     qualityUpgradeRollbackRef.current = null;
-    await persistProgress(false);
+    void persistProgress(false);
     const selectedStream = streams.find((item) => item.id === next);
     if (selectedStream) {
       writePreference("hao:anime:preferred-stream", streamPreference(selectedStream));
@@ -1033,6 +1063,7 @@ export default function PlayerPage() {
   async function persistProgress(completed: boolean) {
     const video = videoRef.current;
     if (!video || !episode || !sourceId || !animeId || !Number.isFinite(video.duration) || video.duration <= 0) return;
+    const revision = ++progressSaveRevisionRef.current;
     const positionSeconds = completed ? video.duration : video.currentTime;
     const saved = {
       positionSeconds,
@@ -1046,19 +1077,16 @@ export default function PlayerPage() {
     setProgressStatus(workId ? "Saving progress…" : "Resume saved on this device");
     if (!workId) return;
     try {
-      await api("/progress", {
-        method: "PUT",
-        body: JSON.stringify({
+      await progressWriterRef.current?.save(workId, {
           workId,
           releaseItemId: null,
           completedUnits: completedEpisodeUnits(episode.number, completed),
           positionSeconds,
           positionPercent: playbackPercent(positionSeconds, video.duration)
-        })
       });
-      setProgressStatus(completed ? "Episode completed · progress synced" : "Progress synced");
+      if (revision === progressSaveRevisionRef.current) setProgressStatus(completed ? "Episode completed · progress synced" : "Progress synced");
     } catch {
-      setProgressStatus("Resume saved locally · sync unavailable");
+      if (revision === progressSaveRevisionRef.current) setProgressStatus("Resume saved locally · sync unavailable");
     }
   }
 
@@ -1203,8 +1231,8 @@ export default function PlayerPage() {
   }
 
   async function handleEnded(endedVideo: HTMLVideoElement) {
-    await persistProgress(true);
-    // A click on Play now or another episode can happen while cloud progress saves.
+    void persistProgress(true);
+    // Local saving is synchronous; a slow cloud save must not delay the next episode.
     if (videoRef.current !== endedVideo || !endedVideo.ended || episodeTransitionRef.current) return;
     if (nextEpisode) saveContinueEntry(nextEpisode, 0, 0);
     if (nextEpisode && shouldAutoplayNext(autoplayNextRef.current, true, dismissedNextEpisodeRef.current === nextEpisodeKey)) await changeEpisode(nextEpisode.id, true);
@@ -1456,7 +1484,7 @@ export default function PlayerPage() {
             key={`${episodeId}:${stream.id}`}
             crossOrigin="anonymous"
             playsInline
-            preload="metadata"
+            preload="auto"
             poster={posterUrl}
             onClick={() => void togglePlayback()}
             onDoubleClick={() => void toggleFullscreen()}

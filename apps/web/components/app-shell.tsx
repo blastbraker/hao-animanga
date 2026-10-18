@@ -16,13 +16,14 @@ import {
   Settings,
   ShieldCheck,
 } from "lucide-react";
-import { API_URL, api } from "../lib/api";
+import { API_URL, ApiRequestError, api } from "../lib/api";
 import { getSupabaseBrowser, hasSupabaseBrowserConfig } from "../lib/supabase";
 import { OPEN_BETA_ONBOARDING_EVENT } from "../lib/onboarding";
 import { OPEN_READER_BROWSER_EVENT } from "../lib/reader-navigation";
 import { BetaOnboarding } from "./beta-onboarding";
 import { GlobalSearch } from "./global-search";
 import { FeedbackDialog } from "./feedback-dialog";
+import { SessionVerification } from "../lib/session-verification";
 
 const nav = [
   { href: "/", label: "Home", icon: Home },
@@ -84,53 +85,39 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!supabase) return;
     let cancelled = false;
+    let authEvents = 0;
     const scheduled = new Set<number>();
-    const synchronize = async (nextUser: User | null) => {
-      if (cancelled) return;
-      setUser(nextUser);
-      setAuthError("");
-      if (!nextUser) {
-        setRole(null);
-        return;
-      }
-      if (nextUser.app_metadata?.must_change_password === true) {
-        setRole(null);
-        return;
-      }
-      setRole(undefined);
+    const verifier = new SessionVerification<User>(async (nextUser) => {
+      const cacheKey = `hao:session-role:${nextUser.id}`;
       try {
-        const session = await api<{ user: { role: "member" | "admin" } }>(
-          "/session",
-        );
-        if (!cancelled) {
-          setRole(session.user.role);
-          window.localStorage.setItem("hao:session-role", session.user.role);
-        }
+        const session = await api<{ user: { id: string; role: "member" | "admin" } }>("/session");
+        if (session.user.id !== nextUser.id) throw new ApiRequestError("Your account changed. Please sign in again.", 401);
+        try { window.localStorage.setItem(cacheKey, session.user.role); } catch { /* Optional offline hint. */ }
+        return session.user.role;
       } catch (cause) {
-        if (!cancelled) {
-          if (!navigator.onLine) {
-            const cachedRole = window.localStorage.getItem("hao:session-role");
-            setRole(cachedRole === "admin" ? "admin" : "member");
-            setAuthError("");
-          } else {
-            setRole(null);
-            setAuthError(
-              cause instanceof Error
-                ? cause.message
-                : "Your session could not be verified.",
-            );
-          }
+        // Never reuse a different account's cached admin/member role.
+        const status = (cause as { status?: number } | null)?.status;
+        if (!navigator.onLine && status !== 401 && status !== 403) {
+          let cachedRole: string | null = null;
+          try { cachedRole = window.localStorage.getItem(cacheKey); } catch { /* Storage may be blocked. */ }
+          if (cachedRole === "admin" || cachedRole === "member") return cachedRole;
         }
+        throw cause;
       }
-    };
+    }, (state) => {
+      setUser(state.user);
+      setRole(state.role);
+      setAuthError(state.error);
+    });
     void supabase.auth
       .getSession()
       .then(({ data, error }) => {
+        if (cancelled || authEvents > 0) return;
         if (error) throw error;
-        return synchronize(data.session?.user ?? null);
+        return verifier.begin(data.session?.user ?? null)();
       })
       .catch((cause) => {
-        if (!cancelled) {
+        if (!cancelled && authEvents === 0) {
           setUser(null);
           setRole(null);
           setAuthError(
@@ -142,14 +129,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       });
     const { data } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === "INITIAL_SESSION") return;
+      authEvents += 1;
+      const verify = verifier.begin(session?.user ?? null);
       const timeout = window.setTimeout(() => {
         scheduled.delete(timeout);
-        void synchronize(session?.user ?? null);
+        void verify();
       }, 0);
       scheduled.add(timeout);
     });
     return () => {
       cancelled = true;
+      verifier.dispose();
       for (const timeout of scheduled) window.clearTimeout(timeout);
       data.subscription.unsubscribe();
     };
