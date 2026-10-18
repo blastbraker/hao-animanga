@@ -3,6 +3,7 @@ type FullscreenDocument = {
   fullscreenEnabled?: boolean;
   exitFullscreen?: () => Promise<void> | void;
   webkitFullscreenElement?: unknown;
+  webkitFullscreenEnabled?: boolean;
   webkitExitFullscreen?: () => Promise<void> | void;
 };
 
@@ -18,30 +19,17 @@ export type FullscreenVideo = {
   webkitExitFullscreen?: () => void;
 };
 
-type FullscreenNavigator = {
-  maxTouchPoints?: number;
-  platform?: string;
-  standalone?: boolean;
-  userAgent?: string;
-};
+type ViewportFullscreen = { active: boolean; enter: () => void; exit: () => void };
 
-export function prefersNativeAppleVideoFullscreen(navigatorValue: FullscreenNavigator): boolean {
-  const userAgent = navigatorValue.userAgent ?? "";
-  const platform = navigatorValue.platform ?? "";
-  return navigatorValue.standalone === true
-    || /iPhone|iPad|iPod/i.test(userAgent)
-    || (platform === "MacIntel" && (navigatorValue.maxTouchPoints ?? 0) > 1);
-}
-
-export function isPlayerFullscreen(documentValue: FullscreenDocument, video?: FullscreenVideo | null): boolean {
-  return Boolean(documentValue.fullscreenElement || documentValue.webkitFullscreenElement || video?.webkitDisplayingFullscreen);
+export function isPlayerFullscreen(documentValue: FullscreenDocument, video?: FullscreenVideo | null, viewportFullscreen = false): boolean {
+  return Boolean(viewportFullscreen || documentValue.fullscreenElement || documentValue.webkitFullscreenElement || video?.webkitDisplayingFullscreen);
 }
 
 export async function togglePlayerFullscreen(
   documentValue: FullscreenDocument,
   shell: FullscreenShell,
   video: FullscreenVideo | null,
-  navigatorValue: FullscreenNavigator,
+  viewport?: ViewportFullscreen,
 ): Promise<"entered" | "exited"> {
   if (video?.webkitDisplayingFullscreen) {
     video.webkitExitFullscreen?.();
@@ -52,29 +40,64 @@ export async function togglePlayerFullscreen(
     else if (documentValue.webkitExitFullscreen) await documentValue.webkitExitFullscreen();
     return "exited";
   }
+  if (viewport?.active) {
+    viewport.exit();
+    return "exited";
+  }
 
-  const enterNativeVideoFullscreen = () => {
-    if (!video?.webkitEnterFullscreen || video.webkitSupportsFullscreen === false) return false;
-    video.webkitEnterFullscreen();
-    return true;
-  };
-
-  // iPhone and installed iPad PWAs do not consistently allow a div to enter
-  // fullscreen, but WebKit exposes a native fullscreen API on the video itself.
-  if (prefersNativeAppleVideoFullscreen(navigatorValue) && enterNativeVideoFullscreen()) return "entered";
-
+  // Fullscreen the whole player, not only <video>: next-episode and subtitle
+  // controls must remain in the fullscreen tree, including on Apple devices.
   if (shell.requestFullscreen && documentValue.fullscreenEnabled !== false) {
     try {
       await shell.requestFullscreen();
       return "entered";
     } catch {
-      if (enterNativeVideoFullscreen()) return "entered";
+      // Unsupported PWA/browser implementations can expose an API that rejects.
     }
   }
-  if (shell.webkitRequestFullscreen) {
-    await shell.webkitRequestFullscreen();
+  if (shell.webkitRequestFullscreen && documentValue.webkitFullscreenEnabled !== false) {
+    try {
+      await shell.webkitRequestFullscreen();
+      return "entered";
+    } catch {
+      // Keep custom controls in a full-window player if true fullscreen fails.
+    }
+  }
+  if (viewport) {
+    viewport.enter();
     return "entered";
   }
-  if (enterNativeVideoFullscreen()) return "entered";
+  // Legacy callers without a full-window implementation can still play video.
+  if (video?.webkitEnterFullscreen && video.webkitSupportsFullscreen !== false) {
+    video.webkitEnterFullscreen();
+    return "entered";
+  }
   throw new Error("Fullscreen is not available in this browser.");
+}
+
+/** Keep page navigation out of the tab order and preserve scroll while expanded. */
+export function lockPlayerViewport(shell: HTMLElement): () => void {
+  const documentValue = shell.ownerDocument;
+  const windowValue = documentValue.defaultView;
+  const scrollX = windowValue?.scrollX ?? 0;
+  const scrollY = windowValue?.scrollY ?? 0;
+  const root = documentValue.documentElement;
+  const body = documentValue.body;
+  const previous = { rootOverflow: root.style.overflow, bodyOverflow: body.style.overflow };
+  root.style.overflow = "hidden";
+  body.style.overflow = "hidden";
+  const siblings: Array<{ element: HTMLElement; inert: boolean }> = [];
+  for (let current: HTMLElement | null = shell; current?.parentElement && current !== body; current = current.parentElement) {
+    for (const element of Array.from(current.parentElement.children)) {
+      if (element === current || !(element instanceof HTMLElement)) continue;
+      siblings.push({ element, inert: element.inert });
+      element.inert = true;
+    }
+  }
+  return () => {
+    root.style.overflow = previous.rootOverflow;
+    body.style.overflow = previous.bodyOverflow;
+    for (const { element, inert } of siblings) element.inert = inert;
+    windowValue?.scrollTo({ left: scrollX, top: scrollY, behavior: "instant" });
+  };
 }

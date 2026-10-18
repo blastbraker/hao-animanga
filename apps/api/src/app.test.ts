@@ -19,6 +19,25 @@ describe("API", () => {
     const response = await app.inject({ method: "GET", url: "/v1/discover" });
     expect(response.json().featured).toHaveLength(4);
   });
+  it("keeps intro timing compatible while returning outro timing", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      if (String(input).includes("anilist")) return new Response(JSON.stringify({ data: { Media: { idMal: 33352 } } }));
+      return new Response(JSON.stringify({ found: true, results: [
+        { skipType: "op", interval: { startTime: 40, endTime: 130 } },
+        { skipType: "ed", interval: { startTime: 1_300, endTime: 1_390 }, episodeLength: 1_420 },
+      ] }));
+    }));
+    try {
+      const response = await app.inject({ method: "GET", url: "/v1/works/10000000-0000-4000-8000-000000000001/intro-skip?episode=1&duration=1420", headers: { "x-user-id": user } });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        interval: { startTime: 40, endTime: 130, source: "aniskip" },
+        outroInterval: { startTime: 1_300, endTime: 1_390, source: "aniskip" },
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
   it("isolates library by user", async () => {
     const created = await app.inject({
       method: "PUT",

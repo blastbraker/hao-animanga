@@ -12,7 +12,7 @@ import { rankSourcesByReliability, recordSourceResult } from "../../../lib/sourc
 import { nextPlaybackCandidate, playbackRecoveryPosition, prioritizePlaybackItems } from "../../../lib/playback-recovery";
 import { compatibleAudioStreams, pickAudioVariant, pickQualityUpgrade, selectAudioStreams, streamAudioMode, streamResolution, type AudioMode } from "../../../lib/stream-audio";
 import { maybeNotifyNewReleases, recordActivity, RELEASE_SNAPSHOTS_STORAGE_KEY, saveSourceReport, updateReleaseSnapshot } from "../../../lib/beta-features";
-import { isPlayerFullscreen, togglePlayerFullscreen, type FullscreenVideo } from "../../../lib/player-fullscreen";
+import { isPlayerFullscreen, lockPlayerViewport, togglePlayerFullscreen, type FullscreenVideo } from "../../../lib/player-fullscreen";
 import { episodeDisplayLabel, episodeDisplayName, episodeNumberLabel } from "../../../lib/episode-title";
 import { seasonHref } from "../../../lib/anime-seasons";
 import { ReleasePicker } from "../../../components/release-picker";
@@ -21,6 +21,8 @@ import { enrichEpisodes, episodeGroupLabel, type EpisodeGuideMetadata } from "..
 import { nextPlaybackSpeed, normalizePlaybackSpeed, PLAYBACK_SPEEDS } from "../../../lib/playback-speed";
 import { nextHlsRecoveryAction, supportsNativeHls } from "../../../lib/hls-recovery";
 import { isIntroSkipVisible, normalizeIntroSkipInterval, type IntroSkipInterval } from "../../../lib/intro-skip";
+import { NextEpisodePrompt } from "../../../components/next-episode-prompt";
+import { nextEpisodeCountdown, normalizeOutroInterval, shouldAutoplayNext } from "../../../lib/next-episode";
 
 type AnimeSourceSummary = {
   id: string;
@@ -107,6 +109,9 @@ export default function PlayerPage() {
   const episodeListRef = useRef<HTMLDivElement>(null);
   const controlsTimerRef = useRef<number | null>(null);
   const autoplayRequestedRef = useRef(false);
+  const autoplayNextRef = useRef(true);
+  const episodeTransitionRef = useRef(false);
+  const dismissedNextEpisodeRef = useRef("");
   const lastSavedAtRef = useRef(0);
   const restoredPlaybackKeyRef = useRef("");
   const remoteProgressRef = useRef<{
@@ -142,6 +147,8 @@ export default function PlayerPage() {
   const [streams, setStreams] = useState<AnimeStream[]>([]);
   const [streamId, setStreamId] = useState("");
   const [autoplayNext, setAutoplayNext] = useState(true);
+  const [dismissedNextEpisode, setDismissedNextEpisode] = useState("");
+  const [metadataStreamKey, setMetadataStreamKey] = useState("");
   const [episodeFilter, setEpisodeFilter] = useState("");
   const [episodeOrder, setEpisodeOrder] = useState<EpisodeOrder>("asc");
   const [episodePreviews, setEpisodePreviews] = useState(true);
@@ -161,6 +168,7 @@ export default function PlayerPage() {
   const [controlsVisible, setControlsVisible] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [viewportFullscreen, setViewportFullscreen] = useState(false);
   const [subtitleMode, setSubtitleMode] = useState("off");
   const [subtitleSize, setSubtitleSize] = useState("100");
   const [subtitleBackground, setSubtitleBackground] = useState("dark");
@@ -168,6 +176,7 @@ export default function PlayerPage() {
   const [busy, setBusy] = useState("Connecting to HAO Bridge…");
   const [error, setError] = useState("");
   const [introSkip, setIntroSkip] = useState<IntroSkipInterval | null>(null);
+  const [outroTiming, setOutroTiming] = useState<{ key: string; interval: IntroSkipInterval | null } | null>(null);
 
   const anime = useMemo(() => catalog.find((item) => item.id === animeId), [animeId, catalog]);
   const displayEpisodes = useMemo(() => enrichEpisodes(episodes, episodeGuide), [episodeGuide, episodes]);
@@ -182,13 +191,16 @@ export default function PlayerPage() {
   const subtitleUrls = useMemo(() => stream?.subtitles.map((subtitle) => subtitle.url.startsWith("/") ? `${bridge}${subtitle.url}` : subtitle.url) ?? [], [bridge, stream]);
   const activeAudioMode = stream ? streamAudioMode(stream) ?? audioPreference : audioPreference;
   const audioSwitchTarget: AudioMode = activeAudioMode === "dub" ? "sub" : "dub";
+  const nextEpisodeKey = JSON.stringify([workId || animeId, episode?.number]);
+  const timingKey = JSON.stringify([workId, episodeId, duration]);
 
   async function bridgeRequest<T>(endpoint: string, path: string): Promise<T> {
     return bridgeJson<T>(endpoint, path);
   }
 
   useEffect(() => {
-    setAutoplayNext(readPreference("hao:anime:autoplay-next") !== "false");
+    autoplayNextRef.current = readPreference("hao:anime:autoplay-next") !== "false";
+    setAutoplayNext(autoplayNextRef.current);
     setEpisodeOrder(readPreference("hao:anime:episode-order") === "desc" ? "desc" : "asc");
     setEpisodePreviews(readPreference("hao:anime:episode-previews") !== "false");
     setEpisodeSummaries(readPreference("hao:anime:episode-summaries") !== "false");
@@ -251,14 +263,19 @@ export default function PlayerPage() {
 
   useEffect(() => {
     setIntroSkip(null);
+    setOutroTiming(null);
     if (!workId || canonicalWork?.source.kind !== "ANILIST" || !episode || duration < 60) return;
     let cancelled = false;
     const parameters = new URLSearchParams({ episode: String(episode.number), duration: duration.toFixed(3) });
-    void api<{ interval: unknown }>(`/works/${workId}/intro-skip?${parameters.toString()}`)
-      .then((result) => { if (!cancelled) setIntroSkip(normalizeIntroSkipInterval(result.interval, duration)); })
+    void api<{ interval: unknown; outroInterval?: unknown }>(`/works/${workId}/intro-skip?${parameters.toString()}`)
+      .then((result) => {
+        if (cancelled) return;
+        setIntroSkip(normalizeIntroSkipInterval(result.interval, duration));
+        setOutroTiming({ key: timingKey, interval: normalizeOutroInterval(result.outroInterval, duration) });
+      })
       .catch(() => { if (!cancelled) setIntroSkip(null); });
     return () => { cancelled = true; };
-  }, [canonicalWork?.source.kind, duration, episode?.id, episode?.number, workId]);
+  }, [canonicalWork?.source.kind, duration, episode?.id, episode?.number, workId, timingKey]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -298,7 +315,8 @@ export default function PlayerPage() {
 
   useEffect(() => {
     const video = videoRef.current as (HTMLVideoElement & FullscreenVideo) | null;
-    const fullscreenChanged = () => setIsFullscreen(isPlayerFullscreen(document, video));
+    const fullscreenChanged = () => setIsFullscreen(isPlayerFullscreen(document, video, viewportFullscreen));
+    fullscreenChanged();
     document.addEventListener("fullscreenchange", fullscreenChanged);
     document.addEventListener("webkitfullscreenchange", fullscreenChanged);
     video?.addEventListener("webkitbeginfullscreen", fullscreenChanged);
@@ -309,7 +327,12 @@ export default function PlayerPage() {
       video?.removeEventListener("webkitbeginfullscreen", fullscreenChanged);
       video?.removeEventListener("webkitendfullscreen", fullscreenChanged);
     };
-  }, [streamId]);
+  }, [streamId, viewportFullscreen]);
+
+  useEffect(() => {
+    if (!viewportFullscreen || !playerShellRef.current) return;
+    return lockPlayerViewport(playerShellRef.current);
+  }, [viewportFullscreen]);
 
   useEffect(() => {
     if (controlsTimerRef.current !== null) window.clearTimeout(controlsTimerRef.current);
@@ -326,6 +349,13 @@ export default function PlayerPage() {
   useEffect(() => {
     function keyboardControls(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
+      if (event.key === "Escape" && viewportFullscreen) {
+        event.preventDefault();
+        if (settingsOpen) setSettingsOpen(false);
+        else { setViewportFullscreen(false); setIsFullscreen(false); }
+        revealControls();
+        return;
+      }
       if (event.key === "Escape" && (shortcutsOpen || lightsOff)) {
         setShortcutsOpen(false);
         setLightsOff(false);
@@ -362,10 +392,11 @@ export default function PlayerPage() {
     }
     window.addEventListener("keydown", keyboardControls);
     return () => window.removeEventListener("keydown", keyboardControls);
-  }, [isPlaying, lightsOff, muted, nextEpisode, previousEpisode, shortcutsOpen, stream]);
+  }, [isPlaying, lightsOff, muted, nextEpisode, previousEpisode, shortcutsOpen, stream, viewportFullscreen, settingsOpen]);
 
   useEffect(() => {
     const video = videoRef.current;
+    setMetadataStreamKey("");
     if (!video || !stream || !streamUrl) return;
     setError("");
     lastPlaybackFailureRef.current = null;
@@ -762,34 +793,39 @@ export default function PlayerPage() {
     }
   }
   async function changeEpisode(next: string, autoplayVideo = true) {
-    if (next === episodeId) return;
-    pendingPlaybackPositionRef.current = null;
-    qualityUpgradeTargetRef.current = null;
-    qualityUpgradeRollbackRef.current = null;
-    const nextEpisode = episodes.find((item) => item.id === next);
-    failedPlaybackSourcesRef.current.clear();
-    if (!videoRef.current?.ended) await persistProgress(false);
-    autoplayRequestedRef.current = autoplayVideo;
-    restoredPlaybackKeyRef.current = "";
-    setProgressStatus("");
-    setSourceFallbackStatus("");
-    setEpisodeId(next);
-    setServers([]);
-    setStreams([]);
-    replaceEpisodeInUrl(next);
+    if (next === episodeId || episodeTransitionRef.current) return;
+    episodeTransitionRef.current = true;
     try {
-      await loadEpisode(bridge, next);
-    } catch (cause) {
-      if (nextEpisode && anime?.title) {
-        try {
-          await fallBackToAnotherSource(nextEpisode.number, 0);
-          return;
-        } catch {
-          // Show the original source error with a useful all-sources explanation below.
+      pendingPlaybackPositionRef.current = null;
+      qualityUpgradeTargetRef.current = null;
+      qualityUpgradeRollbackRef.current = null;
+      const nextEpisode = episodes.find((item) => item.id === next);
+      failedPlaybackSourcesRef.current.clear();
+      if (!videoRef.current?.ended) await persistProgress(false);
+      autoplayRequestedRef.current = autoplayVideo;
+      restoredPlaybackKeyRef.current = "";
+      setProgressStatus("");
+      setSourceFallbackStatus("");
+      setEpisodeId(next);
+      setServers([]);
+      setStreams([]);
+      replaceEpisodeInUrl(next);
+      try {
+        await loadEpisode(bridge, next);
+      } catch (cause) {
+        if (nextEpisode && anime?.title) {
+          try {
+            await fallBackToAnotherSource(nextEpisode.number, 0);
+            return;
+          } catch {
+            // Show the original source error with a useful all-sources explanation below.
+          }
         }
+        setBusy("");
+        setError(sources.length > 1 ? "No installed source returned a playable stream for this episode." : message(cause));
       }
-      setBusy("");
-      setError(sources.length > 1 ? "No installed source returned a playable stream for this episode." : message(cause));
+    } finally {
+      episodeTransitionRef.current = false;
     }
   }
   async function changeServer(next: string) {
@@ -1054,6 +1090,7 @@ export default function PlayerPage() {
   function handleLoadedMetadata() {
     const video = videoRef.current;
     if (!video || !episode) return;
+    setMetadataStreamKey(`${episodeId}:${streamId}`);
     video.playbackRate = playbackSpeed;
     setError("");
     setDuration(Number.isFinite(video.duration) ? video.duration : 0);
@@ -1165,13 +1202,21 @@ export default function PlayerPage() {
     void persistProgress(false);
   }
 
-  async function handleEnded() {
+  async function handleEnded(endedVideo: HTMLVideoElement) {
     await persistProgress(true);
+    // A click on Play now or another episode can happen while cloud progress saves.
+    if (videoRef.current !== endedVideo || !endedVideo.ended || episodeTransitionRef.current) return;
     if (nextEpisode) saveContinueEntry(nextEpisode, 0, 0);
-    if (autoplayNext && nextEpisode) await changeEpisode(nextEpisode.id, true);
+    if (nextEpisode && shouldAutoplayNext(autoplayNextRef.current, true, dismissedNextEpisodeRef.current === nextEpisodeKey)) await changeEpisode(nextEpisode.id, true);
+  }
+
+  function dismissNextEpisode() {
+    dismissedNextEpisodeRef.current = nextEpisodeKey;
+    setDismissedNextEpisode(nextEpisodeKey);
   }
 
   function toggleAutoplay(value: boolean) {
+    autoplayNextRef.current = value;
     setAutoplayNext(value);
     writePreference("hao:anime:autoplay-next", String(value));
   }
@@ -1315,8 +1360,12 @@ export default function PlayerPage() {
     const video = videoRef.current as (HTMLVideoElement & FullscreenVideo) | null;
     if (!shell || !video) return;
     try {
-      await togglePlayerFullscreen(document, shell, video, navigator);
-      setIsFullscreen(isPlayerFullscreen(document, video));
+      const result = await togglePlayerFullscreen(document, shell, video, {
+        active: viewportFullscreen,
+        enter: () => setViewportFullscreen(true),
+        exit: () => setViewportFullscreen(false),
+      });
+      setIsFullscreen(result === "entered");
       setError("");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Fullscreen could not be opened on this device.");
@@ -1381,16 +1430,20 @@ export default function PlayerPage() {
 
   const playedPercent = duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0;
   const showSkipIntro = isIntroSkipVisible(introSkip, currentTime);
+  const nextCountdown = stream && nextEpisode && !busy && !error && dismissedNextEpisode !== nextEpisodeKey && metadataStreamKey === `${episodeId}:${streamId}`
+    ? nextEpisodeCountdown(currentTime, duration, playbackSpeed, outroTiming?.key === timingKey ? outroTiming.interval : null)
+    : null;
+  const showNextEpisode = nextCountdown !== null && !settingsOpen;
   const activeSourceName = sources.find((item) => item.id === sourceId)?.name ?? anime?.provider ?? "HAO source";
   const posterUrl = workCoverUrl ?? (anime ? `${bridge}/v1/anime/${encodeURIComponent(anime.id)}/thumbnail` : undefined);
 
   return (
-    <div className={`player-page anime-player-page ${lightsOff ? "lights-off" : ""}`}>
+    <div className={`player-page anime-player-page ${lightsOff ? "lights-off" : ""} ${viewportFullscreen ? "viewport-fullscreen" : ""}`}>
       <div className="player-watch-layout">
       <section className="player-primary" aria-label="Video player">
       <div
         ref={playerShellRef}
-        className={`video-stage streaming-stage ${controlsVisible || !isPlaying ? "controls-visible" : "controls-hidden"}`}
+        className={`video-stage streaming-stage ${controlsVisible || !isPlaying ? "controls-visible" : "controls-hidden"} ${showNextEpisode ? "has-next-episode" : ""}`}
         onMouseMove={revealControls}
         onMouseLeave={() => isPlaying && !settingsOpen && setControlsVisible(false)}
         onFocusCapture={revealControls}
@@ -1422,10 +1475,10 @@ export default function PlayerPage() {
               setControlsVisible(true);
               if (!videoRef.current?.ended) void persistProgress(false);
             }}
-            onEnded={() => {
+            onEnded={(event) => {
               setIsPlaying(false);
               setControlsVisible(true);
-              void handleEnded();
+              void handleEnded(event.currentTarget);
             }}
             onError={() => {
               const mediaError = videoRef.current?.error;
@@ -1445,10 +1498,11 @@ export default function PlayerPage() {
         )}
 
         {stream && <div className="player-title-overlay"><div><b>{anime?.title ?? "Anime"}</b><span>{episode ? episodeDisplayLabel(episode) : "Select an episode"}</span></div><span className="player-quality-badge">{stream.quality ?? "AUTO"}</span></div>}
-        {stream && !isPlaying && !isBuffering && <button className="player-center-action" aria-label="Play" onClick={() => void togglePlayback()}><Play fill="currentColor" /></button>}
+        {stream && !isPlaying && !isBuffering && !showNextEpisode && <button className="player-center-action" aria-label="Play" onClick={() => void togglePlayback()}><Play fill="currentColor" /></button>}
         {stream && isBuffering && <div className="player-buffering" role="status"><LoaderCircle className="spin" /><span>Buffering</span></div>}
         {stream && autoplayMuted && isPlaying && <button className="player-unmute-action" aria-label="Enable sound" onClick={() => void enableSound()}><Volume2 /><span>Tap for sound</span></button>}
         {stream && showSkipIntro && <button className="skip-intro-button" onClick={skipIntro}><SkipForward /><span>Skip intro</span></button>}
+        {showNextEpisode && nextEpisode && <NextEpisodePrompt episode={nextEpisode} countdown={nextCountdown!} autoplay={autoplayNext} playing={isPlaying} buffering={isBuffering} onPlay={() => void changeEpisode(nextEpisode.id, true)} onDismiss={dismissNextEpisode} />}
 
         {stream && (
           <div className="custom-player-controls" aria-label="Playback controls">

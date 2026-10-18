@@ -11,7 +11,13 @@
 .streaming-stage video.subtitle-size-200::cue { font-size: 200%; }
 .streaming-stage video.subtitle-background-dark::cue { color: #fff; background: rgba(0,0,0,.82); }
 .streaming-stage video.subtitle-background-none::cue { color: #fff; background: transparent; text-shadow: 0 2px 5px #000,0 0 3px #000; }
-.streaming-stage:fullscreen,.streaming-stage:-webkit-full-screen { width: 100vw; height: 100vh; max-height: none; aspect-ratio: auto; border: 0; border-radius: 0; }
+.streaming-stage:is(:fullscreen,:-webkit-full-screen),.viewport-fullscreen .streaming-stage { width: 100%; height: 100vh; height: 100dvh; max-height: none; aspect-ratio: auto; border: 0; border-radius: 0; }
+/* Remove the page's containing block so the fallback covers the viewport, not its grid cell. */
+.anime-player-page.viewport-fullscreen { container-type: normal; }
+.viewport-fullscreen .player-watch-layout { position: relative; z-index: 2000; }
+.viewport-fullscreen .streaming-stage { position: fixed; z-index: 2001; inset: 0; margin: 0; overscroll-behavior: contain; }
+.streaming-stage:is(:fullscreen,:-webkit-full-screen) .custom-player-controls,.viewport-fullscreen .custom-player-controls { padding-bottom: max(16px,env(safe-area-inset-bottom)); padding-left: max(20px,env(safe-area-inset-left)); padding-right: max(20px,env(safe-area-inset-right)); }
+.streaming-stage:is(:fullscreen,:-webkit-full-screen) .next-episode-prompt,.viewport-fullscreen .next-episode-prompt { right: max(20px,env(safe-area-inset-right)); bottom: calc(86px + env(safe-area-inset-bottom)); }
 .player-placeholder { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 14px; color: var(--muted); background: radial-gradient(circle,rgba(140,111,255,.12),transparent 34%),rgba(0,0,0,.7); }
 .player-placeholder svg { width: 52px; height: 52px; color: var(--violet); }
 .player-placeholder span { font-size: 12px; }
@@ -30,6 +36,30 @@
 .skip-intro-button { position: absolute; z-index: 7; right: 24px; bottom: 104px; display: flex; align-items: center; gap: 9px; min-height: 42px; padding: 0 16px; color: #07100f; border: 1px solid rgba(255,255,255,.72); border-radius: 8px; background: rgba(255,255,255,.94); box-shadow: 0 10px 32px rgba(0,0,0,.42); font-weight: 800; cursor: pointer; }
 .skip-intro-button:hover { background: var(--cyan); }
 .skip-intro-button svg { width: 18px; }
+.next-episode-prompt { position: absolute; z-index: 7; right: 20px; bottom: 86px; width: min(320px,calc(100% - 40px)); display: grid; gap: 10px; padding: 14px; border: 1px solid rgba(96,239,227,.35); border-radius: 12px; color: #fff; background: rgba(12,16,25,.97); box-shadow: 0 12px 40px rgba(0,0,0,.5); }
+.next-episode-heading { display: flex; align-items: center; gap: 10px; }
+.next-episode-heading>span:first-child { color: var(--cyan); font-size: 9px; font-weight: 850; letter-spacing: .12em; }
+.next-episode-countdown { margin-left: auto; color: #c5cbd6; font-size: 11px; font-variant-numeric: tabular-nums; }
+.next-episode-prompt>strong { overflow: hidden; font: 700 14px/1.4 var(--font-display); text-overflow: ellipsis; white-space: nowrap; }
+.next-episode-announcement { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+.next-episode-prompt button { min-height: 36px; border: 1px solid transparent; border-radius: 7px; cursor: pointer; font-size: 12px; font-weight: 750; }
+.next-episode-prompt button:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+.next-episode-prompt .next-episode-dismiss { width: 28px; min-height: 28px; display: grid; place-items: center; padding: 0; color: #c5cbd6; background: transparent; }
+.next-episode-dismiss svg { width: 16px; height: 16px; }
+.next-episode-actions { display: flex; gap: 8px; }
+.next-episode-play { flex: 1; display: flex; align-items: center; justify-content: center; gap: 7px; color: #061410; background: var(--cyan); }
+.next-episode-play svg { width: 14px; height: 14px; }
+.next-episode-stay { padding-inline: 14px; color: #dae0eb; background: rgba(255,255,255,.07); }
+.next-episode-prompt button:hover { filter: brightness(1.15); }
+@container video-stage (max-width:600px) {
+  .has-next-episode .player-title-overlay { opacity: 0; }
+  .next-episode-prompt { top: 8px; right: 8px; bottom: auto; width: min(290px,calc(100% - 16px)); gap: 4px; padding: 8px 10px; border-radius: 9px; }
+  .next-episode-prompt>strong { font-size: 12px; }
+  .next-episode-countdown { font-size: 10px; }
+  .next-episode-prompt button { min-height: 32px; font-size: 11px; }
+  .next-episode-prompt .next-episode-dismiss { min-height: 24px; width: 24px; }
+  .streaming-stage:is(:fullscreen,:-webkit-full-screen) .next-episode-prompt,.viewport-fullscreen .next-episode-prompt { top: max(12px,env(safe-area-inset-top)); right: max(8px,env(safe-area-inset-right)); bottom: auto; }
+}
 .player-buffering { position: absolute; z-index: 5; inset: 50% auto auto 50%; display: grid; justify-items: center; gap: 10px; transform: translate(-50%,-50%); color: #fff; font-size: 10px; }
 .player-buffering svg { width: 42px; height: 42px; color: var(--cyan); }
 .custom-player-controls { position: absolute; z-index: 6; inset: auto 0 0; padding: 65px 20px 16px; background: linear-gradient(transparent,rgba(0,0,0,.92)); opacity: 1; transform: none; transition: opacity .22s ease,transform .22s ease; }
