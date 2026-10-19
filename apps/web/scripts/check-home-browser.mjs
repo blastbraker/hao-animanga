@@ -110,6 +110,7 @@ try {
     assert.equal(layout.overlayInset, "0px");
     assert.equal(layout.overlayTint, "rgba(8, 10, 18, 0.2)", "The right edge retains the base tint");
     assert.equal(layout.overlayPointerEvents, "none", "The overlay cannot intercept hero controls");
+    assert.equal(await page.locator(".home-hero").evaluate(hero => getComputedStyle(hero).backgroundClip.split(",").every(value => value.trim() === "padding-box")), true, "Artwork must not bleed through the transparent border");
     if (width === 1440 || width === 390) await page.screenshot({ path: `${output}/home-redesign-${width}.png`, fullPage: true });
   }
   await page.setViewportSize({ width: 1440, height: 1000 });
