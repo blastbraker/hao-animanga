@@ -320,19 +320,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </button>
         </div>
       </aside>
-      <header className="topbar">
+      <header className={`topbar${path === "/" ? " home-topbar" : ""}`}>
         <Link href="/" className="mobile-brand">
           <img className="brand-mark" src="/brand/hao-logo-64.png" alt="" /> HAO
         </Link>
         <GlobalSearch />
-        <button
+        {path === "/" ? <div id="home-source-status" /> : <button
           className="beta-pill"
           onClick={() =>
             window.dispatchEvent(new Event(OPEN_BETA_ONBOARDING_EVENT))
           }
         >
           BETA GUIDE
-        </button>
+        </button>}
       </header>
       <main>{children}</main>
       <nav className="mobile-nav" aria-label="Mobile navigation">

@@ -14,9 +14,10 @@ Run this checklist with a separate invited account before increasing the beta gr
 
 ## Managed sources
 
-- On Home, confirm **Beta Bridge online** appears with approved sources.
+- On Home, confirm **Sources online** appears in the top bar. Open it and confirm **Shared Beta Bridge** and the approved anime/manga source counts; verify Escape and an outside click close it.
+- Confirm the featured carousel opens the selected title, the synopsis stays within two lines, and the **Anime** / **Manga** shelves retain source selection, Popular/Latest, and View all. Test shelf arrows, keyboard focus, touch scrolling, resume cards, and narrow screens with either sidebar preference. The large repository introduction should not appear.
 - Confirm the tester is not asked to install HAO Bridge or add a repository.
-- Open **Beta guide** and confirm it explains Discover, Watch, Read, and source responsibility.
+- Open **Beta guide** from the Home source-status menu (or the top bar on other pages) and confirm it explains Discover, Watch, Read, and source responsibility.
 - Open Settings and confirm the managed Bridge is visible but repository-management controls remain tied to a personal Bridge.
 
 ## Core journeys
