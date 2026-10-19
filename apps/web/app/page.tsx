@@ -356,8 +356,6 @@ export default function HomePage() {
         className={`hero home-hero ${hero.title.length > 52 ? "has-long-title" : ""}`}
         style={{
           backgroundImage: [
-            "linear-gradient(90deg, rgba(8,10,18,.96) 0%, rgba(8,10,18,.72) 36%, rgba(8,10,18,.12) 78%)",
-            "linear-gradient(0deg,rgba(8,10,18,.7) 0%,transparent 50%)",
             hero.bannerUrl ? `url(${hero.bannerUrl})` : "",
             hero.coverUrl ? `url(${hero.coverUrl})` : ""
           ].filter(Boolean).join(", ")

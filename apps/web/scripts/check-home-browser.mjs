@@ -98,10 +98,18 @@ try {
     await page.waitForTimeout(120);
     const layout = await page.evaluate(() => {
       const paragraph = document.querySelector(".hero-copy > p");
-      return { width: document.documentElement.scrollWidth, viewport: innerWidth, paragraphHeight: paragraph.getBoundingClientRect().height, lineHeight: parseFloat(getComputedStyle(paragraph).lineHeight) };
+      const hero = document.querySelector(".home-hero");
+      const overlay = getComputedStyle(hero, "::before");
+      const card = document.querySelector(".continue-watch-card").getBoundingClientRect();
+      return { width: document.documentElement.scrollWidth, viewport: innerWidth, paragraphHeight: paragraph.getBoundingClientRect().height, lineHeight: parseFloat(getComputedStyle(paragraph).lineHeight), heroWidth: hero.clientWidth, heroHeight: hero.clientHeight, overlayWidth: parseFloat(overlay.width), overlayHeight: parseFloat(overlay.height), overlayInset: overlay.inset, overlayTint: overlay.backgroundColor, overlayPointerEvents: overlay.pointerEvents, cardWidth: card.width, cardHeight: card.height };
     });
     assert.ok(layout.width <= width + 1, `No horizontal page overflow at ${width}px: ${layout.width}`);
     assert.ok(layout.paragraphHeight <= layout.lineHeight * 2 + 1, "Hero synopsis is capped at two lines");
+    assert.ok(layout.cardWidth <= 341 && layout.cardHeight <= 112, `Compact resume card at ${width}px: ${layout.cardWidth} x ${layout.cardHeight}`);
+    assert.ok(Math.abs(layout.overlayWidth - layout.heroWidth) < 1 && Math.abs(layout.overlayHeight - layout.heroHeight) < 1, `Overlay covers the entire banner at ${width}px`);
+    assert.equal(layout.overlayInset, "0px");
+    assert.equal(layout.overlayTint, "rgba(8, 10, 18, 0.2)", "The right edge retains the base tint");
+    assert.equal(layout.overlayPointerEvents, "none", "The overlay cannot intercept hero controls");
     if (width === 1440 || width === 390) await page.screenshot({ path: `${output}/home-redesign-${width}.png`, fullPage: true });
   }
   await page.setViewportSize({ width: 1440, height: 1000 });
