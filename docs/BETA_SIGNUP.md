@@ -10,7 +10,10 @@ to the SHA-256 hex digest of the chosen code. Do not use a `NEXT_PUBLIC_` variab
 Remove it to stop new code-based registrations. Changing it invalidates the old
 code for new registrations, without affecting existing accounts.
 
-Apply `20261025000100_beta_signup_throttle.sql` first. Keep Supabase public signup
+Apply both `20261025000100_beta_signup_throttle.sql` and
+`20261025000200_defer_invite_check.sql` first. The invitation check runs at
+transaction commit because Supabase Admin writes app metadata after inserting
+the auth row. Keep Supabase public signup
 disabled. `/v1/auth/signup` validates the code, consumes shared PostgreSQL limits
 (5 attempts/IP/hour, 3/email/hour, 100 total/hour), and uses Supabase Admin to
 create a **member**. A database trigger rejects direct client signup even if the
