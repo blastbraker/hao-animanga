@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type { Work } from "@hao/domain";
 import { BookMarked, BookOpen, Check, ChevronLeft, ChevronRight, Columns2, Download, Flag, LoaderCircle, RefreshCw, Search, Server, Settings2, TriangleAlert } from "lucide-react";
-import { api, bridgeErrorMessage, bridgeJson, getActiveBridge, type LibraryResponse } from "../../lib/api";
+import { api, bridgeErrorMessage, bridgeJson, bridgeMediaUrl, getActiveBridge, type LibraryResponse } from "../../lib/api";
 import {
   MangaChapter,
   MangaChapterPages,
@@ -607,12 +607,12 @@ export default function ReaderPage() {
         {busy && <ReaderStatus text={busy} />} {error && <ReaderError text={error} onRetry={() => window.location.reload()} />}
         <main className={`manga-pages ${readingMode === "webtoon" ? "webtoon" : "paged"}`} dir={readingMode === "rtl" ? "rtl" : "ltr"} aria-label={`${selected.title}, ${pages.chapterName}`}>
           {readingMode === "webtoon" ? (
-            pages.pageUrls.map((url, index) => <img key={offlinePageUrls[index] ?? url} loading={index < 2 ? "eager" : "lazy"} src={offlinePageUrls[index] ?? `${bridge}${url}`} alt={`Page ${index + 1} of ${pages.pageCount}`} />)
+            pages.pageUrls.map((url, index) => <img key={offlinePageUrls[index] ?? url} loading={index < 2 ? "eager" : "lazy"} src={offlinePageUrls[index] ?? bridgeMediaUrl(bridge, url)} alt={`Page ${index + 1} of ${pages.pageCount}`} />)
           ) : (
             <>
               <div className={doublePage ? "reader-spread" : "reader-single-page"}>
-                <img key={offlinePageUrls[pageIndex] ?? pages.pageUrls[pageIndex]} src={offlinePageUrls[pageIndex] ?? `${bridge}${pages.pageUrls[pageIndex]}`} alt={`Page ${pageIndex + 1} of ${pages.pageCount}`} />
-                {doublePage && pages.pageUrls[pageIndex + 1] && <img key={offlinePageUrls[pageIndex + 1] ?? pages.pageUrls[pageIndex + 1]} src={offlinePageUrls[pageIndex + 1] ?? `${bridge}${pages.pageUrls[pageIndex + 1]}`} alt={`Page ${pageIndex + 2} of ${pages.pageCount}`} />}
+                <img key={offlinePageUrls[pageIndex] ?? pages.pageUrls[pageIndex]} src={offlinePageUrls[pageIndex] ?? bridgeMediaUrl(bridge, pages.pageUrls[pageIndex]!)} alt={`Page ${pageIndex + 1} of ${pages.pageCount}`} />
+                {doublePage && pages.pageUrls[pageIndex + 1] && <img key={offlinePageUrls[pageIndex + 1] ?? pages.pageUrls[pageIndex + 1]} src={offlinePageUrls[pageIndex + 1] ?? bridgeMediaUrl(bridge, pages.pageUrls[pageIndex + 1]!)} alt={`Page ${pageIndex + 2} of ${pages.pageCount}`} />}
               </div>
               <div className="page-turn-zones" role="group" aria-label="Page turn controls">
                 <button

@@ -65,6 +65,26 @@ const workSelect = `
 export class HaoRepository {
   constructor(private readonly sql: Database) {}
 
+  async consumeSignupAttempts(limits: Array<{ key: string; limit: number }>): Promise<boolean> {
+    return this.sql.begin(async (tx) => {
+      await tx`delete from signup_rate_limits where expires_at < now() - interval '1 day'`;
+      let allowed = true;
+      // Stable ordering avoids deadlocks between parallel signup requests.
+      for (const item of [...limits].sort((a, b) => a.key.localeCompare(b.key))) {
+        const [row] = await tx<{ attempts: number }[]>`
+          insert into signup_rate_limits (key_hash,attempts,expires_at)
+          values (${item.key},1,now() + interval '1 hour')
+          on conflict (key_hash) do update set
+            attempts=case when signup_rate_limits.expires_at <= now() then 1 else signup_rate_limits.attempts + 1 end,
+            expires_at=case when signup_rate_limits.expires_at <= now() then now() + interval '1 hour' else signup_rate_limits.expires_at end
+          returning attempts
+        `;
+        if (!row || row.attempts > item.limit) allowed = false;
+      }
+      return allowed;
+    });
+  }
+
   async health(): Promise<boolean> {
     const [row] = await this.sql<{ ok: number }[]>`select 1 as ok`;
     return row?.ok === 1;

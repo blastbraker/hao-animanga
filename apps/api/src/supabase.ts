@@ -73,6 +73,20 @@ export async function createPasswordInvitation(email: string): Promise<PasswordI
   return { userId: data.user.id, temporaryPassword };
 }
 
+export async function createBetaAccount(email: string, password: string): Promise<string> {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) throw new Error("Signup is not configured");
+  // Public Supabase signup stays disabled. Only this server-validated invite flow
+  // may create members; never accept roles or app_metadata from the browser.
+  const { data, error } = await supabase.auth.admin.createUser({
+    email, password, email_confirm: true,
+    app_metadata: { invited: true, signup_method: "beta_code", must_change_password: false },
+  });
+  if (error) throw error;
+  if (!data.user?.id) throw new Error("Account creation failed");
+  return data.user.id;
+}
+
 export async function completePasswordSetup(userId: string): Promise<void> {
   const supabase = getSupabaseAdmin();
   if (!supabase) return;

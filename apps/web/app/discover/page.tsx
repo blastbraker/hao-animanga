@@ -7,6 +7,7 @@ import { Filter, Search, SlidersHorizontal, X } from "lucide-react";
 import { api } from "../../lib/api";
 import { MediaCard } from "../../components/media-card";
 import { cacheProfilePreferences, isWorkAllowed } from "../../lib/profile-preferences";
+import { useViewerAccess } from "../../components/viewer-access";
 
 type ReleaseStatus = "" | "RELEASING" | "FINISHED" | "NOT_YET_RELEASED";
 type Maturity = "GENERAL" | "ADULT";
@@ -17,6 +18,7 @@ export default function DiscoverPage() {
 }
 
 function DiscoverPageContent() {
+  const { signedIn } = useViewerAccess();
   const searchParameters = useSearchParams();
   const routeQuery = searchParameters.get("q")?.trim() ?? "";
   const [query, setQuery] = useState("");
@@ -48,17 +50,17 @@ function DiscoverPageContent() {
     try {
       const [result, preferences] = await Promise.all([
         api<{ items: Work[] }>(`/search?${parameters.toString()}`),
-        api<ProfilePreferences>("/profile"),
+        signedIn ? api<ProfilePreferences>("/profile") : Promise.resolve(null),
       ]);
-      cacheProfilePreferences(preferences);
-      setItems(result.items.filter((work) => isWorkAllowed(work, preferences)));
+      if (preferences) cacheProfilePreferences(preferences);
+      setItems(result.items.filter((work) => isWorkAllowed(work, preferences ?? { maturityCeiling: "MATURE", hideUnrated: false })));
     } catch (cause) {
       setItems([]);
       setError(cause instanceof Error ? cause.message : "Discovery is temporarily unavailable.");
     } finally {
       setLoading(false);
     }
-  }, [genre, kind, maturity, status, submittedQuery, year]);
+  }, [genre, kind, maturity, status, submittedQuery, year, signedIn]);
 
   useEffect(() => {
     if (initialized) void load();

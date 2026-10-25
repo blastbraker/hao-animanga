@@ -25,7 +25,9 @@ import { inspectEpub } from "./epub.js";
 import { encryptCredential } from "./crypto.js";
 import { testJellyfin, type JellyfinConnection } from "./jellyfin.js";
 import { safeProviderFetch, validatePublicHttps } from "./security.js";
-import { completePasswordSetup, createPasswordInvitation, createSignedEpubUrl, generateTemporaryPassword, uploadEpub } from "./supabase.js";
+import { completePasswordSetup, createBetaAccount, createPasswordInvitation, createSignedEpubUrl, generateTemporaryPassword, uploadEpub } from "./supabase.js";
+import { SignupSchema, inviteCodeMatches, signupRateKeys } from "./signup.js";
+import { bridgeViewerKeys, createBridgeViewerToken } from "./bridge-viewer.js";
 
 export function buildApp() {
   const app = Fastify({
@@ -81,6 +83,10 @@ export function buildApp() {
   app.register(helmet, { contentSecurityPolicy: false });
   app.register(rateLimit, { max: 120, timeWindow: "1 minute" });
   app.register(multipart, { limits: { fileSize: 50 * 1024 * 1024, files: 1 } });
+  app.addHook("onSend", async (_request, reply, payload) => {
+    reply.header("Cache-Control", "no-store");
+    return payload;
+  });
 
   app.addHook("onClose", async () => {
     if (database) await database.end();
@@ -93,10 +99,33 @@ export function buildApp() {
   });
   app.get("/health", health);
   app.get("/v1/health", health);
+  app.get("/v1/bridge-viewer-keys", async () => bridgeViewerKeys());
   app.get("/v1/session", { preHandler: authenticate }, async (request) => ({
     user: request.user,
     inviteOnly: true
   }));
+  app.post("/v1/auth/signup", { bodyLimit: 4096, config: { rateLimit: { max: 5, timeWindow: "1 hour" } } }, async (request, reply) => {
+    reply.header("Cache-Control", "no-store");
+    if (!process.env.HAO_BETA_INVITE_CODE_HASH || !repository)
+      return reply.code(503).send({ message: "Beta signup is temporarily unavailable. Please try again later." });
+    const parsed = SignupSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ message: "Enter a valid email, invite code, and a password of 10–128 characters with uppercase, lowercase, and a number." });
+    const { email, password, inviteCode } = parsed.data;
+    const ip = process.env.VERCEL === "1" ? String(request.headers["x-vercel-forwarded-for"] ?? request.ip).split(",")[0]!.trim() : request.ip;
+    if (!await repository.consumeSignupAttempts(signupRateKeys(ip, email)))
+      return reply.header("Retry-After", "3600").code(429).send({ message: "Too many signup attempts. Please try again in an hour." });
+    if (!inviteCodeMatches(inviteCode))
+      return reply.code(403).send({ message: "That invite code is not valid. Check it with the person who invited you." });
+    try {
+      const id = await createBetaAccount(email, password);
+      // The auth.users trigger creates the member profile atomically.
+      await repository.audit(id, "account.beta_signup", "profile", id).catch(() => undefined);
+      return reply.code(201).send({ created: true });
+    } catch {
+      // Do not reveal account existence or provider internals, or reset an existing password.
+      return reply.code(400).send({ message: "We couldn’t create this account. If you already have an account, sign in or reset your password." });
+    }
+  });
   app.post("/v1/auth/password-ready", { preHandler: authenticate }, async (request) => {
     await completePasswordSetup(request.user.id);
     return { ready: true };
@@ -215,6 +244,15 @@ export function buildApp() {
         message: "Title not found",
         retryable: false
       });
+    if (work.source.kind !== "ANILIST") {
+      await authenticate(request, reply);
+      if (reply.sent) return;
+      if (work.source.kind === "EPUB" && repository) {
+        const ownAssets = await repository.listEpubAssets(request.user.id);
+        if (!ownAssets.some((asset) => asset.workId === work.id))
+          return reply.code(404).send({ code: "NOT_FOUND", message: "Title not found", retryable: false });
+      }
+    }
     return {
       work,
       releases: [],
@@ -719,6 +757,13 @@ export function buildApp() {
         )
       : [];
     return { items: [...personal, ...shared] };
+  });
+
+  app.post<{ Params: { id: string } }>("/v1/bridges/:id/access", { preHandler: authenticate }, async (request, reply) => {
+    const devices = repository ? await repository.listBridgeDevices(request.user.id) : (bridgeDevices.get(request.user.id) ?? []);
+    const device = devices.find((item) => item.id === request.params.id && !item.revokedAt);
+    if (!device) return reply.code(403).send({ message: "This Bridge is not available to your account." });
+    return createBridgeViewerToken(request.user.id, device.id);
   });
 
   app.post("/v1/bridges/pairing-code", { preHandler: authenticate }, async (request) => {

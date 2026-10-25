@@ -11,12 +11,13 @@ import {
   Compass,
   Home,
   Library,
+  LogIn,
   PanelLeftClose,
   PanelLeftOpen,
   Settings,
   ShieldCheck,
 } from "lucide-react";
-import { API_URL, ApiRequestError, api } from "../lib/api";
+import { API_URL, ApiRequestError, api, clearBridgeViewerPasses } from "../lib/api";
 import { getSupabaseBrowser, hasSupabaseBrowserConfig } from "../lib/supabase";
 import { OPEN_BETA_ONBOARDING_EVENT } from "../lib/onboarding";
 import { OPEN_READER_BROWSER_EVENT } from "../lib/reader-navigation";
@@ -24,6 +25,10 @@ import { BetaOnboarding } from "./beta-onboarding";
 import { GlobalSearch } from "./global-search";
 import { FeedbackDialog } from "./feedback-dialog";
 import { SessionVerification } from "../lib/session-verification";
+import { authHref, isPublicPage } from "../lib/access";
+import { SignInGate, ViewerAccess } from "./viewer-access";
+import { GuestCatalog } from "./guest-catalog";
+import { switchAccountCache } from "../lib/account-cache";
 
 const nav = [
   { href: "/", label: "Home", icon: Home },
@@ -46,6 +51,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [authError, setAuthError] = useState("");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [profileLabel, setProfileLabel] = useState("");
+  const [destination, setDestination] = useState(path);
+  const signedIn = Boolean(role && (!supabase || user));
+  useEffect(() => setDestination(`${path}${window.location.search}`), [path]);
   useEffect(() => {
     try {
       setSidebarCollapsed(
@@ -57,8 +65,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, []);
   useEffect(() => {
     if (!role) return;
-    void api<ProfilePreferences>("/profile").then((profile) => setProfileLabel(profile.displayName)).catch(() => undefined);
-  }, [role]);
+    let cancelled = false;
+    void api<ProfilePreferences>("/profile").then((profile) => { if (!cancelled) setProfileLabel(profile.displayName); }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [role, user?.id]);
   useEffect(() => {
     function toggleFromKeyboard(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
@@ -86,6 +96,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (!supabase) return;
     let cancelled = false;
     let authEvents = 0;
+    let cacheUser: string | null | undefined;
     const scheduled = new Set<number>();
     const verifier = new SessionVerification<User>(async (nextUser) => {
       const cacheKey = `hao:session-role:${nextUser.id}`;
@@ -105,6 +116,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         throw cause;
       }
     }, (state) => {
+      const verifiedUser = state.user && state.role ? state.user.id : state.user === null ? null : undefined;
+      if (verifiedUser !== undefined && verifiedUser !== cacheUser) {
+        clearBridgeViewerPasses();
+        try { switchAccountCache(verifiedUser, window.localStorage); }
+        catch { setUser(state.user); setAuthError("Your local account cache could not be switched safely. Free some browser storage, then reload HAO."); setRole(null); return; }
+        cacheUser = verifiedUser;
+        setProfileLabel("");
+      }
       setUser(state.user);
       setRole(state.role);
       setAuthError(state.error);
@@ -147,18 +166,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (
       supabase &&
-      user === null &&
-      path !== "/login" &&
-      !path.startsWith("/auth/")
-    ) {
-      window.location.replace(
-        `/login?next=${encodeURIComponent(`${path}${window.location.search}`)}`,
-      );
-    }
-  }, [path, supabase, user]);
-  useEffect(() => {
-    if (
-      supabase &&
       user?.app_metadata?.must_change_password === true &&
       !path.startsWith("/auth/")
     ) {
@@ -167,7 +174,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       );
     }
   }, [path, supabase, user]);
-  if (path === "/login" || path.startsWith("/auth/")) return <>{children}</>;
+  if (path === "/login" || path === "/signup" || path.startsWith("/auth/")) return <>{children}</>;
   if (
     process.env.NODE_ENV === "production" &&
     (!hasSupabaseBrowserConfig() || !API_URL)
@@ -177,12 +184,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return (
       <div className="login-page">
         <span>Loading HAO…</span>
-      </div>
-    );
-  if (supabase && !user)
-    return (
-      <div className="login-page">
-        <span>Redirecting to sign in…</span>
       </div>
     );
   if (supabase && user?.app_metadata?.must_change_password === true)
@@ -207,7 +208,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </section>
       </div>
     );
-  if (path.startsWith("/admin") && role !== "admin")
+  if (signedIn && path.startsWith("/admin") && role !== "admin")
     return (
       <div className="login-page">
         <section className="login-card">
@@ -220,7 +221,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </section>
       </div>
     );
-  const label = profileLabel || user?.email?.split("@")[0] || "Ali";
+  const label = signedIn ? profileLabel || user?.email?.split("@")[0] || "HAO member" : "Guest";
   function toggleSidebar() {
     setSidebarCollapsed((value) => {
       const next = !value;
@@ -237,6 +238,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       window.dispatchEvent(new Event(OPEN_READER_BROWSER_EVENT));
   }
   return (
+    <ViewerAccess.Provider value={{ signedIn }}>
     <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
       <aside className="sidebar" aria-label="Primary navigation">
         <div className="sidebar-header">
@@ -293,7 +295,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <Settings size={20} />
             <span>Settings</span>
           </Link>
-          <button
+          {signedIn ? <button
             className="profile-mini"
             title={
               sidebarCollapsed
@@ -309,7 +311,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               if (supabase)
                 void supabase.auth
                   .signOut()
-                  .then(() => window.location.replace("/login"));
+                  .then(() => window.location.replace("/"));
             }}
           >
             <span className="avatar">{label.slice(0, 2).toUpperCase()}</span>
@@ -317,7 +319,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <b>{label}</b>
               <small>{supabase ? "Sign out" : "Beta member"}</small>
             </span>
-          </button>
+          </button> : <Link className="profile-mini" href={authHref("login", destination)}><LogIn /><span><b>Sign in</b><small>Join the beta</small></span></Link>}
         </div>
       </aside>
       <header className={`topbar${path === "/" ? " home-topbar" : ""}`}>
@@ -325,7 +327,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <img className="brand-mark" src="/brand/hao-logo-64.png" alt="" /> HAO
         </Link>
         <GlobalSearch />
-        {path === "/" ? <div id="home-source-status" /> : <button
+        {!signedIn ? <Link className="beta-pill" href={authHref("signup", destination)}>JOIN BETA</Link> : path === "/" ? <div id="home-source-status" /> : <button
           className="beta-pill"
           onClick={() =>
             window.dispatchEvent(new Event(OPEN_BETA_ONBOARDING_EVENT))
@@ -334,7 +336,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           BETA GUIDE
         </button>}
       </header>
-      <main>{children}</main>
+      <main key={user?.id ?? (signedIn ? "development" : "guest")}>
+        {!signedIn && !isPublicPage(path) ? <SignInGate destination={destination} /> :
+          !signedIn && (path === "/reader" || path === "/novels") ?
+            destination.includes("?") ? <SignInGate destination={destination} /> : <GuestCatalog kind={path === "/reader" ? "MANGA" : "LIGHT_NOVEL"} /> : children}
+      </main>
       <nav className="mobile-nav" aria-label="Mobile navigation">
         {nav.map(({ href, label: itemLabel, icon: Icon }) => (
           <Link
@@ -352,9 +358,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </Link>
         ))}
       </nav>
-      <BetaOnboarding autoOpen={role === "member"} />
-      <FeedbackDialog />
+      {signedIn && <><BetaOnboarding autoOpen={role === "member"} /><FeedbackDialog /></>}
     </div>
+    </ViewerAccess.Provider>
   );
 }
 

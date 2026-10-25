@@ -11,6 +11,7 @@ import { MediaCard } from "../components/media-card";
 import { HomeShelf } from "../components/home-shelf";
 import { HomeSourceStatus, type BridgeReadiness } from "../components/home-source-status";
 import { cacheProfilePreferences, isWorkAllowed } from "../lib/profile-preferences";
+import { SignInGate, useViewerAccess } from "../components/viewer-access";
 
 type AnimeSource = {
   id: string;
@@ -79,6 +80,7 @@ const fallback: Work[] = [
 ];
 
 export default function HomePage() {
+  const { signedIn } = useViewerAccess();
   const [data, setData] = useState<DiscoverResponse>({
     featured: fallback,
     trending: fallback,
@@ -109,20 +111,25 @@ export default function HomePage() {
   const hero = featured[selectedFeaturedIndex]!;
 
   useEffect(() => {
-    void Promise.all([api<DiscoverResponse>("/discover"), api<ProfilePreferences>("/profile")])
+    let cancelled = false;
+    void Promise.all([api<DiscoverResponse>("/discover"), signedIn ? api<ProfilePreferences>("/profile") : Promise.resolve(null)])
       .then(([discovery, preferences]) => {
-        cacheProfilePreferences(preferences);
+        if (cancelled) return;
+        if (preferences) cacheProfilePreferences(preferences);
         setData({
           ...discovery,
-          featured: discovery.featured.filter((work) => isWorkAllowed(work, preferences)),
-          trending: discovery.trending.filter((work) => isWorkAllowed(work, preferences)),
-          updated: discovery.updated.filter((work) => isWorkAllowed(work, preferences)),
+          featured: discovery.featured.filter((work) => isWorkAllowed(work, preferences ?? { maturityCeiling: "MATURE", hideUnrated: false })),
+          trending: discovery.trending.filter((work) => isWorkAllowed(work, preferences ?? { maturityCeiling: "MATURE", hideUnrated: false })),
+          updated: discovery.updated.filter((work) => isWorkAllowed(work, preferences ?? { maturityCeiling: "MATURE", hideUnrated: false })),
         });
       })
       .catch(() => undefined);
-    void loadContinueItems();
-    void connectRepositories();
-  }, []);
+    if (signedIn) {
+      void loadContinueItems();
+      void connectRepositories();
+    }
+    return () => { cancelled = true; };
+  }, [signedIn]);
 
   useEffect(() => {
     if (!bridge) return;
@@ -349,7 +356,7 @@ export default function HomePage() {
 
   return (
     <div className="page home-page">
-      <HomeSourceStatus readiness={bridgeReadiness} connecting={connecting} scope={bridgeScope} onRetry={() => void connectRepositories()} />
+      {signedIn && <HomeSourceStatus readiness={bridgeReadiness} connecting={connecting} scope={bridgeScope} onRetry={() => void connectRepositories()} />}
       <section
         aria-label="Featured titles"
         aria-roledescription="carousel"
@@ -376,8 +383,8 @@ export default function HomePage() {
             <Link href={hero.source.kind === "ANILIST" ? `/title/${hero.id}?anilistId=${encodeURIComponent(hero.source.externalId)}` : `/title/${hero.id}`} className="button primary">
               <Sparkles size={18} /> Explore title
             </Link>
-            <Link href="#your-sources" className="button ghost">
-              <Play size={18} /> Browse sources
+            <Link href={signedIn ? "#your-sources" : "/signup"} className="button ghost">
+              <Play size={18} /> {signedIn ? "Browse sources" : "Join the beta"}
             </Link>
           </div>
         </div>
@@ -386,9 +393,9 @@ export default function HomePage() {
         </div>}
       </section>
 
-      <ContinueWatchingSection items={continueItems} onRemove={removeContinueItem} />
+      {signedIn && <ContinueWatchingSection items={continueItems} onRemove={removeContinueItem} />}
 
-      <section id="your-sources" className="content-block source-hub">
+      {signedIn && <section id="your-sources" className="content-block source-hub">
         {bridgeError ? (
           <div className="source-hub-error">
             <CircleAlert />
@@ -452,10 +459,11 @@ export default function HomePage() {
             </RepositorySection>
           </>
         )}
-      </section>
+      </section>}
 
       <MediaRow title="Trending across HAO" icon={<Activity />} items={data.trending} />
       <MediaRow title="New this year" icon={<Sparkles />} items={data.updated} />
+      {!signedIn && <SignInGate compact destination="/" />}
     </div>
   );
 }

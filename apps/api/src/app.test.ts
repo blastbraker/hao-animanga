@@ -10,6 +10,13 @@ process.env.DEV_ADMIN_USER_ID = admin;
 afterAll(() => app.close());
 
 describe("API", () => {
+  it("denies anonymous access to private resources and Bridge passes", async () => {
+    for (const url of ["/v1/library", "/v1/profile", "/v1/reading-state", "/v1/bridges", "/v1/epubs", "/v1/providers", "/v1/admin/overview"]) {
+      expect((await app.inject({ method: "GET", url })).statusCode, url).toBe(401);
+    }
+    expect((await app.inject({ method: "POST", url: "/v1/bridges/unknown/access" })).statusCode).toBe(401);
+    expect((await app.inject({ method: "POST", url: "/v1/bridges/unknown/access", headers: { "x-user-id": user } })).statusCode).toBe(403);
+  });
   it("reports health", async () => {
     const response = await app.inject({ method: "GET", url: "/health" });
     expect(response.statusCode).toBe(200);

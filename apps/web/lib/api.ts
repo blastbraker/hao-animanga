@@ -1,12 +1,27 @@
 import type { LibraryEntry, Work } from "@hao/domain";
 import { getSupabaseBrowser } from "./supabase";
+import { isPublicApiRequest } from "./access";
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:4000/v1" : "/api/v1");
 export const DEV_USER_ID = "00000000-0000-0000-0000-000000000001";
 
+type ViewerPass = { token: string; expiresAt: string };
+const bridgePasses = new Map<string, ViewerPass>();
+export function clearBridgeViewerPasses() { bridgePasses.clear(); }
+
+export function bridgeMediaUrl(endpoint: string, path: string): string {
+  const url = new URL(path, `${endpoint.replace(/\/$/, "")}/`);
+  const base = new URL(endpoint);
+  const pass = bridgePasses.get(endpoint.replace(/\/$/, ""));
+  if (pass && url.origin === base.origin && url.pathname.startsWith("/v1/")) url.searchParams.set("hao_access", pass.token);
+  return url.toString();
+}
+
 export function bridgeFetch(endpoint: string, path: string, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers);
   headers.set("serveo-skip-browser-warning", "true");
+  const pass = bridgePasses.get(endpoint.replace(/\/$/, ""));
+  if (pass) headers.set("Authorization", `Bearer ${pass.token}`);
   return fetch(`${endpoint}${path}`, { ...init, headers });
 }
 
@@ -72,8 +87,9 @@ export class ApiRequestError extends Error {
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const supabase = getSupabaseBrowser();
   const token = (await supabase?.auth.getSession())?.data.session?.access_token;
-  if (!token && process.env.NODE_ENV === "production") throw new ApiRequestError("Sign in required", 401);
-  const authHeaders = token ? { authorization: `Bearer ${token}` } : { "x-user-id": DEV_USER_ID };
+  const developmentIdentity = !supabase && process.env.NODE_ENV !== "production";
+  if (!token && !developmentIdentity && !isPublicApiRequest(path, init?.method)) throw new ApiRequestError("Sign in required", 401);
+  const authHeaders = token ? { authorization: `Bearer ${token}` } : developmentIdentity ? { "x-user-id": DEV_USER_ID } : {};
   const contentHeaders = init?.body == null || init.body instanceof FormData ? {} : { "content-type": "application/json" };
   const method = (init?.method ?? "GET").toUpperCase();
   const attempts = method === "GET" ? 2 : 1;
@@ -84,6 +100,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     try {
       const requestInit: RequestInit = {
         ...init,
+        cache: "no-store",
         headers: {
           ...contentHeaders,
           ...authHeaders,
@@ -122,6 +139,7 @@ export type DiscoverResponse = {
 export type LibraryResponse = { items: LibraryEntry[] };
 
 export type BridgeAccess = {
+  id?: string;
   endpoint: string;
   name: string;
   scope: "personal" | "beta";
@@ -171,11 +189,22 @@ export async function getActiveBridge(): Promise<BridgeAccess> {
   try {
     const { items } = await api<{ items: BridgeAccess[] }>("/bridges");
     const selected = await selectReachableBridge(items);
-    if (selected) return selected;
+    if (selected) {
+      const health = await bridgeJson<{ viewerProtected?: boolean }>(selected.endpoint, "/health");
+      if (health.viewerProtected) {
+        const cached = bridgePasses.get(selected.endpoint);
+        if (!cached || Date.parse(cached.expiresAt) - Date.now() < 30 * 60_000) {
+          if (!selected.id) throw new Error("Reconnect this Bridge in Settings to enable account access.");
+          const pass = await api<ViewerPass>(`/bridges/${selected.id}/access`, { method: "POST" });
+          bridgePasses.set(selected.endpoint, pass);
+        }
+      }
+      return selected;
+    }
   } catch (cause) {
-    if (process.env.NODE_ENV !== "development") throw cause;
+    if (process.env.NODE_ENV !== "development" || getSupabaseBrowser()) throw cause;
   }
-  if (process.env.NODE_ENV === "development")
+  if (process.env.NODE_ENV === "development" && !getSupabaseBrowser())
     return {
       endpoint: "http://127.0.0.1:4568",
       name: "Local HAO Bridge",

@@ -30,6 +30,8 @@ fun main() {
     val port = System.getenv("HAO_BRIDGE_PORT")?.toIntOrNull() ?: 4568
     val adminToken = System.getenv("HAO_BRIDGE_ADMIN_TOKEN")?.trim()?.takeIf { it.isNotEmpty() }
     require(adminToken == null || adminToken.length >= 32) { "HAO_BRIDGE_ADMIN_TOKEN must contain at least 32 characters" }
+    val viewerOrigin = System.getenv("HAO_WEB_ORIGIN")?.trim()?.trimEnd('/')?.takeIf { it.startsWith("https://") }
+    val viewerAccess = viewerOrigin?.let { ViewerAccess(it) { pairing.get()?.deviceId } }
     val app = Javalin.create { config ->
         config.jsonMapper(JavalinJackson())
         config.http.defaultContentType = "application/json"
@@ -46,7 +48,19 @@ fun main() {
         ctx.status(if (clientError) error.status else 503).json(ErrorResponse(if (clientError) "INVALID" else "UNAVAILABLE", if (clientError) "Novel source request was invalid" else "Isolated novel host is unavailable", !clientError))
     }
     app.exception(Exception::class.java) { error, ctx -> error.printStackTrace(); ctx.status(500).json(ErrorResponse("UNAVAILABLE", "Bridge operation failed", true)) }
-    app.get("/health") { ctx -> ctx.json(HealthResponse("ok", "0.1.0", pairing.get() != null, adminToken != null)) }
+    app.before { ctx ->
+        if (viewerAccess != null && ctx.method().name != "OPTIONS" && viewerProtectedPath(ctx.path())) {
+            val token = ctx.header("Authorization")?.removePrefix("Bearer ") ?: ctx.queryParam("hao_access")
+            if (!viewerAccess.permits(token)) {
+                ctx.status(401).header("Cache-Control", "no-store").json(ErrorResponse("UNAUTHORIZED", "Sign in to HAO to access this source"))
+                ctx.skipRemainingHandlers()
+            } else {
+                ctx.attribute("hao-viewer-token", token)
+                ctx.header("Referrer-Policy", "no-referrer")
+            }
+        }
+    }
+    app.get("/health") { ctx -> ctx.json(HealthResponse("ok", "0.1.0", pairing.get() != null, adminToken != null, viewerAccess != null)) }
     app.get("/v1/runtimes") { ctx -> requireManagement(ctx, pairing, adminToken); ctx.json(runtimes.map { it.status() }) }
     app.post("/v1/pair") { ctx ->
         requireAdminToken(ctx, adminToken)
@@ -126,7 +140,11 @@ fun main() {
         // WebKit reject an otherwise valid HLS manifest.
         response.contentLength?.takeIf { shouldForwardContentLength(response.contentType) }?.let { ctx.header("Content-Length", it) }
         response.contentRange?.let { ctx.header("Content-Range", it) }
-        ctx.result(response.body)
+        val viewerToken = ctx.attribute<String>("hao-viewer-token")
+        if (viewerToken != null && response.contentType.substringBefore(';') in listOf("application/vnd.apple.mpegurl", "application/x-mpegurl")) {
+            val manifest = response.body.use { it.readNBytes(4 * 1024 * 1024).toString(Charsets.UTF_8) }
+            ctx.header("Cache-Control", "private, no-store").result(authorizeHlsManifest(manifest, viewerToken))
+        } else ctx.result(response.body)
     }
     app.get("/v1/anime/streams/{streamId}/subtitles") { ctx ->
         requirePaired(ctx, pairing)

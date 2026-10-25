@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { SignInGate, useViewerAccess } from "../../../components/viewer-access";
+import { authHref } from "../../../lib/access";
 import Link from "next/link";
 import type { LibraryEntry, LibraryStatus, Work } from "@hao/domain";
 import { BookOpen, BookmarkPlus, CircleAlert, Clapperboard, ExternalLink, Heart, LoaderCircle, Play, RefreshCw, Server, Star } from "lucide-react";
@@ -68,6 +70,7 @@ type MangaAvailability = {
 };
 
 export default function TitlePage({ params }: { params: Promise<{ id: string }> }) {
+  const { signedIn } = useViewerAccess();
   const [work, setWork] = useState<Work | null>(null);
   const [saved, setSaved] = useState(false);
   const [libraryEntry, setLibraryEntry] = useState<LibraryEntry | null>(null);
@@ -114,7 +117,7 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
   }, [params, reloadKey]);
 
   useEffect(() => {
-    if (!work) return;
+    if (!work || !signedIn) return;
     if (work.kind === "LIGHT_NOVEL") {
       setAvailabilityBusy(false);
       setAvailabilityError("");
@@ -133,7 +136,7 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
       })
       .catch(() => undefined);
     return () => { cancelled = true; };
-  }, [work]);
+  }, [work, signedIn]);
 
   useEffect(() => {
     if (!work || work.kind !== "ANIME" || work.source.kind !== "ANILIST") { setSeasonItems([]); return; }
@@ -145,7 +148,7 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
   }, [work]);
 
   useEffect(() => {
-    if (!work) return;
+    if (!work || !signedIn) return;
     let cancelled = false;
     setAvailabilityBusy(true);
     setAvailabilityError("");
@@ -170,7 +173,7 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
     return () => {
       cancelled = true;
     };
-  }, [work]);
+  }, [work, signedIn]);
 
   const primaryAnime = animeAvailability.find((availability) => availability.source.id === activeAnimeSourceId) ?? animeAvailability[0];
   const primaryManga = mangaAvailability.find((availability) => availability.source.id === activeMangaSourceId) ?? mangaAvailability[0];
@@ -273,7 +276,9 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
             {work.genres.length > 8 && <span>+{work.genres.length - 8} more</span>}
           </div>
           <div className="hero-actions">
-            {availabilityBusy ? (
+            {!signedIn ? <Link className="button primary" href={authHref("login", `/title/${work.id}${work.source.kind === "ANILIST" ? `?anilistId=${work.source.externalId}` : ""}`)}>
+              {work.kind === "ANIME" ? <Play /> : <BookOpen />}Sign in to {work.kind === "ANIME" ? "watch" : "read"}
+            </Link> : availabilityBusy ? (
               <button className="button primary" disabled>
                 <LoaderCircle className="spin" /> Checking {mediaLabel} sources…
               </button>
@@ -289,27 +294,28 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
                 {work.kind === "ANIME" ? <Play /> : <BookOpen />}Not in installed sources
               </button>
             )}
-            {!saved && <button className="button ghost" disabled={libraryBusy} onClick={() => void save()}><BookmarkPlus />Add to library</button>}
+            {!signedIn && <Link className="button ghost" href={authHref("signup", `/title/${work.id}`)}><BookmarkPlus />Join to save titles</Link>}
+            {signedIn && !saved && <button className="button ghost" disabled={libraryBusy} onClick={() => void save()}><BookmarkPlus />Add to library</button>}
             {saved && <select className="title-library-status" aria-label="Library status" value={libraryEntry?.status ?? "PLANNING"} disabled={libraryBusy} onChange={(event) => void updateLibrary({ status: event.target.value as LibraryStatus })}>
               <option value="PLANNING">Planning</option><option value="WATCHING_READING">In progress</option><option value="ON_HOLD">On hold</option><option value="COMPLETED">Completed</option><option value="DROPPED">Dropped</option>
             </select>}
-            <button className={`button ghost favorite-button ${libraryEntry?.favorite ? "active" : ""}`} disabled={libraryBusy} onClick={() => void updateLibrary({ favorite: !libraryEntry?.favorite })}>
+            {signedIn && <button className={`button ghost favorite-button ${libraryEntry?.favorite ? "active" : ""}`} disabled={libraryBusy} onClick={() => void updateLibrary({ favorite: !libraryEntry?.favorite })}>
               <Heart fill={libraryEntry?.favorite ? "currentColor" : "none"} />{libraryEntry?.favorite ? "Favorited" : "Favorite"}
-            </button>
+            </button>}
             {work.kind === "ANIME" && <a className="button ghost imdb-button" href={imdbSearchHref(work)} target="_blank" rel="noreferrer"><ExternalLink /> IMDb rating & watchlist</a>}
           </div>
           <ReleasePicker current={work} items={seasonItems} />
-          <div className="personal-rating">
+          {signedIn && <div className="personal-rating">
             <span><Star size={15} /> Your HAO rating</span>
             <select aria-label="Your rating" value={libraryEntry?.rating ?? ""} disabled={ratingBusy} onChange={(event) => void rate(event.target.value ? Number(event.target.value) : null)}>
               <option value="">Not rated</option>
               {Array.from({ length: 10 }, (_, index) => 10 - index).map((value) => <option key={value} value={value}>{value} / 10</option>)}
             </select>
             <small>{work.kind === "ANIME" ? "Saved privately in HAO. Use the IMDb button to rate or add this title on IMDb." : "Saved privately in HAO."}</small>
-          </div>
+          </div>}
         </div>
       </div>
-      <section className="content-block detail-section availability-section">
+      {!signedIn ? <div className="content-block detail-section"><SignInGate compact destination={`/title/${work.id}${work.source.kind === "ANILIST" ? `?anilistId=${work.source.externalId}` : ""}`} /></div> : <section className="content-block detail-section availability-section">
         <div className="section-head">
           <div>
             <span className="eyebrow">AVAILABLE FROM YOUR SOURCES</span>
@@ -363,7 +369,7 @@ export default function TitlePage({ params }: { params: Promise<{ id: string }> 
             <Link href={work.kind === "ANIME" ? "/player/anime" : "/reader"}>Open the source browser →</Link>
           </div>
         )}
-      </section>
+      </section>}
     </div>
   );
 }
