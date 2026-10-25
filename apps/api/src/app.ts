@@ -121,7 +121,12 @@ export function buildApp() {
       // The auth.users trigger creates the member profile atomically.
       await repository.audit(id, "account.beta_signup", "profile", id).catch(() => undefined);
       return reply.code(201).send({ created: true });
-    } catch {
+    } catch (cause) {
+      const providerError = cause as { code?: unknown; status?: unknown };
+      request.log.warn({
+        authCode: typeof providerError.code === "string" && /^[a-z_]{1,64}$/.test(providerError.code) ? providerError.code : "unknown",
+        authStatus: typeof providerError.status === "number" ? providerError.status : null,
+      }, "Beta signup rejected by identity provider");
       // Do not reveal account existence or provider internals, or reset an existing password.
       return reply.code(400).send({ message: "We couldn’t create this account. If you already have an account, sign in or reset your password." });
     }
