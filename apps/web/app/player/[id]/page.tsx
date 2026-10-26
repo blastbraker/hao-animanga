@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { Work } from "@hao/domain";
-import { ArrowDownUp, Captions, CheckCircle2, ChevronDown, ChevronRight, ExternalLink, Eye, EyeOff, Film, Flag, ImageIcon, Keyboard, Lightbulb, ListPlus, ListVideo, LoaderCircle, LocateFixed, Maximize2, Pause, Play, RefreshCw, RotateCcw, RotateCw, Search, Server, Settings2, Share2, SkipBack, SkipForward, Star, TriangleAlert, Volume2, VolumeX, X } from "lucide-react";
+import { ArrowDownUp, Captions, CheckCircle2, ChevronDown, ChevronRight, ExternalLink, Eye, EyeOff, Film, Flag, ImageIcon, Keyboard, Lightbulb, ListPlus, ListVideo, LoaderCircle, LocateFixed, Maximize2, Pause, PictureInPicture2, Play, RefreshCw, RotateCcw, RotateCw, Search, Server, Settings2, Share2, SkipBack, SkipForward, Star, TriangleAlert, Volume2, VolumeX, X } from "lucide-react";
 import Hls from "hls.js";
 import { api, bridgeErrorMessage, bridgeJson, bridgeMediaUrl, getActiveBridge, type LibraryResponse } from "../../../lib/api";
 import { completedEpisodeUnits, continueWatchingId, CONTINUE_WATCHING_STORAGE_KEY, DISMISSED_CONTINUE_STORAGE_KEY, parseContinueWatching, parseDismissedWorkIds, parsePlaybackPosition, playbackPercent, playbackStorageKey, resumablePosition, updateContinueWatching, type ContinueWatchingEntry } from "../../../lib/playback-progress";
@@ -13,6 +13,7 @@ import { nextPlaybackCandidate, playbackRecoveryPosition, prioritizePlaybackItem
 import { compatibleAudioStreams, pickAudioVariant, pickQualityUpgrade, selectAudioStreams, streamAudioMode, streamResolution, type AudioMode } from "../../../lib/stream-audio";
 import { maybeNotifyNewReleases, recordActivity, RELEASE_SNAPSHOTS_STORAGE_KEY, saveSourceReport, updateReleaseSnapshot } from "../../../lib/beta-features";
 import { isPlayerFullscreen, lockPlayerViewport, togglePlayerFullscreen, type FullscreenVideo } from "../../../lib/player-fullscreen";
+import { isPictureInPicture, pictureInPictureError, supportsPictureInPicture, togglePictureInPicture, type PictureInPictureVideo } from "../../../lib/player-picture-in-picture";
 import { episodeDisplayLabel, episodeDisplayName, episodeNumberLabel } from "../../../lib/episode-title";
 import { seasonHref } from "../../../lib/anime-seasons";
 import { ReleasePicker } from "../../../components/release-picker";
@@ -111,6 +112,7 @@ export default function PlayerPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const episodeListRef = useRef<HTMLDivElement>(null);
   const controlsTimerRef = useRef<number | null>(null);
+  const miniPlayerPendingRef = useRef(false);
   const autoplayRequestedRef = useRef(false);
   const autoplayNextRef = useRef(true);
   const episodeTransitionRef = useRef(false);
@@ -175,6 +177,11 @@ export default function PlayerPage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [viewportFullscreen, setViewportFullscreen] = useState(false);
+  const [miniPlayerSupported, setMiniPlayerSupported] = useState(false);
+  const [miniPlayerReady, setMiniPlayerReady] = useState(false);
+  const [miniPlayerActive, setMiniPlayerActive] = useState(false);
+  const [miniPlayerPending, setMiniPlayerPending] = useState(false);
+  const [miniPlayerNotice, setMiniPlayerNotice] = useState("");
   const [subtitleMode, setSubtitleMode] = useState("off");
   const [subtitleSize, setSubtitleSize] = useState("100");
   const [subtitleBackground, setSubtitleBackground] = useState("dark");
@@ -353,6 +360,28 @@ export default function PlayerPage() {
     if (!viewportFullscreen || !playerShellRef.current) return;
     return lockPlayerViewport(playerShellRef.current);
   }, [viewportFullscreen]);
+
+  useEffect(() => {
+    const video = videoRef.current as (HTMLVideoElement & PictureInPictureVideo) | null;
+    setMiniPlayerNotice("");
+    const changed = () => {
+      setMiniPlayerSupported(Boolean(video && supportsPictureInPicture(document, video)));
+      setMiniPlayerReady(Boolean(video && video.readyState >= 1 && video.videoWidth > 0));
+      const active = Boolean(video && isPictureInPicture(document, video));
+      setMiniPlayerActive(active);
+      if (active) {
+        setViewportFullscreen(false);
+        setIsFullscreen(false);
+        setSettingsOpen(false);
+      }
+    };
+    changed();
+    const events = ["loadedmetadata", "emptied", "enterpictureinpicture", "leavepictureinpicture", "webkitpresentationmodechanged"];
+    for (const event of events) video?.addEventListener(event, changed);
+    return () => {
+      for (const event of events) video?.removeEventListener(event, changed);
+    };
+  }, [episodeId, streamId]);
 
   useEffect(() => {
     if (controlsTimerRef.current !== null) window.clearTimeout(controlsTimerRef.current);
@@ -1402,6 +1431,34 @@ export default function PlayerPage() {
     }
   }
 
+  async function toggleMiniPlayer() {
+    const video = videoRef.current as (HTMLVideoElement & PictureInPictureVideo) | null;
+    if (!video || miniPlayerPendingRef.current) return;
+    miniPlayerPendingRef.current = true;
+    setMiniPlayerPending(true);
+    setMiniPlayerNotice("");
+    try {
+      await togglePictureInPicture(document, video);
+      if (videoRef.current !== video) return;
+      const active = isPictureInPicture(document, video);
+      setMiniPlayerActive(active);
+      if (active) {
+        setViewportFullscreen(false);
+        setIsFullscreen(false);
+        setSettingsOpen(false);
+      }
+    } catch (cause) {
+      if (videoRef.current !== video) return;
+      const standalone = window.matchMedia("(display-mode: standalone)").matches || (navigator as Navigator & { standalone?: boolean }).standalone === true;
+      // A blocked pop-out is not a broken stream: never trigger source fallback.
+      setMiniPlayerNotice(pictureInPictureError(cause, standalone));
+    } finally {
+      miniPlayerPendingRef.current = false;
+      setMiniPlayerPending(false);
+      revealControls();
+    }
+  }
+
   function changeSubtitle(next: string) {
     setSubtitleMode(next);
     applySubtitleMode(next);
@@ -1529,6 +1586,7 @@ export default function PlayerPage() {
         {stream && !isPlaying && !isBuffering && !showNextEpisode && <button className="player-center-action" aria-label="Play" onClick={() => void togglePlayback()}><Play fill="currentColor" /></button>}
         {stream && isBuffering && <div className="player-buffering" role="status"><LoaderCircle className="spin" /><span>Buffering</span></div>}
         {stream && autoplayMuted && isPlaying && <button className="player-unmute-action" aria-label="Enable sound" onClick={() => void enableSound()}><Volume2 /><span>Tap for sound</span></button>}
+        {miniPlayerNotice && <div className="player-mini-notice" role="status"><span>{miniPlayerNotice}</span><button type="button" aria-label="Dismiss mini-player message" onClick={() => setMiniPlayerNotice("")}><X /></button></div>}
         {stream && showSkipIntro && <button className="skip-intro-button" onClick={skipIntro}><SkipForward /><span>Skip intro</span></button>}
         {showNextEpisode && nextEpisode && <NextEpisodePrompt episode={nextEpisode} countdown={nextCountdown!} autoplay={autoplayNext} playing={isPlaying} buffering={isBuffering} onPlay={() => void changeEpisode(nextEpisode.id, true)} onDismiss={dismissNextEpisode} />}
 
@@ -1545,11 +1603,12 @@ export default function PlayerPage() {
                 <span className="player-time">{formatTime(currentTime)} / {formatTime(duration)}</span>
               </div>
               <div className="player-control-group">
-                {nextEpisode && <button aria-label="Next episode" title="Next episode" onClick={() => void changeEpisode(nextEpisode.id, true)}><SkipForward /></button>}
+                {nextEpisode && <button className="player-next-control" aria-label="Next episode" title="Next episode" onClick={() => void changeEpisode(nextEpisode.id, true)}><SkipForward /></button>}
                 <button className="audio-version-toggle" aria-label={`Switch to ${audioSwitchTarget === "dub" ? "dubbed" : "subtitled"} audio`} title={`Switch to ${audioSwitchTarget === "dub" ? "Dub" : "Sub"}`} disabled={Boolean(busy)} onClick={() => void switchAudioVersion(audioSwitchTarget)}><span>{audioSwitchTarget.toUpperCase()}</span></button>
                 <button className="playback-rate-toggle" aria-label={`Playback speed ${formatPlaybackSpeed(playbackSpeed)}. Select next speed`} title="Change playback speed" onClick={() => changePlaybackSpeed(nextPlaybackSpeed(playbackSpeed))}><span>{formatPlaybackSpeed(playbackSpeed)}</span></button>
-                <button className={subtitleMode !== "off" ? "active" : ""} aria-label="Subtitles" title="Subtitles" disabled={!stream.subtitles.length} onClick={() => changeSubtitle(subtitleMode === "off" ? "0" : "off")}><Captions /></button>
+                <button className={`player-subtitle-toggle ${subtitleMode !== "off" ? "active" : ""}`} aria-label="Subtitles" title="Subtitles" disabled={!stream.subtitles.length} onClick={() => changeSubtitle(subtitleMode === "off" ? "0" : "off")}><Captions /></button>
                 <button className={settingsOpen ? "active" : ""} aria-label="Playback settings" title="Playback settings" onClick={() => { setSettingsOpen((value) => !value); setControlsVisible(true); }}><Settings2 /></button>
+                {(miniPlayerSupported || miniPlayerActive) && <button className={miniPlayerActive ? "active" : ""} aria-label={miniPlayerActive ? "Exit mini-player" : "Open mini-player"} aria-pressed={miniPlayerActive} title={miniPlayerActive ? "Return video to this tab" : "Pop out video (picture-in-picture)"} disabled={miniPlayerPending || (!miniPlayerReady && !miniPlayerActive)} onClick={() => void toggleMiniPlayer()}><PictureInPicture2 /></button>}
                 <button aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"} title="Fullscreen (F)" onClick={() => void toggleFullscreen()}><Maximize2 /></button>
               </div>
             </div>
@@ -1570,6 +1629,7 @@ export default function PlayerPage() {
         )}
       </div>
       <div className="watch-utility-bar" aria-label="Watch options">
+        {stream && (miniPlayerSupported || miniPlayerActive) && <button className={miniPlayerActive ? "active" : ""} aria-pressed={miniPlayerActive} title="Keep this player tab open while watching in another tab or app" disabled={miniPlayerPending || (!miniPlayerReady && !miniPlayerActive)} onClick={() => void toggleMiniPlayer()}><PictureInPicture2 /><span>{miniPlayerActive ? "Exit mini-player" : "Mini-player"}</span></button>}
         {stream && <button className="audio-version-utility" disabled={Boolean(busy)} onClick={() => void switchAudioVersion(audioSwitchTarget)}><ArrowDownUp /><span>{(activeAudioMode ?? "sub").toUpperCase()} → {audioSwitchTarget.toUpperCase()}</span></button>}
         <button className={autoplayNext ? "active" : ""} aria-pressed={autoplayNext} onClick={() => toggleAutoplay(!autoplayNext)}><SkipForward /><span>Auto next</span></button>
         <button className={lightsOff ? "active" : ""} aria-pressed={lightsOff} onClick={() => setLightsOff((value) => !value)}><Lightbulb /><span>{lightsOff ? "Lights on" : "Lights off"}</span></button>

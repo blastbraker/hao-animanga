@@ -80,6 +80,11 @@
 .player-control-group .playback-rate-toggle:hover { color: var(--cyan); }
 .player-control-group button:disabled { opacity: .3; cursor: not-allowed; }
 .player-control-group button svg { width: 20px; height: 20px; }
+.player-mini-notice { position: absolute; z-index: 9; inset: auto 12px 85px; display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid rgba(96,239,227,.35); border-radius: 10px; color: #eef5f5; background: rgba(12,18,27,.97); font-size: 12px; line-height: 1.5; }
+.player-mini-notice span { flex: 1; }
+.player-mini-notice button { flex: none; width: 34px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 6px; background: transparent; color: #fff; cursor: pointer; }
+.player-mini-notice button:hover { background: rgba(255,255,255,.1); }
+.player-mini-notice svg { width: 18px; height: 18px; }
 .player-volume { width: 78px; accent-color: var(--cyan); }
 .player-time { min-width: 92px; margin-left: 5px; color: #e3e5ea; font-size: 10px; font-variant-numeric: tabular-nums; }
 .playback-settings { position: absolute; z-index: 8; right: 18px; bottom: 72px; width: min(310px,calc(100% - 36px)); max-height: calc(100% - 88px); display: grid; gap: 14px; overflow-y: auto; overscroll-behavior: contain; padding: 17px; border: 1px solid rgba(255,255,255,.14); border-radius: 12px; background: rgba(12,15,24,.97); box-shadow: 0 18px 55px rgba(0,0,0,.6); backdrop-filter: blur(18px); scrollbar-width: thin; }
@@ -88,9 +93,10 @@
 .playback-settings-heading button { width: 30px; height: 30px; font-size: 20px; }
 .playback-settings label { display: grid; gap: 6px; color: var(--muted); font-size: 8px; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
 .playback-settings select { width: 100%; min-width: 0; padding: 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--text); background: var(--panel2); font-size: 10px; letter-spacing: 0; text-transform: none; }
-.watch-utility-bar { min-height: 46px; display: flex; align-items: center; gap: 5px; padding: 5px; border: 1px solid var(--line); border-radius: 11px; background: rgba(13,16,25,.94); }
+.watch-utility-bar { min-height: 46px; display: flex; flex-wrap: wrap; align-items: center; gap: 5px; padding: 5px; border: 1px solid var(--line); border-radius: 11px; background: rgba(13,16,25,.94); }
 .watch-utility-bar button { min-height: 34px; display: flex; align-items: center; gap: 7px; padding: 0 11px; border: 0; border-radius: 7px; color: var(--muted); background: transparent; font-size: 9px; font-weight: 700; cursor: pointer; }
 .watch-utility-bar button:hover,.watch-utility-bar button.active { color: var(--cyan); background: rgba(96,239,227,.08); }
+.watch-utility-bar button:disabled { opacity: .45; cursor: not-allowed; }
 .watch-utility-bar button svg { width: 15px; height: 15px; }
 .watch-utility-bar .audio-version-utility { min-height: 38px; color: var(--cyan); border: 1px solid rgba(96,239,227,.28); background: rgba(96,239,227,.08); }
 .episode-rail { min-height: 0; max-height: calc(min(72vh,720px) + 54px); display: grid; grid-template-rows: auto auto 1fr; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: linear-gradient(155deg,rgba(21,25,39,.98),rgba(10,12,20,.98)); }
@@ -248,10 +254,12 @@
 @container video-stage (max-width:500px) {
   .custom-player-controls { padding-inline: 8px; }
   .player-seek-back,.player-seek-forward { display: none !important; }
+  .player-control-group .playback-rate-toggle,.player-control-group .player-subtitle-toggle { display: none; }
   .player-control-row { gap: 3px; }
   .player-time { min-width: 70px; }
 }
 @container video-stage (max-width:390px) {
+  .player-control-group .player-next-control { display: none; }
   .player-time { min-width: 62px; font-size: 7px; }
 }
 @media(max-width:1180px) {
@@ -290,7 +298,7 @@
   .episode-preview-media>img,.episode-preview-placeholder { min-height: 84px; }
   .episode-navigation { grid-template-columns: auto 1fr auto; margin: 0; }
   .episode-navigation>span { display: none; }
-  .watch-utility-bar { overflow-x: auto; border-inline: 0; border-radius: 0; scrollbar-width: none; }
+  .watch-utility-bar { flex-wrap: nowrap; overflow-x: auto; border-inline: 0; border-radius: 0; scrollbar-width: none; }
   .watch-utility-bar button { flex: none; }
   .shortcut-dialog dl { grid-template-columns: 1fr; }
   .anime-metadata-card { grid-template-columns: 105px minmax(0,1fr); gap: 13px; padding: 10px; }
