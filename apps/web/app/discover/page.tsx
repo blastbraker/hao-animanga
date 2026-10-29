@@ -1,20 +1,39 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import type { MediaKind, ProfilePreferences, Work } from "@hao/domain";
-import { Filter, Search, SlidersHorizontal, X } from "lucide-react";
+import { ArrowUpRight, Search, X } from "lucide-react";
 import { api } from "../../lib/api";
 import { MediaCard } from "../../components/media-card";
-import { cacheProfilePreferences, isWorkAllowed } from "../../lib/profile-preferences";
+import {
+  cacheProfilePreferences,
+  isWorkAllowed,
+} from "../../lib/profile-preferences";
 import { useViewerAccess } from "../../components/viewer-access";
 
 type ReleaseStatus = "" | "RELEASING" | "FINISHED" | "NOT_YET_RELEASED";
 type Maturity = "GENERAL" | "ADULT";
-const GENRES = ["Action", "Drama", "Fantasy", "Romance"] as const;
+const GENRES = [
+  "Action",
+  "Adventure",
+  "Comedy",
+  "Drama",
+  "Fantasy",
+  "Mystery",
+  "Romance",
+  "Sci-Fi",
+  "Slice of Life",
+  "Sports",
+  "Thriller",
+] as const;
 
 export default function DiscoverPage() {
-  return <Suspense fallback={<DiscoverLoading />}><DiscoverPageContent /></Suspense>;
+  return (
+    <Suspense fallback={<DiscoverLoading />}>
+      <DiscoverPageContent />
+    </Suspense>
+  );
 }
 
 function DiscoverPageContent() {
@@ -32,6 +51,7 @@ function DiscoverPageContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [initialized, setInitialized] = useState(false);
+  const requestId = useRef(0);
 
   useEffect(() => {
     setQuery(routeQuery);
@@ -40,9 +60,14 @@ function DiscoverPageContent() {
   }, [routeQuery]);
 
   const load = useCallback(async () => {
+    const request = ++requestId.current;
     setLoading(true);
     setError("");
-    const parameters = new URLSearchParams({ q: submittedQuery, pageSize: "30", maturity });
+    const parameters = new URLSearchParams({
+      q: submittedQuery,
+      pageSize: "30",
+      maturity,
+    });
     if (kind) parameters.set("kind", kind);
     if (genre) parameters.set("genre", genre);
     if (year) parameters.set("year", year);
@@ -52,13 +77,26 @@ function DiscoverPageContent() {
         api<{ items: Work[] }>(`/search?${parameters.toString()}`),
         signedIn ? api<ProfilePreferences>("/profile") : Promise.resolve(null),
       ]);
+      if (request !== requestId.current) return;
       if (preferences) cacheProfilePreferences(preferences);
-      setItems(result.items.filter((work) => isWorkAllowed(work, preferences ?? { maturityCeiling: "MATURE", hideUnrated: false })));
+      setItems(
+        result.items.filter((work) =>
+          isWorkAllowed(
+            work,
+            preferences ?? { maturityCeiling: "MATURE", hideUnrated: false },
+          ),
+        ),
+      );
     } catch (cause) {
+      if (request !== requestId.current) return;
       setItems([]);
-      setError(cause instanceof Error ? cause.message : "Discovery is temporarily unavailable.");
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Discovery is temporarily unavailable.",
+      );
     } finally {
-      setLoading(false);
+      if (request === requestId.current) setLoading(false);
     }
   }, [genre, kind, maturity, status, submittedQuery, year, signedIn]);
 
@@ -79,63 +117,199 @@ function DiscoverPageContent() {
 
   const currentYear = String(new Date().getFullYear());
   const hasFilters = Boolean(genre || year || status || maturity !== "GENERAL");
-  const heading = submittedQuery ? `Results for “${submittedQuery}”` : "Popular right now";
+  const heading = submittedQuery
+    ? `Results for “${submittedQuery}”`
+    : "Popular right now";
 
   return (
-    <div className="page inner-page discover-page">
-      <div className="page-intro">
-        <span className="eyebrow">THE WHOLE ARCHIVE</span>
-        <h1>Discover your next obsession.</h1>
-        <p>Popular titles appear first. Search or combine filters to narrow anime, manga, manhwa, and light novels.</p>
+    <div className="page inner-page discover-page browse-design">
+      <div className="browse-heading">
+        <div>
+          <h1>Discover</h1>
+          <p>Find your next favorite.</p>
+        </div>
+      </div>
+      <div className="browse-tabs" aria-label="Media type">
+        {(
+          [
+            ["", "All"],
+            ["ANIME", "Anime"],
+            ["MANGA", "Manga"],
+            ["MANHWA", "Manhwa"],
+            ["LIGHT_NOVEL", "Light Novels"],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            aria-pressed={kind === value}
+            className={kind === value ? "active" : ""}
+            onClick={() => setKind(value)}
+          >
+            {label}
+          </button>
+        ))}
       </div>
       <div className="search-panel">
         <label>
           <Search />
           <input
+            aria-label="Search discovery"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => event.key === "Enter" && submitSearch()}
             placeholder="Try ‘Frieren’, ‘romance’, or a Japanese title…"
           />
         </label>
-        <select value={kind} onChange={(event) => setKind(event.target.value as MediaKind | "")} aria-label="Media type">
-          <option value="">All media</option>
-          <option value="ANIME">Anime</option>
-          <option value="MANGA">Manga</option>
-          <option value="MANHWA">Manhwa</option>
-          <option value="LIGHT_NOVEL">Light novels</option>
-        </select>
         <button className="button primary" onClick={submitSearch}>
-          <SlidersHorizontal size={17} /> Search
+          <Search size={17} /> Search
         </button>
       </div>
-      <div className="filter-row" aria-label="Discovery filters">
-        <span><Filter size={15} /> Filters</span>
-        {GENRES.map((value) => (
-          <button type="button" key={value} className={genre === value ? "active" : ""} aria-pressed={genre === value} onClick={() => setGenre(genre === value ? "" : value)}>{value}</button>
-        ))}
-        <button type="button" className={year === currentYear ? "active" : ""} aria-pressed={year === currentYear} onClick={() => setYear(year === currentYear ? "" : currentYear)}>{currentYear}</button>
-        <button type="button" className={status === "RELEASING" ? "active" : ""} aria-pressed={status === "RELEASING"} onClick={() => setStatus(status === "RELEASING" ? "" : "RELEASING")}>Releasing</button>
-        <button type="button" className={maturity === "ADULT" ? "active" : ""} aria-pressed={maturity === "ADULT"} onClick={() => setMaturity(maturity === "ADULT" ? "GENERAL" : "ADULT")}>Adult titles</button>
-        {hasFilters && <button type="button" className="clear-filters" onClick={clearFilters}><X size={14} /> Clear</button>}
+      <div className="browse-filters" aria-label="Discovery filters">
+        <label>
+          Genre
+          <select
+            value={genre}
+            onChange={(event) => setGenre(event.target.value)}
+          >
+            <option value="">All genres</option>
+            {GENRES.map((value) => (
+              <option key={value}>{value}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Year
+          <select
+            value={year}
+            onChange={(event) => setYear(event.target.value)}
+          >
+            <option value="">Any year</option>
+            {Array.from(
+              { length: 60 },
+              (_, i) => Number(currentYear) + 1 - i,
+            ).map((value) => (
+              <option key={value}>{value}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Status
+          <select
+            value={status}
+            onChange={(event) => setStatus(event.target.value as ReleaseStatus)}
+          >
+            <option value="">Any status</option>
+            <option value="RELEASING">Releasing</option>
+            <option value="FINISHED">Finished</option>
+            <option value="NOT_YET_RELEASED">Upcoming</option>
+          </select>
+        </label>
+        <label>
+          Content
+          <select
+            value={maturity}
+            onChange={(event) => setMaturity(event.target.value as Maturity)}
+          >
+            <option value="GENERAL">General</option>
+            <option value="ADULT">Adult titles</option>
+          </select>
+        </label>
+        {hasFilters && (
+          <button className="browse-clear" type="button" onClick={clearFilters}>
+            <X size={14} /> Clear filters
+          </button>
+        )}
       </div>
       <div className="discover-results-heading">
-        <div><span className="eyebrow">ANILIST DISCOVERY</span><h2>{heading}</h2></div>
+        <div>
+          <h2>{heading}</h2>
+        </div>
         {!loading && <span>{items.length} titles</span>}
       </div>
       {loading ? (
-        <div className="empty-state">Loading popular titles…</div>
+        <div
+          className="browse-skeleton-grid"
+          role="status"
+          aria-label="Loading titles"
+        >
+          {Array.from({ length: 12 }, (_, i) => (
+            <div key={i} />
+          ))}
+        </div>
       ) : error ? (
-        <div className="empty-state"><Search size={36} /><h2>Discovery unavailable</h2><p>{error}</p><button className="button ghost" onClick={() => void load()}>Retry</button></div>
+        <div className="empty-state">
+          <Search size={36} />
+          <h2>Discovery unavailable</h2>
+          <p>{error}</p>
+          <button className="button ghost" onClick={() => void load()}>
+            Retry
+          </button>
+        </div>
       ) : items.length ? (
-        <div className="catalog-grid">{items.map((work) => <MediaCard key={work.id} work={work} />)}</div>
+        <>
+          <div className="catalog-grid">
+            {items.slice(0, 12).map((work) => (
+              <MediaCard key={work.id} work={work} />
+            ))}
+          </div>
+          {!submittedQuery && !hasFilters && (
+            <section className="mood-section">
+              <div className="section-head">
+                <h2>Explore by mood</h2>
+              </div>
+              <div className="mood-grid">
+                {[
+                  ["Adventure", "A world to get lost in", "Adventure"],
+                  ["Cozy", "Slow down, settle in", "Slice of Life"],
+                  ["Mystery", "One more twist", "Mystery"],
+                  ["Fantasy", "Beyond the everyday", "Fantasy"],
+                ].map(([label, copy, filter], i) => (
+                  <button
+                    key={label}
+                    className={`mood-tile mood-${i}`}
+                    onClick={() => {
+                      setGenre(filter!);
+                      window.scrollTo({ top: 0, behavior: "smooth" });
+                    }}
+                  >
+                    <span>
+                      <b>{label}</b>
+                      <small>{copy}</small>
+                    </span>
+                    <ArrowUpRight />
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+          {items.length > 12 && (
+            <section className="browse-more">
+              <div className="section-head">
+                <h2>More to explore</h2>
+              </div>
+              <div className="catalog-grid">
+                {items.slice(12).map((work) => (
+                  <MediaCard key={work.id} work={work} />
+                ))}
+              </div>
+            </section>
+          )}
+        </>
       ) : (
-        <div className="empty-state"><Search size={36} /><h2>No titles found</h2><p>Try another title or remove a filter.</p></div>
+        <div className="empty-state">
+          <Search size={36} />
+          <h2>No titles found</h2>
+          <p>Try another title or remove a filter.</p>
+        </div>
       )}
     </div>
   );
 }
 
 function DiscoverLoading() {
-  return <div className="page inner-page discover-page"><div className="empty-state">Loading discovery…</div></div>;
+  return (
+    <div className="page inner-page discover-page">
+      <div className="empty-state">Loading discovery…</div>
+    </div>
+  );
 }

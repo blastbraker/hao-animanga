@@ -7,6 +7,7 @@ import {
   BookOpenText,
   ChevronRight,
   FileUp,
+  Headphones,
   LibraryBig,
   Search,
   Server,
@@ -57,7 +58,13 @@ type UploadResult = {
   manifest: { title?: string; creator?: string; chapters?: unknown[] };
   work?: Work;
 };
-type EpubAsset = { id: string; originalName: string; byteSize: number; manifest: { title?: string; creator?: string }; work: Work | null };
+type EpubAsset = {
+  id: string;
+  originalName: string;
+  byteSize: number;
+  manifest: { title?: string; creator?: string };
+  work: Work | null;
+};
 
 export default function NovelsPage() {
   const fileInput = useRef<HTMLInputElement>(null);
@@ -111,8 +118,15 @@ export default function NovelsPage() {
   );
 
   useEffect(() => {
-    setContinueReading(parseNovelResumes(window.localStorage.getItem(NOVEL_RESUMES_KEY)).slice(0, 10));
-    void api<{ items: EpubAsset[] }>("/epubs").then((result) => setEpubs(result.items)).catch(() => undefined);
+    setContinueReading(
+      parseNovelResumes(window.localStorage.getItem(NOVEL_RESUMES_KEY)).slice(
+        0,
+        10,
+      ),
+    );
+    void api<{ items: EpubAsset[] }>("/epubs")
+      .then((result) => setEpubs(result.items))
+      .catch(() => undefined);
   }, []);
 
   const load = useCallback(async () => {
@@ -224,8 +238,14 @@ export default function NovelsPage() {
         method: "POST",
         body,
       });
-      await cacheEpubFile(result.id, file, result.manifest.title || result.filename);
-      void api<{ items: EpubAsset[] }>("/epubs").then((response) => setEpubs(response.items)).catch(() => undefined);
+      await cacheEpubFile(
+        result.id,
+        file,
+        result.manifest.title || result.filename,
+      );
+      void api<{ items: EpubAsset[] }>("/epubs")
+        .then((response) => setEpubs(response.items))
+        .catch(() => undefined);
       if (result.work)
         setItems((current) => [
           result.work!,
@@ -249,8 +269,9 @@ export default function NovelsPage() {
 
   function searchSource() {
     const next = sourceQuery.trim();
-    if (!next) return;
-    setSourceMode("search");
+    setQuery(next);
+    setSubmittedQuery(next);
+    setSourceMode(next ? "search" : "popular");
     setSubmittedSourceQuery(next);
   }
 
@@ -292,18 +313,28 @@ export default function NovelsPage() {
       work.source.kind === "ANILIST" ? work.source.externalId : undefined,
       work.title,
     );
-    const remembered = parseNovelMatches(window.localStorage.getItem(NOVEL_MATCHES_KEY));
+    const remembered = parseNovelMatches(
+      window.localStorage.getItem(NOVEL_MATCHES_KEY),
+    );
     const savedMatch = remembered.find((item) => item.key === matchKey);
     if (savedMatch) {
       if (await openNovel(savedMatch.novel)) return;
-      window.localStorage.setItem(NOVEL_MATCHES_KEY, JSON.stringify(forgetNovelMatch(remembered, matchKey)));
+      window.localStorage.setItem(
+        NOVEL_MATCHES_KEY,
+        JSON.stringify(forgetNovelMatch(remembered, matchKey)),
+      );
       setSourceError("");
     }
 
     const visibleMatch = confidentNovelSourceMatch(work, sourceItems);
     if (visibleMatch) {
       if (await openNovel(visibleMatch)) {
-        window.localStorage.setItem(NOVEL_MATCHES_KEY, JSON.stringify(rememberNovelMatch(remembered, matchKey, visibleMatch)));
+        window.localStorage.setItem(
+          NOVEL_MATCHES_KEY,
+          JSON.stringify(
+            rememberNovelMatch(remembered, matchKey, visibleMatch),
+          ),
+        );
         return;
       }
     }
@@ -328,7 +359,10 @@ export default function NovelsPage() {
           const match = confidentNovelSourceMatch(work, result.items);
           if (match) {
             if (await openNovel(match)) {
-              window.localStorage.setItem(NOVEL_MATCHES_KEY, JSON.stringify(rememberNovelMatch(remembered, matchKey, match)));
+              window.localStorage.setItem(
+                NOVEL_MATCHES_KEY,
+                JSON.stringify(rememberNovelMatch(remembered, matchKey, match)),
+              );
               return;
             }
           }
@@ -357,7 +391,26 @@ export default function NovelsPage() {
   }
 
   return (
-    <div className="page inner-page novels-page">
+    <div className="page inner-page novels-page browse-design">
+      <div className="browse-heading">
+        <div>
+          <h1>Light Novels</h1>
+          <p>A new world, one page at a time.</p>
+        </div>
+        <div className="browse-heading-actions">
+          <a className="button ghost" href="#epub-shelf-heading">
+            <LibraryBig size={17} /> My EPUBs
+          </a>
+          <button
+            className="button primary"
+            disabled={uploading}
+            onClick={() => fileInput.current?.click()}
+          >
+            <FileUp size={17} />
+            {uploading ? "Checking EPUB…" : "Upload EPUB"}
+          </button>
+        </div>
+      </div>
       <input
         ref={fileInput}
         className="visually-hidden"
@@ -374,30 +427,50 @@ export default function NovelsPage() {
       {continueReading.length > 0 && (
         <section className="content-block novel-continue-section">
           <div className="section-head">
-            <div><span className="eyebrow">PICK UP WHERE YOU LEFT OFF</span><h2>Continue reading</h2></div>
-            <Link href="/library">My library <ChevronRight /></Link>
+            <div>
+              <h2>Continue reading</h2>
+            </div>
+            <Link href="/library">
+              My library <ChevronRight />
+            </Link>
           </div>
           <div className="novel-continue-row">
-            {continueReading.map((item) => (
-              <Link href={item.href} className="novel-continue-card" key={item.id}>
-                {item.coverUrl ? <img src={item.coverUrl} alt="" /> : <span className="novel-cover-placeholder"><BookOpenText /></span>}
-                <div><small>{Math.round(item.progressPercent)}% read</small><b>{item.title}</b><p>{item.chapterTitle}</p><i><span style={{ width: `${item.progressPercent}%` }} /></i></div>
-              </Link>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {epubs.length > 0 && (
-        <section className="content-block epub-shelf" aria-labelledby="epub-shelf-heading">
-          <div className="section-head"><div><span className="eyebrow">PRIVATE & OFFLINE READY</span><h2 id="epub-shelf-heading">Your EPUB books</h2></div></div>
-          <div className="epub-shelf-grid">
-            {epubs.map((asset) => (
-              <Link href={`/novels/epub/${asset.id}`} className="epub-book-card" key={asset.id}>
-                <span><BookOpenText /></span>
-                <div><b>{asset.work?.title || asset.manifest.title || asset.originalName}</b><small>{asset.manifest.creator || "Private EPUB"} · {(asset.byteSize / 1024 / 1024).toFixed(1)} MB</small></div>
-                <ChevronRight />
-              </Link>
+            {continueReading.slice(0, 3).map((item) => (
+              <article className="novel-continue-card" key={item.id}>
+                {item.coverUrl ? (
+                  <img src={item.coverUrl} alt="" />
+                ) : (
+                  <span className="novel-cover-placeholder">
+                    <BookOpenText />
+                  </span>
+                )}
+                <div>
+                  <small>{Math.round(item.progressPercent)}% read</small>
+                  <Link href={item.href}>
+                    <b>{item.title}</b>
+                  </Link>
+                  <p>{item.chapterTitle}</p>
+                  <i>
+                    <span style={{ width: `${item.progressPercent}%` }} />
+                  </i>
+                </div>
+                <nav
+                  className="novel-resume-actions"
+                  aria-label={`Continue ${item.title}`}
+                >
+                  <Link className="resume-action" href={item.href}>
+                    Read <ChevronRight size={14} />
+                  </Link>
+                  {item.href.startsWith("/novels/read?") && (
+                    <Link
+                      className="novel-listen-link"
+                      href={`${item.href}&listen=1`}
+                    >
+                      <Headphones size={13} /> Listen
+                    </Link>
+                  )}
+                </nav>
+              </article>
             ))}
           </div>
         </section>
@@ -407,36 +480,20 @@ export default function NovelsPage() {
         className="novel-extension-catalog"
         aria-labelledby="source-novels-heading"
       >
-        <div className="discover-results-heading">
-          <div>
-            <span className="eyebrow">
-              <Server />{" "}
-              {bridgeScope === "beta"
-                ? "SHARED BETA BRIDGE"
-                : "YOUR HAO BRIDGE"}
-            </span>
-            <h2 id="source-novels-heading">Light novel rankings</h2>
-            <p className="novel-ranking-intro">
-              Three AniList favorites, then three readable titles from your
-              selected source.
-            </p>
+        <h2 id="source-novels-heading" className="visually-hidden">
+          Browse light novels
+        </h2>
+        {!sources.length && sourceBusy && (
+          <div
+            className="browse-skeleton-grid"
+            role="status"
+            aria-label={sourceBusy}
+          >
+            {Array.from({ length: 6 }, (_, i) => (
+              <div key={i} />
+            ))}
           </div>
-          <div className="novel-heading-actions">
-            {selectedSource && (
-              <span>
-                {selectedSource.name} · {selectedSource.language.toUpperCase()}
-              </span>
-            )}
-            <button
-              className="button ghost novel-upload-action"
-              type="button"
-              disabled={uploading}
-              onClick={() => fileInput.current?.click()}
-            >
-              <FileUp /> {uploading ? "Checking EPUB…" : "Upload EPUB"}
-            </button>
-          </div>
-        </div>
+        )}
         {sources.length ? (
           <>
             <div className="novel-source-controls">
@@ -454,14 +511,26 @@ export default function NovelsPage() {
               <div className="novel-source-modes">
                 <button
                   className={sourceMode === "popular" ? "active" : ""}
-                  onClick={() => setSourceMode("popular")}
+                  onClick={() => {
+                    setSourceMode("popular");
+                    setSubmittedQuery("");
+                    setQuery("");
+                    setSourceQuery("");
+                    setShelf("POPULAR");
+                  }}
                 >
                   Popular
                 </button>
                 <button
                   className={sourceMode === "latest" ? "active" : ""}
                   disabled={!selectedSource?.supportsLatest}
-                  onClick={() => setSourceMode("latest")}
+                  onClick={() => {
+                    setSourceMode("latest");
+                    setSubmittedQuery("");
+                    setQuery("");
+                    setSourceQuery("");
+                    setShelf("RELEASING");
+                  }}
                 >
                   Latest
                 </button>
@@ -473,67 +542,72 @@ export default function NovelsPage() {
                   value={sourceQuery}
                   onChange={(event) => setSourceQuery(event.target.value)}
                   onKeyDown={(event) => event.key === "Enter" && searchSource()}
-                  placeholder={`Search ${selectedSource?.name ?? "source"}…`}
+                  placeholder="Search light novels…"
                 />
               </label>
               <button className="button primary" onClick={searchSource}>
                 <Search /> Search
               </button>
             </div>
-            <div className="novel-discovery-controls">
-              <div className="novel-search">
-                <label>
-                  <Search />
-                  <input
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                    onKeyDown={(event) =>
-                      event.key === "Enter" && setSubmittedQuery(query.trim())
-                    }
-                    placeholder="Search AniList light novels..."
-                  />
-                </label>
-                <button
-                  className="button primary"
-                  onClick={() => setSubmittedQuery(query.trim())}
-                >
-                  <Search /> Search AniList
-                </button>
-              </div>
-              <div className="novel-filter-bar">
-                <div className="novel-shelves" aria-label="Novel shelf">
-                  {(
-                    [
-                      ["POPULAR", "Popular"],
-                      ["RELEASING", "Releasing"],
-                      ["NEW", "New this year"],
-                    ] as const
-                  ).map(([value, label]) => (
-                    <button
-                      key={value}
-                      className={shelf === value ? "active" : ""}
-                      aria-pressed={shelf === value}
-                      onClick={() => setShelf(value)}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-                <label>
-                  <Settings2 />
-                  <select
-                    aria-label="Novel genre"
-                    value={genre}
-                    onChange={(event) => setGenre(event.target.value)}
+            <details className="novel-discovery-options">
+              <summary>
+                <Settings2 size={15} /> AniList filters & separate search
+              </summary>
+              <div className="novel-discovery-controls">
+                <div className="novel-search">
+                  <label>
+                    <Search />
+                    <input
+                      value={query}
+                      onChange={(event) => setQuery(event.target.value)}
+                      onKeyDown={(event) =>
+                        event.key === "Enter" && setSubmittedQuery(query.trim())
+                      }
+                      placeholder="Search AniList light novels..."
+                    />
+                  </label>
+                  <button
+                    className="button primary"
+                    onClick={() => setSubmittedQuery(query.trim())}
                   >
-                    <option value="">All genres</option>
-                    {GENRES.map((value) => (
-                      <option key={value}>{value}</option>
+                    <Search /> Search AniList
+                  </button>
+                </div>
+                <div className="novel-filter-bar">
+                  <div className="novel-shelves" aria-label="Novel shelf">
+                    {(
+                      [
+                        ["POPULAR", "Popular"],
+                        ["RELEASING", "Releasing"],
+                        ["NEW", "New this year"],
+                      ] as const
+                    ).map(([value, label]) => (
+                      <button
+                        key={value}
+                        className={shelf === value ? "active" : ""}
+                        aria-pressed={shelf === value}
+                        onClick={() => setShelf(value)}
+                      >
+                        {label}
+                      </button>
                     ))}
-                  </select>
-                </label>
+                  </div>
+                  <label>
+                    <Settings2 />
+                    <select
+                      aria-label="Novel genre"
+                      value={genre}
+                      onChange={(event) => setGenre(event.target.value)}
+                    >
+                      <option value="">All genres</option>
+                      {GENRES.map((value) => (
+                        <option key={value}>{value}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
               </div>
-            </div>
+            </details>
             {sourceBusy && (
               <p className="novel-source-status" role="status">
                 {sourceBusy}
@@ -548,11 +622,12 @@ export default function NovelsPage() {
               <>
                 <div className="discover-results-heading novel-blended-heading">
                   <div>
-                    <span className="eyebrow">BLENDED DISCOVERY</span>
                     <h2>
                       {submittedQuery || sourceMode === "search"
                         ? "Combined search results"
-                        : "Popular across AniList and your source"}
+                        : sourceMode === "latest"
+                          ? "Fresh from the shelves"
+                          : "Popular light novels"}
                     </h2>
                   </div>
                   <span>
@@ -842,6 +917,55 @@ export default function NovelsPage() {
           )}
         </section>
       )}
+      <section
+        className="content-block epub-shelf"
+        aria-labelledby="epub-shelf-heading"
+      >
+        <div className="section-head">
+          <div>
+            <h2 id="epub-shelf-heading">Your EPUBs</h2>
+            <p className="history-note">
+              Private books, ready for offline reading.
+            </p>
+          </div>
+        </div>
+        <div className="epub-shelf-grid">
+          {epubs.map((asset) => (
+            <Link
+              href={`/novels/epub/${asset.id}`}
+              className="epub-book-card"
+              key={asset.id}
+            >
+              <span>
+                <BookOpenText />
+              </span>
+              <div>
+                <b>
+                  {asset.work?.title ||
+                    asset.manifest.title ||
+                    asset.originalName}
+                </b>
+                <small>
+                  {asset.manifest.creator || "Private EPUB"} ·{" "}
+                  {(asset.byteSize / 1024 / 1024).toFixed(1)} MB
+                </small>
+              </div>
+              <ChevronRight />
+            </Link>
+          ))}
+          <button
+            className="epub-upload-tile"
+            disabled={uploading}
+            onClick={() => fileInput.current?.click()}
+          >
+            <FileUp />
+            <span>
+              {uploading ? "Checking EPUB…" : "Upload an EPUB"}
+              <small>Add a book to your private shelf</small>
+            </span>
+          </button>
+        </div>
+      </section>
       <aside className="novel-source-note">
         <ShieldCheck />
         <div>

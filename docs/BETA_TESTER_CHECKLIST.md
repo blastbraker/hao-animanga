@@ -37,4 +37,13 @@ Run this checklist with a separate invited account before increasing the beta gr
 
 ## Pass criteria
 
+### Redesigned archive pages
+
+- Check Discover, Library, Activity, Manga, and Light Novels at desktop and phone widths, with the sidebar both expanded and collapsed. Controls must remain reachable, with no horizontal page overflow; shelves and tab strips may scroll independently.
+- In Discover, combine media, genre, year, and status filters; clear them, search an unknown title, and use a mood tile. Verify each control changes the actual catalog, and loading/error/empty states remain readable.
+- In Library, change status and favorite, reload, sort/search, switch grid/list views, and create a custom list. Resume links must preserve the correct medium; manga and novel records with the same title must not share a resume link.
+- In Activity, filter Watching/Reading, search history, and check date groups and the seven-day chart. Counts represent recently opened local-history records, not verified completed episodes; completed titles come from the cloud library.
+- In Manga, check the source selector, Popular/Latest, search, Continue reading, and opening a chapter. The immersive chapter reader should remain unchanged.
+- In Light Novels, check combined search, advanced AniList filters, source switching, blended rankings, EPUB upload, and Read/Listen resume actions. Listen opens the existing Kokoro controls without bypassing browser playback permissions.
+
 The tester can discover, save, watch the licensed fixture, read an authorized chapter, resume progress, and recover from a provider failure without administrator access or another user's data. Record the date, tester email, browser, device, and any failure before inviting the next group.

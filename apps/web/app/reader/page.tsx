@@ -23,6 +23,7 @@ import { OPEN_READER_BROWSER_EVENT } from "../../lib/reader-navigation";
 import { maybeNotifyNewReleases, parseReaderBookmarks, recordActivity, READER_BOOKMARKS_STORAGE_KEY, RELEASE_SNAPSHOTS_STORAGE_KEY, saveSourceReport, toggleReaderBookmark, updateReleaseSnapshot } from "../../lib/beta-features";
 import { getCloudReadingState, saveCloudReadingState } from "../../lib/cloud-reading";
 import { cacheMangaChapter, loadCachedMangaChapter, mangaOfflineKey } from "../../lib/offline-library";
+import { ReadingResumeShelf } from "../../components/reading-resume-shelf";
 type BrowseMode = "popular" | "latest";
 type ReadingMode = "webtoon" | "ltr" | "rtl";
 const ALL_SOURCES_ID = "all-installed-sources";
@@ -656,25 +657,17 @@ export default function ReaderPage() {
     );
 
   return (
-    <div className="page inner-page manga-browser">
-      <div className="page-intro">
-        <span className="eyebrow">{bridgeScope === "beta" ? "MANAGED BETA READER" : "LOCAL EXTENSION READER"}</span>
-        <h1>Read manga</h1>
-        <p>Search approved sources running on {bridgeScope === "beta" ? "the managed Beta Bridge" : "your HAO Bridge"}. HAO’s cloud never receives third-party catalogs, chapters, or pages.</p>
+    <div className="page inner-page manga-browser browse-design">
+      <div className="browse-heading">
+        <div><h1>Manga</h1><p>Your next chapter starts here.</p></div>
+        <label className="browse-source-picker"><span className={bridge && sources.length ? "health-dot good" : "health-dot"}/><select aria-label="Manga source" value={sourceId} onChange={(event) => changeSource(event.target.value)} disabled={!sources.length}><option value={ALL_SOURCES_ID}>All approved English sources</option>{sources.map((source) => <option key={source.id} value={source.id}>{source.displayName} · {source.language.toUpperCase()}</option>)}</select></label>
       </div>
+      {!selected && <ReadingResumeShelf/>}
       <form className="search-panel manga-search" onSubmit={search}>
         <label>
           <Search />
           <input aria-label="Search manga" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search titles…" />
         </label>
-        <select aria-label="Manga source" value={sourceId} onChange={(event) => changeSource(event.target.value)} disabled={!sources.length}>
-          <option value={ALL_SOURCES_ID}>All approved English sources</option>
-          {sources.map((source) => (
-            <option key={source.id} value={source.id}>
-              {source.displayName} · {source.language.toUpperCase()}
-            </option>
-          ))}
-        </select>
         <button className="button primary" disabled={Boolean(busy) || !query.trim() || !sourceId}>
           Search
         </button>
@@ -699,6 +692,8 @@ export default function ReaderPage() {
       {searchSummary && <p className="unified-search-summary" role="status">{searchSummary}</p>}
       {busy && <ReaderStatus text={busy} />} {error && <ReaderError text={error} onRetry={() => window.location.reload()} />}
       {results.length > 0 && !selected && (
+        <>
+        <div className="section-head browse-catalog-heading"><h2>{query ? "Search results" : browseMode === "latest" ? "Recently updated" : "Popular manga & manhwa"}</h2><span>{results.length} titles</span></div>
         <section className="manga-results" aria-label="Manga search results">
           {results.map((item) => (
             <button key={`${item.sourceId}:${item.id}`} className="manga-result" onClick={() => void openTitle(item)}>
@@ -710,6 +705,7 @@ export default function ReaderPage() {
             </button>
           ))}
         </section>
+        </>
       )}
       {selected && !pages && (
         <section className="manga-title-panel">

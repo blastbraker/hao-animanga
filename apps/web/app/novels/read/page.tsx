@@ -134,6 +134,7 @@ export default function NovelReaderPage() {
   useEffect(() => {
     let cancelled = false;
     const parameters = new URLSearchParams(window.location.search);
+    if (parameters.get("listen") === "1") setListenOpen(true);
     const novelId = parameters.get("novelId");
     const chapterId = parameters.get("chapterId");
     if (!novelId || !chapterId) {
