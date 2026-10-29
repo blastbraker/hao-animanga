@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { api, type LibraryResponse } from "../../lib/api";
 import { libraryProgressLabel } from "../../lib/library-progress";
+import { librarySynopsis } from "../../lib/library-synopsis";
 import { NOVEL_RESUMES_KEY, parseNovelResumes } from "../../lib/novel-state";
 import { ACTIVITY_STORAGE_KEY, parseActivity } from "../../lib/beta-features";
 
@@ -568,7 +569,12 @@ function LibraryGridItem({
             ? ` · My rating ${entry.rating.toFixed(1)}`
             : ""}
         </span>
-        <p>{libraryProgressLabel(entry) ?? "Not started"}</p>
+        <p className="library-card-synopsis">
+          {librarySynopsis(entry.work.synopsis)}
+        </p>
+        <p className="library-card-progress">
+          {libraryProgressLabel(entry) ?? "Not started"}
+        </p>
         <span className="browse-progress">
           <i style={{ width: `${entry.progress?.positionPercent ?? 0}%` }} />
         </span>

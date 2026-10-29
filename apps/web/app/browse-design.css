@@ -410,7 +410,18 @@
   border-radius: 20px;
   margin-top: 9px;
 }
-.library-card-body > p {
+.library-card-body > .library-card-synopsis {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  margin: 12px 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.library-card-body > .library-card-progress {
   font-size: 11px;
   color: #b3bfd3;
   margin: auto 0 9px;
@@ -1042,6 +1053,10 @@
   }
 }
 @media (max-width: 760px) {
+  .library-card-body > .library-card-synopsis {
+    -webkit-line-clamp: 3;
+    font-size: 11px;
+  }
   .browse-design {
     padding: 90px 20px 36px;
   }
